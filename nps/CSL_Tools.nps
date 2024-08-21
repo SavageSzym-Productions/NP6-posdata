@@ -1,0 +1,801 @@
+/**
+ * @file CSL_Tools.nps
+ * @brief This NPS file implements BusinessComponents Tools.
+ *
+ * @addtogroup 	CSL
+ * @defgroup 	Tools
+ * @ingroup 	CSL
+ *
+ * Copyright (C) 2008 McDonalds Corp. All rights reserved.
+ *
+ * @author Pedro (of Creation)
+ * @since NPS-4831 / date
+ *
+ * @version $Id: CSL_Tools.nps 776 2009-08-06 13:46:38Z rcaram $
+ * @remarks Include here all remarks related to this file!
+ * @{
+ */
+
+/* Variable used for version control */
+CSL_TOOLS_VERSION = "$WCURL$:$WCREV$";
+
+/* Set the variable. */
+SRC_BC_TOOLS='CSL_Tools.nps';
+var rootStoreDB	= null;
+var rootProductDB = null;
+var productDictionary = null;
+var rootHlp = null;
+var rootCtx = null;
+
+executeScript("json.nps",true);
+
+/**
+ * @brief Initialize all global data to be used by all nps
+ *
+ * @since 1.17-
+ */
+function initTools(isHHOT) {
+    if(typeof(BusinessObjectHelper) != "undefined" && typeof(SessionContext) != "undefined") {
+        try{
+            rootHlp = new BusinessObjectHelper;
+            rootCtx = new SessionContext;
+        } catch( ex ) {
+            API.STTErrorLog("0","[initTools] - ERROR: " + ex.message);
+            API.STTErrorLog("0","[initTools] - ERROR - Stack trace: " + ex.stack);
+        }
+    }
+
+	loadStoreDB();
+	if(isHHOT == false){
+		loadProductDB();
+	}
+}
+
+/**
+ * @brief This function calls a real Business Object given its' name and parameters.
+ *
+ * Used by internal routines to execute BOs.
+ * @param command the BO name to execute eg. "PosDoQuantum"
+ * @param params (String []) the parameters to pass to BO.
+ * @return the value returned by the BO.
+ * @throws RecoverableException if the BO throws exception
+ * @author Pedro
+ * @since 1.17-
+ */
+function executeBC(command, params) {
+	var cmd = "executeBC";
+	CSL_dbglog(7, SRC_BC_TOOLS, cmd, "Run " + command);
+	CSL_dbglog(7, SRC_BC_TOOLS, cmd, "with " + params);
+//	var ret = Core[command].apply(Core, params);
+//	var ret = Core.PosExecuteBC(command, params);
+	try{
+		var ret = PosExecuteBC(command, params);
+	}catch(e){
+		CSL_dbglog(7, SRC_BC_TOOLS, cmd, e.message + " \n" + e.stack);
+		e.message="stacktrace";
+		throw e;
+	}
+	CSL_dbglog(7, SRC_BC_TOOLS, cmd, "result " + ret);
+	return ret;
+}
+
+/**
+ * @brief loadStoreDB
+ *
+ * @since 1.17-
+ */
+ function loadStoreDB() {
+	var cmd = "loadStoreDB";
+	CSL_dbglog(7, SRC_BC_TOOLS, cmd, "Start ");
+	var sRawStoreDB = API.getStoredb().toString();
+	var sStoreDB	= sRawStoreDB;
+	// check for E4X documented bug
+	if (sRawStoreDB.indexOf("<?xml") != -1) {
+		var cutting = sRawStoreDB.indexOf("?>");
+		if (cutting != -1) {
+			sStoreDB = sRawStoreDB.substring(cutting + 2, sRawStoreDB.length);
+		}
+	}
+	rootStoreDB	= new XML(sStoreDB);
+}
+
+/**
+* global function GetRootProductDB() 
+* provides an access/initializes 
+* a global read only variable rootProductDB
+* note:	parameter "iProductDBParseMode"
+ - possible values:
+			0- current behaviour (Default)									(no script changes)
+			1- only Active products	+ populates ProductDictionary			(no script changes)
+			2- do not parses productDb + populates ProductDictionary		(no script changes)
+			3- do not parses productDb + do not populates ProductDictionary	(script changes: FOE, CSO, OUTAGE) (best choice to save memory)
+
+*/
+function GetRootProductDB(iProductDBParseMode) {
+	if ( (rootProductDB == null) || (rootProductDB==undefined) ) {
+		API.dbg("Global variable rootProductDB initialization started...");
+		try {
+			if(iProductDBParseMode == 0) {
+				rootProductDB = new XML(API.getProductdb());
+			}
+			else if(iProductDBParseMode == 1) {
+				rootProductDB = new XML(API.getProductdb("ACTIVE"));
+			}
+						
+			if( (rootProductDB != null) && (rootProductDB != undefined) ) {
+				API.dbg("Global variable rootProductDB initialized successfully...");
+			} else {
+				API.dbg("Global variable rootProductDB failed to initialized successfully...");
+			}
+		} catch( ex ) {
+			API.dbg(" Failed to initialize rootProductDB due to: "+ex.message);
+			rootProductDB = null;
+		}
+	}
+	return rootProductDB;
+}
+
+/**
+ * @brief loadProductDB
+ *
+ * @since 1.19
+ *
+ * note:	parameter "parseProductDB"
+ 
+ - config sample "store-db.xml"
+ 
+ <Configuration type="Store.wide">
+	<Section name="NPScripts">
+		<Parameter name="ProductDBParseMode" value="0"/>
+
+ - possible values:
+			0- current behaviour (Default)									(no script changes)
+			1- only Active products	+ populates ProductDictionary			(no script changes)
+			2- do not parses productDb + populates ProductDictionary		(no script changes)
+			3- do not parses productDb + do not populates ProductDictionary	(script changes: FOE, CSO, OUTAGE) (best choice to save memory)
+
+ */
+ function loadProductDB() {
+	var cmd = "loadProductDB";
+	CSL_dbglog(7, SRC_BC_TOOLS, cmd, "Start ");
+	API.STTDebugLog("0", "[loadProductDB] - Indexing product-db into productDictionary", SRC_BC_TOOLS);
+
+	productDictionary = new Array();
+
+	var iProductDBParseMode = 1;	// Default value
+	
+	if(rootHlp != null) {
+		iProductDBParseMode = rootHlp.findParamInSectionWide("ProductDBParseMode", "NPScripts");
+	}
+	
+	if(iProductDBParseMode == null || iProductDBParseMode < 0 || iProductDBParseMode > 3) {
+		iProductDBParseMode = 1;
+	}
+	
+	if(iProductDBParseMode == 0 || iProductDBParseMode == 1) {
+		GetRootProductDB(iProductDBParseMode);
+		if(rootProductDB == null) {
+			API.STTErrorLog("0", "[loadProductDB] - Parsing of product-db failed", SRC_BC_TOOLS);
+			return false;
+		}
+
+		for each (product in rootProductDB.Product) {
+			if(product.@statusCode == "ACTIVE") {
+				productDictionary[product.ProductCode] = product;
+			}
+		}
+	}
+	
+	if(iProductDBParseMode == 2) {
+		var List = API.getProductList();
+		
+		if(List != null) {
+			var ProdList = List.split("|");
+			
+			for(var i=0; i < ProdList.length; i++) {
+				var singleProduct = new XML(API.getProductdbProduct(ProdList[i]));
+				
+				productDictionary[ProdList[i]] = singleProduct;
+			}
+		}
+	}
+	
+	API.STTInfoLog("0", "[loadProductDB] - rootProductDB was successfully loaded and indexed into productDictionary", SRC_BC_TOOLS);
+	return true;
+}
+
+/**
+ * @brief Helper function to read file, using File Access for NPS scripts
+ *
+ * @param fileName - String - File name for the buffer content.
+ * @param bufferContent - String - Content of the file.
+ * @since 1.17-
+ */
+function readFile(fileName) {
+	CSL_dbglog(7, SRC_BC_TOOLS, "readFile","Start. Parameter fileName: "+fileName);
+	var file = new File(fileName);
+	file.open("rb");
+	ret = file.read();
+	file.close();
+	CSL_dbglog(7, SRC_BC_TOOLS, "readFile", "End ");
+	return ret;
+}
+
+/**
+ * @brief Helper function to write in file, using File Access for NPS scripts
+ *
+ * @param fileName - String - File name for the buffer content.
+ * @param bufferContent - String - Content of the file.
+ * @since 1.17-
+ */
+function writeFile(fileName,bufferContent) {
+	CSL_dbglog(7, SRC_BC_TOOLS, "writeFile with fileName: "+fileName, "Start ");
+	var file = new File(fileName);
+	file.open("wb+");
+	if(!file.write(bufferContent)) {
+			CSL_dbglog(7, SRC_BC_TOOLS, "writeFile", "Error writing in file: "+fileName);
+	}
+	CSL_dbglog(7, SRC_BC_TOOLS, "writeFile", "End");
+	file.close();
+
+}
+
+
+/**
+ * @brief Helper functions to manipulate the Workflow Session Context.
+ *
+ * The Workflow Session Context has the following format:
+ *
+ * <Workflow name="WF_NAME" starttime="YYYYMMDDhhmmss">
+ * 	<Command name="BCName" success"message of success"/>
+ * 	<Command name="BCName" fail="message of fail"/>
+ * </Workflow>
+ *
+ * @since 1.17- - SDO-1670
+ */
+
+/**
+ * @brief This function searches for the first Command element with the BC name given by the parameter
+ * and returns its success/fail message.
+ *
+ * @param name - The BC name to return the fail/success message
+ * @return the fail/success message of the BC. Empty message, if none.
+ * @author Raphael
+ * @since 1.17- - SDO-1670
+ */
+function getResult(name) {
+	var wfXML = new XML(rootCtx.get("WF_Result"));
+	var command = null;
+	var ret = null;
+	for each (command in wfXML.Command) {
+		if(command.@name == name) {
+			if(command.@success.length() > 0) {
+				ret = command.@success;
+			}
+			if(command.@fail.length() > 0) {
+				ret = command.@fail;
+			}
+		}
+	}
+	return ret;
+}
+
+/**
+ * @brief This function returns the last fail message from the Workflow Session Context
+ *
+ * @param name (optional) - The BC name to search for the fail message
+ * @return The last fail message. Empty if none.
+ * @author Raphael
+ * @since 1.17- - SDO-1670
+ */
+function getLastFail(name) {
+	var wfXML = new XML(rootCtx.get("WF_Result"));
+
+	var failMessage = null;
+	if (name == null) {
+		for each (command in wfXML.Command) {
+			if(command.@fail.toString().length > 0) {
+				failMessage = command.@fail;
+			}
+		}
+		return failMessage;
+	}
+	else {
+		for each (command in wfXML.Command) {
+			if(command.@name == name) {
+				if(command.@fail.toString().length > 0) {
+					failMessage = command.@fail;
+				}
+			}
+		}
+		return failMessage;
+	}
+}
+
+/** getNPSExtLastFail
+ *
+ * @brief This function returns the last fail message from the Workflow Session Context
+ * @param name (optional) - The BC name to search for the fail message
+ * @return The last fail message. Empty if none.
+ * @author Rafael
+ * @since SDO-5758
+ */
+function getNPSExtLastFail(name) {
+	var wfXML = new XML(rootCtx.get("WF_Result"));
+
+	var failMessage = null;
+	for each (command in wfXML.Command) {
+		if(command.@name == "PosNPSExtRequestCmd") {
+			if(command.@description.toString().length > 0) {
+				failMessage = command.@description;
+			}
+		}
+	}
+	return failMessage;
+}
+
+/**
+ * @brief This function returns the last success message from the Workflow Session Context
+ *
+ * @param name (optional) - The BC name to search for the success message
+ * @return The last success message. Empty if none.
+ * @author Raphael
+ * @since 1.17- - SDO-1670
+ */
+function getLastSuccess(name) {
+	var wfXML = new XML(rootCtx.get("WF_Result"));
+
+	var successMessage = null;
+	if (name == null) {
+		for each (command in wfXML.Command) {
+			if(command.@success.toString().length > 0) {
+				successMessage = command.@success;
+			}
+		}
+		return successMessage;
+	}
+	else {
+		for each (command in wfXML.Command) {
+			if(command.@name == name) {
+				if(command.@success.toString().length > 0) {
+					successMessage = command.@success;
+				}
+			}
+		}
+		return successMessage;
+	}
+}
+
+/**
+ * @brief This function returns the start time of the Workflow Session Context
+ *
+ * @return The time in format HHHMMSS
+ * @author Raphael
+ * @since 1.17- - SDO-1670
+ */
+function getStartTime() {
+	var wfXML = new XML(rootCtx.get("WF_Result"));
+
+	return wfXML.@starttime;
+}
+
+/**
+ * @brief This function checks if the value given by the parameter matches the value from Session Context
+ *
+ * @param bcName - The BC name to search for the fail/success message
+ * @param value - The value to be compared to the fail/success message
+ * @return true for same value. False for different
+ * @author Raphael
+ * @since 1.17- - SDO-1670
+ */
+function PosCheckBCResult(bcName, value) {
+	var wfXML = new XML(rootCtx.get("WF_Result"));
+
+	var command = null;
+	var chkValue = null;
+	for each(command in wfXML.Command) {
+		if(command.@name == bcName) {
+			if(command.@success.toString().length > 0) {
+				chkValue = command.@success;
+			}
+			else if(command.@fail.toString().length > 0) {
+				chkValue = command.@fail;
+			}
+		}
+	}
+	if(value == chkValue) {
+		return true
+	}
+	return false;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosConcatSessionProperty</b>.
+ *
+ * The PosConcatSessionProperty is responsible for concat a string value to the value of a session property.
+ * In java script it should be called:<b>PosConcatSessionProperty()</b>
+ * @param sessionContextID - Session Context
+ * @param value - value to concat
+ * @param persist - it is a persisted session context or not
+ * @success - value concated.
+ * @failure	- Error to concat.
+ * @remarks This concat is only valid if the session property is a string
+ *
+ * @since 1.21-
+ */
+function PosConcatSessionProperty(sessionContextID, value, persist) {
+	if(sessionContextID == null) {
+		return false;
+	}
+	return rootCtx.concatChar(sessionContextID, value, persist);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosBackSpaceSessionProperty</b>.
+ *
+ * The PosBackSpaceSessionProperty is responsible for remove the last character of a session property.
+ * In java script it should be called:<b>PosBackSpaceSessionProperty()</b>
+ * @param sessionContextID - Session Context
+ * @param persist - it is a persisted session context or not
+ * @success - character removed.
+ * @failure	- Error to remove.
+ * @remarks This backspace is only valid if the session property is a string
+ *
+ * @since 1.21-
+ */
+function PosBackSpaceSessionProperty(sessionContextID, persist) {
+	if(sessionContextID == null) {
+		return false;
+	}
+	var value = rootCtx.get(sessionContextID);
+	if((value == null) ||(value.length == 0)){
+		return true;
+	}
+	var new_value = value.substr(0, value.length-1);
+	return rootCtx.set(sessionContextID, new_value, persist);
+}
+/********************** Generic Keyboard functions *********************************
+
+/** lGetI18nMessage
+ *
+ * @brief - Gets the i18n string message for the specified key
+ * @param - key - string - i18n key entry for the desired message
+ * @return - string containing the local message, or the key itself, when it is not found in the i18n properties files
+ * @author - Wilson Assale
+ *
+ */
+function lGetI18nMessage(key) {
+	var localMessage = API.getLocalMsg(key);
+
+	if (key != localMessage)
+		return localMessage;
+
+	return rootHlp.getSysMessage(key);
+}
+/**
+ * @brief This function implements the BC,Business Component: <b>PosConcatChar</b>.
+ *
+ * The PosConcatRoomName is responsible for concat a character in text keyboard.
+ * In java script it should be called:<b>PosConcatChar(currentField, new_char)</b>
+ * @success <i>new char</i> - OK.
+ *
+ */
+function PosConcatChar(currentField, new_char)
+{
+	function is_int(value){
+		if((parseFloat(value) == parseInt(value)) && !isNaN(value)){
+			return true;
+		} else {
+			return false;
+		}
+	}
+	
+	if(currentField == null) {
+		return false;
+	}
+		
+	var value = rootCtx.get(currentField);
+	if(value == null) {
+		return rootCtx.concatChar(currentField, new_char, false);
+	}
+	var nameMaximumLength = rootCtx.get("_VIRTUALKEYBOARDMAXIMUMFIELDLENGTH");
+
+	if (nameMaximumLength > 0) {
+		if(value.length >= nameMaximumLength) {
+			return true;
+		}
+	}
+	return rootCtx.concatChar(currentField, new_char, false);
+}
+
+function PosKeyboardReturn(currentField,avoidMessageError,acceptBlankValue)
+{
+	var value = rootCtx.get(currentField);
+	var workflowToEnqueue = null;
+	var bAvoidMessageError = (avoidMessageError != null && avoidMessageError != undefined && avoidMessageError == "true");
+	var bInvalidValue = (value == null || value == undefined || value == "");
+	var bAcceptBlankValue = (acceptBlankValue != null && acceptBlankValue != undefined && acceptBlankValue == "true");
+ 
+	if(bInvalidValue)
+	{
+		if(!bAcceptBlankValue)
+		{
+			if(!bAvoidMessageError)
+			{
+				rootCtx.set("NameTitle", rootHlp.getSysMessage("MSG_BC_RANDOM_ALPHANUMERIC_CODE_EMPTY",value))
+			}
+			return;
+		}
+		else
+		{
+			value = "";
+		}
+	}
+	workflowToEnqueue = rootCtx.get("_WFKEYBOARDEXECUTE");
+	PosEnqueueWF(workflowToEnqueue, value);
+	
+	rootCtx.set(currentField, '')
+	rootCtx.set("_WFKEYBOARDEXECUTE", '')
+	PosBackToPreviousScreen();
+	PosShowGrillFloatScreen();
+	return;
+}
+function PosKeyboardCancel(currentField)
+{
+	PosShowGrillFloatScreen();
+	PosBackToPreviousScreen();
+
+	rootCtx.set(currentField, '')
+
+	var isNifInformation = rootCtx.get("NIF_INFO");
+	if (isNifInformation){
+		rootHlp.setPrintFiscalInformation(false);
+	}
+	return;
+}
+
+function PosShowNIFKeyboard(screen_number, name_title, currentField, defaultValue, workflow, maximumLength)
+{
+	var nameMaximumLength;
+
+	if (maximumLength == undefined) {
+		nameMaximumLength = 64;
+	}
+	else {
+		nameMaximumLength = maximumLength;
+	}
+
+	if(nameMaximumLength > 0 && defaultValue.length > nameMaximumLength) {
+		defaultValue = defaultValue.substring(0, nameMaximumLength);
+	}
+	
+	PosHideFloatScreen();
+	PosSetSessionProperty("NameTitle", rootHlp.getSysMessage(name_title));
+	rootCtx.set(currentField, defaultValue, 'true');
+	rootCtx.set("_VIRTUALKEYBOARDMAXIMUMFIELDLENGTH", nameMaximumLength, 'true');
+	PosSetSessionProperty("_WFKEYBOARDEXECUTE", workflow, 'true');
+	PosShowScreen(screen_number);
+	return true;
+}
+
+function PosShowKeyboard(screen_number, name_title, currentField, defaultValue, workflow, maximumLength)
+{
+	var nameMaximumLength;
+
+	if (maximumLength == undefined) {
+		nameMaximumLength = rootHlp.findParamInSectionWide("offersCodeLengthKeyboard", "Offers");
+
+		if( ( nameMaximumLength === null )
+		 || ( (!isNaN( parseFloat( nameMaximumLength.toString() ) ) && isFinite( nameMaximumLength.toString()) ) == false )
+		 || ( parseInt( nameMaximumLength.toString() ).toString() != parseFloat( nameMaximumLength.toString() ).toString() )
+		 || ( parseInt( nameMaximumLength.toString() ) < 0 ) ) {
+			nameMaximumLength = 4;
+		} else {
+			nameMaximumLength = parseInt(nameMaximumLength);
+		}
+	}
+	else {
+		nameMaximumLength = maximumLength;
+	}
+
+	if(nameMaximumLength > 0 && defaultValue.length > nameMaximumLength) {
+		defaultValue = defaultValue.substring(0, nameMaximumLength);
+	}
+	
+	PosHideFloatScreen();
+	PosSetSessionProperty("NameTitle", rootHlp.getSysMessage(name_title));
+	rootCtx.set(currentField, defaultValue, 'true');
+	rootCtx.set("_VIRTUALKEYBOARDMAXIMUMFIELDLENGTH", nameMaximumLength, 'true');
+	PosSetSessionProperty("_WFKEYBOARDEXECUTE", workflow, 'true');
+	PosShowScreen(screen_number);
+	return true;
+}
+
+function PosKeyboardClear(currentField)
+{
+	var value = rootCtx.get(currentField);
+	
+	if(value.length > 0) {
+		rootCtx.set(currentField, '');
+		return true;
+	}
+	PosBackToPreviousScreen();
+	PosShowGrillFloatScreen();
+}
+
+function PosScannerRead(scannerRead)
+{
+	var cmd = "PosScannerRead";
+	CSL_dbglog(7, SRC_BC_UTIL, cmd, "Start");
+        ret = executeBC(cmd, [scannerRead]);
+	var value = rootCtx.get(scannerRead);
+	return ret;
+}
+
+/**
+ * @brief Set tag id reader to start reading info and sening to NP
+ * @success
+ */
+function PosScannerStartCapture( CallBackOnOff ) 
+{
+	var cmd = "PosScannerStartCapture";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd, [CallBackOnOff]);
+}
+
+/**
+ * @brief Set tag id reader to stop reading info
+ * @success
+ */
+function PosScannerStopCapture()
+{
+	var cmd = "PosScannerStopCapture";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd);
+}
+
+function PosEnqueueWF(workflowToEnqueue, currentField)
+{
+	var cmd = "PosEnqueueWF";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd,[workflowToEnqueue, currentField]);
+}
+
+function PosScannerBlockCapture(messageToDisplay) {
+	var cmd = "PosScannerBlockCapture";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd,[messageToDisplay]);
+}
+
+/**
+ * @brief Constructor of NpSharpService class
+ * @param serviceName - The NpSharp Service name, e.g. "OrdersDb"
+ * @param nodeName - Optional node name, in case more then one plugin implements a service
+ */
+function NpSharpService(serviceName, nodeName) {
+	/**
+	 * @brief Constructor. This will create a NpSharpServiceCsl object
+	 * @param serviceName - The service to be created. This name must match the service implemented by the plugin. E.g.: OrdersDb, StldDb
+	 * @param nodeName - optional parameter. Use this to specify a service in a specific node
+	 * @return a new instance of NpSharpServiceCsl
+	 * @throws InvalidArgument - when the number of parameters is wrong
+	 * @throws InvalidServiceName - the service name specified is not valid
+	 * @throws InvalidOperation - when a given condition for creating the object was not matched. More details on the message attribute of the exception
+	 * @throws ServiceNotFound - when the service was not found in the network
+	 */
+	try
+	{
+		this.npSharpService = new NpSharpServiceCsl(serviceName, nodeName);
+	}
+	catch(ex)
+	{
+		// The object thrown here has two properties: ex.type and ex.message
+		throw new JSON.parse(ex);
+	}
+	/**
+	 * @brief Execute a NpSharp Service operation
+	 * @param operationName - The operation to be executed on the NpSharp Service, e.g. "QuerySales"
+	 * @param param - optional parameter. It must be a JSON object
+	 * @return The response from NpSharp Service. Null if the was an error on the execution
+	 * @throws InvalidOperation - when a given condition for executing the method not matched. More details on the message attribute of the exception
+	 * @throws InvalidArgument - when the number of parameters is wrong
+	 * @throws InvalidMethodName - when the method name is not valid
+	 * @throws ErrorExecutingMethod - when an expected error occurred executing the method. See more details on NpSharp logs
+	 */
+	this.Call = function(operationName, param)
+	{
+		try
+		{
+			if(this.npSharpService.IsHttpGet(operationName))
+			{	
+				var queryString = "";
+				for (var field in param) 
+				{
+					if (param.hasOwnProperty(field))
+					{
+						var value = param[field];
+						queryString += encodeURIComponent(field) + "=" + encodeURIComponent(value);
+						queryString += "&";
+					}
+				}
+				if(queryString.length > 1)
+				{
+					queryString = "?"+queryString.substring(0, queryString.length-1);;
+				}
+				var ret = this.npSharpService.Call(operationName, queryString)
+				return CheckError(ret);
+			}
+			if (!this.npSharpService.IsWrapped(operationName))
+			{
+				var res = "";
+				for (var field in param) 
+				{
+					if (param.hasOwnProperty(field))
+					{
+						res = param[field];
+						param = res;
+						break;
+					}
+				}
+			}
+		}
+		catch(ex)
+		{
+			// The object thrown here has two properties: ex.type and ex.message
+			throw new JSON.parse(ex);
+		}
+		
+		try
+		{
+			var ret = this.npSharpService.Call(operationName, JSON.stringify(param));
+		}
+		catch(ex)
+		{
+			// The object thrown here has two properties: ex.type and ex.message
+			throw new JSON.parse(ex);
+		}
+		return CheckError(ret);
+	}
+	
+	/**
+	 * @brief Checks if the value returned by npSharpService.Call has an error.
+	 * If there was an exception on its execution on NpSharp, it returns null to avoid null reference exception to the caller.
+	 * If the execution was successfull, it returns the expected JSON object.
+	 * @param value - the return value from npSharpService.Call
+	 * @return null if there was an error executing npSharpService.Call or the JSON object if the execution was successfully
+	 */
+	function CheckError(value)
+	{
+		if (value == "" || value == null)
+		{
+			return value;
+		}
+		var jsonObject = JSON.parse(value);
+		if(jsonObject != null && jsonObject != undefined)
+		{	
+			if(jsonObject.ExceptionType != null && jsonObject.ExceptionType != undefined)
+			{
+				API.dbg("CheckError - There was an exception executing npSharpService.Call. ExceptionType: "+jsonObject.ExceptionType+" ExceptionMessage: "+jsonObject.ExceptionMessage);
+				return null;
+			}
+		}
+		return jsonObject;
+	}
+}
+
+////////////////////////////////////
+
+/**
+ * END nps
+ */
+/* signed aut version 9-9076
+ * authority id = builder
+ * authority level = 10
+ * authority name = NewPOS release level
+ * group = npi
+ * validity = 2010-04-18
+ * signature type = slash_star
+ * time stamp (GMT) = Fri Jan 26 16:27:04 2018
+ * certificate = 393735312d3739343700de211da7ea37408c5a051188d6c1fc10be50ea1c403749bc295ed54b244e995666da47ce5f4c80ea4efaf1f771e6a9b8a24f0010
+ * =============================================================================================================================
+*/

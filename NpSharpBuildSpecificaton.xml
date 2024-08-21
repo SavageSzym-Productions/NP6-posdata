@@ -1,0 +1,92 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<BuildSpecification version="33.1.0.14446">
+  <Repositories>
+    <Repository url="http://nuget.server.rdisoftware.com/nuget/" />
+  </Repositories>
+  <Items>
+    <Item package="NpSharp.Framework.Bundle" version="24.15.2.7581" targetFramework="Net40" type="Framework" />
+    <Item package="NpSharp.Plugin.SystemMonitor" version="24.15.2.7581" targetFramework="Net40" type="Plugin" />
+    <Item package="NpSharp.Plugin.Configurator" version="24.15.2.7581" targetFramework="Net40" type="Plugin" />
+    <Item package="NpSharp.Plugin.StationMapper" version="24.15.2.7581" targetFramework="Net40" type="Plugin" />
+    <Item package="NpSharp.Plugin.DataRetention" version="24.15.2.7581" targetFramework="Net40" type="Plugin" />
+    <Item package="NpSharp.Plugin.FileSync" version="24.15.2.7581" targetFramework="Net40" type="Plugin" />
+    <Item package="NpSharp.Plugin.Np6Integrator" version="45.0.0.7602" targetFramework="Net40" type="Plugin">
+      <Extension package="NpSharp.Extension.Np6Integrator.Multichannel" version="26.0.1.6848" targetFramework="Net40" />
+      <Extension package="NpSharp.Extension.Np6Integrator.OperatorStatistics" version="24.0.2.7" targetFramework="Net40" />
+      <Extension package="NpSharp.Extension.Np6Integrator.Routing" version="33.0.2.7289" targetFramework="Net40" />
+      <Extension package="NpSharp.Extension.Np6Integrator.ProductsDb" version="32.0.1.6997" targetFramework="Net40" />
+      <Extension package="NpSharp.Extension.Np6Integrator.AutoBundling" version="24.0.4.62" targetFramework="Net40" />
+      <Extension package="NpSharp.Extension.Np6Integrator.StationMapper" version="24.15.2.7581" targetFramework="Net40" />
+      <Extension package="NpSharp.Extension.Np6Integrator.ProductOutage" version="4.0.0.25" targetFramework="Net40" />
+      <Extension package="NpSharp.Extension.Np6Integrator.TableLocatorRouting" version="4.0.0.32" targetFramework="Net40" />
+      <Extension package="NpSharp.Extension.Np6Integrator.Reports" version="4.0.6.145" targetFramework="Net40" />
+      <Extension package="NpSharp.Extension.Np6Integrator.Workflows" version="5.0.1.140" targetFramework="Net40" />
+      <Extension package="NpSharp.Extension.Np6Integrator.KVS" version="27.0.0.7091" targetFramework="Net40" />
+      <Extension package="NpSharp.Extension.Np6Integrator.HttpDrivers" version="27.0.1.6885" targetFramework="Net40" />
+      <Extension package="NpSharp.Extension.Np6Integrator.ORB" version="25.0.2.498" targetFramework="Net40" />
+      <Extension package="NpSharp.Extension.Np6Integrator.BusinessComponents" version="3.0.2.90" targetFramework="Net40" />
+      <Extension package="NpSharp.Extension.Np6Integrator.ECommerceAdobeAnalytics" version="3.0.1.23" targetFramework="Net40" />
+      <Extension package="NpSharp.Extension.Np6Integrator.ProductionPrioritization" version="3.0.0.9" targetFramework="Net40" />
+      <Extension package="NpSharp.Extension.Np6Integrator.USReports.Operations" version="33.1.0.466" targetFramework="Net40" />
+      <Extension package="USCOE.NpSharp.Extension.NP6Integrator.Cashless30" version="24.7.8.61" targetFramework="Net40" />
+      <Extension package="USCOE.NpSharp.Extension.NP6Integrator.BiometricsPOS" version="24.11.1.54" targetFramework="Net40" />
+      <Extension package="USCOE.NpSharp.Extension.USUtilities" version="24.11.1.22" targetFramework="Net40" />
+      <Extension package="NpSharp.Extension.Np6Integrator.CustomerPreferenceBarcode" version="3.0.0.22" targetFramework="Net40" />
+    </Item>
+    <Item package="NpSharp.Plugin.Np6ViewAdapter" version="25.0.1.6825" targetFramework="Net40" type="Plugin" />
+    <Item package="NpSharp.Plugin.Multichannel" version="26.0.1.6848" targetFramework="Net40" type="Plugin">
+      <Extension package="NpSharp.Extension.Multichannel.Ecp" version="26.0.1.6848" targetFramework="Net40" />
+      <Extension package="NpSharp.Extension.Multichannel.ThirdPartyOffersProvider" version="26.0.1.6848" targetFramework="Net40" />
+    </Item>
+    <Item package="NpSharp.Plugin.OrdersDb" version="25.0.1.6816" targetFramework="Net40" type="Plugin" />
+    <Item package="NpSharp.Plugin.OffersClient" version="27.0.0.6883" targetFramework="Net40" type="Plugin" />
+    <Item package="NpSharp.Plugin.PromotionEngine" version="31.0.2.7054" targetFramework="Net40" type="Plugin" />
+    <Item package="NpSharp.Plugin.PromotionTool" version="26.0.0.6817" targetFramework="Net40" type="Plugin" />
+    <Item package="NpSharp.Plugin.SimplifiedStld" version="25.0.1.6815" targetFramework="Net40" type="Plugin" />
+    <Item package="NpSharp.Plugin.CheckoutCouponServer" version="24.0.0.6801" targetFramework="Net40" type="Plugin" />
+    <Item package="NpSharp.Plugin.StldConsumer" version="24.1.5.6846" targetFramework="Net40" type="Plugin" />
+    <Item package="NpSharp.Plugin.StldDb" version="24.1.2.6802" targetFramework="Net40" type="Plugin" />
+    <Item package="NpSharp.Plugin.StldDataProvider" version="24.0.0.682" targetFramework="Net40" type="Plugin" />
+    <Item package="NpSharp.Plugin.IdentifiedSalesUploader" version="26.0.3.6852" targetFramework="Net40" type="Plugin" />
+    <Item package="NpSharp.Plugin.ProductsDb" version="32.0.1.6997" targetFramework="Net40" type="Plugin" />
+    <Item package="NpSharp.Plugin.ProductOutage" version="4.0.0.25" targetFramework="Net40" type="Plugin" />
+    <Item package="NpSharp.Plugin.SmartRouting" version="33.0.2.7289" targetFramework="Net40" type="Plugin" />
+    <Item package="NpSharp.Plugin.CytGrillMonitor" version="32.0.0.7061" targetFramework="Net40" type="Plugin" />
+    <Item package="NpSharp.Plugin.WebBrowser" version="25.0.4.6806" targetFramework="Net40" type="Plugin" />
+    <Item package="NpSharp.Driver.HttpDrivers" version="27.0.1.6885" targetFramework="Net40" type="Driver" />
+    <Item package="NpSharp.Plugin.ECommerceGoogleAnalytics" version="26.0.0.6826" targetFramework="Net40" type="Plugin" />
+    <Item package="NpSharp.Plugin.ECommerceAdobeAnalytics" version="3.0.1.23" targetFramework="Net40" type="Plugin" />
+    <Item package="NpSharp.Plugin.MobileOrdering" version="27.1.1.6881" targetFramework="Net40" type="Plugin" />
+    <Item package="NpSharp.Plugin.TableLocator" version="26.0.0.6869" targetFramework="Net40" type="Plugin" />
+    <Item package="NpSharp.Driver.TableLocatorHME" version="26.0.0.6869" targetFramework="Net40" type="Driver" />
+    <Item package="NpSharp.Driver.TableLocatorLRS" version="26.0.0.6869" targetFramework="Net40" type="Driver" />
+    <Item package="NpSharp.Driver.TableLocatorUniversal" version="26.0.0.6869" targetFramework="Net40" type="Driver" />
+    <Item package="NpSharp.Plugin.OperatorStatistics" version="24.0.2.7" targetFramework="Net40" type="Plugin" />
+    <Item package="NpSharp.Plugin.TableLocatorRouting" version="4.0.0.32" targetFramework="Net40" type="Plugin" />
+    <Item package="NpSharp.Plugin.AutoBundling" version="24.0.4.62" targetFramework="Net40" type="Plugin" />
+    <Item package="NpSharp.Plugin.Reports" version="4.0.6.145" targetFramework="Net40" type="Plugin">
+      <Extension package="NpSharp.Extension.Reports.US.CashReports" version="33.1.0.466" targetFramework="Net40" />
+      <Extension package="NpSharp.Extension.Reports.US.HourlySalesReports" version="33.1.0.466" targetFramework="Net40" />
+      <Extension package="NpSharp.Extension.Reports.US.RestaurantOpsReports" version="33.1.0.466" targetFramework="Net40" />
+      <Extension package="NpSharp.Extension.Reports.US.ProductsReports" version="33.1.0.466" targetFramework="Net40" />
+      <Extension package="NpSharp.Extension.Reports.US.ReceiptReports" version="33.1.0.466" targetFramework="Net40" />
+      <Extension package="NpSharp.Extension.Reports.US.SosReports" version="33.1.0.466" targetFramework="Net40" />
+      <Extension package="NpSharp.Extension.Reports.US.Offers" version="33.1.0.466" targetFramework="Net40" />
+      <Extension package="NpSharp.Extension.Reports.US.KioskSaleGuestCountReports" version="33.1.0.466" targetFramework="Net40" />
+      <Extension package="NpSharp.Localization.SecurityLibrary" version="33.1.0.466" targetFramework="Net40" />
+    </Item>
+    <Item package="NpSharp.Plugin.Workflows" version="5.0.1.140" targetFramework="Net40" type="Plugin">
+      <Extension package="NpSharp.Extension.Workflows.Global" version="4.0.3.143" targetFramework="Net40" />
+    </Item>
+    <Item package="NpSharp.Plugin.KVS" version="27.0.0.7091" targetFramework="Net40" type="Plugin" />
+    <Item package="NpSharp.Plugin.BumpBar" version="3.0.2.23" targetFramework="Net40" type="Plugin" />
+    <Item package="NpSharp.Plugin.Printer" version="24.0.2.6805" targetFramework="Net40" type="Plugin" />
+    <Item package="NpSharp.Plugin.ORB" version="25.0.2.498" targetFramework="Net40" type="Plugin" />
+    <Item package="NpSharp.Plugin.BusinessComponents" version="3.0.2.90" targetFramework="Net40" type="Plugin" />
+    <Item package="NpSharp.Plugin.ProductionPrioritization" version="3.0.0.9" targetFramework="Net40" type="Plugin" />
+    <Item package="USCOE.NpSharp.Plugin.US.Cashless30" version="24.7.8.61" targetFramework="Net40" type="Plugin" />
+    <Item package="USCOE.NpSharp.Plugin.BiometricsPOS" version="24.11.1.54" targetFramework="Net40" type="Plugin" />
+    <Item package="USCOE.NpSharp.Plugin.USUtilities" version="24.11.1.22" targetFramework="Net40" type="Plugin" />
+    <Item package="NpSharp.Plugin.CustomerPreferenceBarcode" version="3.0.0.22" targetFramework="Net40" type="Plugin" />
+  </Items>
+</BuildSpecification>

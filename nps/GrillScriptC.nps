@@ -1,0 +1,1389 @@
+/**
+ * GrillScript.nps
+ * This script file is used to make the grill screen and grill special modifiers 100% unknown by kernell.
+ * It will handle the creation of grill lines on the grill screen, the revalidation of these lines.
+ * It will also handle all operations with the grill "Special Modifiers", these modifiers are handled
+ * by the kernell but it doesn't even know what they mean, this script should know what to do with those
+ * modifiers and what to show on screen for those grill items.
+ * See the GrillScriptHandler Class for more details on how it is used.
+ *
+ * THE PUBLIC FUNCTIONS HERE ARE NEEDED FOR NEWPOS 6.0 TO WORK, DO NOT DELETE THEM
+ * THE RULES HERE SHOULD BE MODIFIED FOR EACH COUNTRY NEEDS.
+ * Copyright © 2003 McDonalds Corp. All rights reserved.
+ *
+ * $Source: /NewPOS/SRC/np61cvs/cvs/___Config61/Posdata/US/nps/GrillScriptC.nps,v $
+ * $Revision: 1.3 $
+ * $Date: 2009/03/20 16:32:48 $ (of revision)
+  * $Author: tguedes $ (of revision)
+ */
+
+//Prodcuts type
+var TYPE_COMMENT = 2;
+
+//Sale Status 
+ var SALE_STATUS_IN_PROGRESS = 1; 
+ var SALE_STATUS_ON_TOTAL = 2; 
+ var SALE_STATUS_TOTALIZED = 4; 
+ var SALE_STATUS_RECALLED = 16; 
+ var SALE_STATUS_TENDERED = 32; 
+ var SALE_STATUS_STORED = 64; 
+ var SALE_STATUS_PAID = 128; 
+
+ //Sale Type 
+ var SALE_TYPE_EAT_IN = 0; 
+ var SALE_TYPE_TAKE_OUT = 1; 
+ var SALE_TYPE_OTHER = 2; 
+
+/***************************** Global constants *********************************/
+
+const GrillTextMessages = {
+    NO : API.getLocalMsg("LMSG_SL_NO",null),
+    ADD : API.getLocalMsg("LMSG_SL_ADD",null),
+    REMOVE : API.getLocalMsg("LMSG_SL_LESS",null),
+    EXTRA : API.getLocalMsg("LMSG_SL_MORE",null),
+    LIGHT : API.getLocalMsg("LMSG_SL_QUALIFIER01",null),
+    ONLY : API.getLocalMsg("LMSG_SL_QUALIFIER02",null),
+	ONLYLIGHT : API.getLocalMsg("LMSG_SL_QUALIFIER03",null),
+    GRILL1 : "",
+    GRILL2 : "",
+    PLAIN : API.getLocalMsg("LMSG_SL_PLAIN",null)
+};
+
+/***************************** Global constants *********************************/
+//NVS-5861
+var PRODUCTION_MONITOR = 0;
+var EXPO_MONITOR = 1;
+var AUXILIAR_MONITOR = 2;
+var STORE_MONITOR = 3;
+var SMARTROUTING_MONITOR = 4;
+const GrillReasons = {
+    PLAIN: 1,
+    USERACTION: 2    
+};
+
+const GrillSpecialModifiers = {
+    NO: 0,
+    LIGHT: 1,
+    ONLY:2,
+	ONLYLIGHT:3
+};
+
+const ProductTypes = {
+    UNDEFINED_KIND: 0,
+    RAW_ITEM: 1,
+    PRODUCT: 2,
+    VALUE_MEAL: 3,
+    CHOICE: 4,
+    GROUP: 5,
+    COMMENT: 6,                
+    OPTION: 7,                
+    NON_FOOD_PRODUCT: 8,    
+    COUPONS: 9,                
+    PROMOTION: 10,            
+    PRODUCT_KIND_NUMBER: 11    
+};
+
+const ProductNameType = {
+    DTName: 0,
+    ShortName: 1,
+    LongName: 2,
+    AlternativeName: 3
+};
+
+const FamilyGroup = { 
+    BREAKFAST_ENTREE: 0,
+    BREAKFAST_SIDE: 1,
+    REGULAR_ENTREE: 2,
+    FRIES: 3,
+    DESSERT: 4,
+    SHAKES: 5,
+    BREAKFAST_DRINK: 6,
+    REGULAR_DRINK: 7,
+    NON_PRODUCT: 8,
+    GIFT_COUPON: 9,
+    SALADS: 10,
+    UNDEFINED: 11
+};
+
+function ProductNameInfo() {
+    this.ShortName = "";
+    this.LongName = "";
+    this.DTName = "";
+    this.AlternativeName = "";
+}
+
+function LanguageInfo() {
+    this.ProductNames = new Array();
+}
+
+function loadNamesDbHash() {
+	if (kvsLowMemoryDevice == false){
+    var namesHash = new Array();
+    for each (language in namesDB.Language) {
+        var langInfo = new LanguageInfo();
+        for each (productName in language.ProductName) { 
+            var productInfo = new ProductNameInfo();
+            productInfo.ShortName = productName.ShortName.text();
+            productInfo.LongName = productName.LongName.text();
+            productInfo.DTName = productName.DTName.text();
+            productInfo.AlternativeName = productName.AlternativeName.text();
+            langInfo.ProductNames[productName.ProductCode.text()]=productInfo;
+        }
+        namesHash[language.@code]=langInfo;
+		}
+		return namesHash;
+	} else {
+		return null;
+	}
+}
+
+function checkLowMemoryDevice(){
+	// var lowMemoryDevice = API.findParamInSectionConfig("lowMemoryDevice","UserInterface");
+	// Lindomar Araujo - Dec/08/2015 TODO only for now, we are setting the lowMemoryDevice variable fixed as true, until the retrofit of the SDO-8766 issue be done.
+	var storedbPath = "Configurations.Configuration.(@type==\"KVSRedesign\").Section.(@name==\"UserInterface\").Parameter.(@name==\"lowMemoryDevice\").@value";
+	var posdbPath = "Services.Service.(@type==\"KVS\").Configuration.(@imports==\"KVSRedesign\").Section.(@name==\"UserInterface\").Parameter.(@name==\"lowMemoryDevice\").@value";
+	var lowMemoryDevice = getConfigValue(storedbPath, posdbPath);
+	if ((null != lowMemoryDevice) && ("true" == lowMemoryDevice)){
+		return true;
+	} else {
+		return true;
+	}
+}
+//names-db.xml
+var kvsLowMemoryDevice=checkLowMemoryDevice();
+var namesDB = new XML(API.getNamesdb());
+var namesDbHash = loadNamesDbHash();
+
+//NVS-6884
+var monitorTypeParam = API.findParamInSectionConfig("monitorType","WayOfWork");
+
+ /**************************** P U B L I C   F U N C T I O N S ****************************
+ * These functions are called directly from the kernell, so they cannot be deleted.
+ *****************************************************************************************/
+
+ /** PUBLIC FUNCTION
+ * Returns the product name from a given product code
+ * @param productCode The product code which we want the product name
+ * @param languageName The language where we're going to find in the names-db
+ * @param nameType The name type that will be returned 
+ * @return product name
+ */
+function getProductName(productCode, languageName, nameType) {
+    var language, productName;
+    var name = "";
+
+	var strProductName = API.getNamesdbProductName(productCode, languageName); //NVS-4813
+	if (null == strProductName){
+		return "";
+	}
+	productName = new XML(strProductName);
+
+    switch(parseInt(nameType)) {
+        case ProductNameType.ShortName:
+            name = productName.ShortName;
+            break;
+        case ProductNameType.LongName:
+            name = productName.LongName;
+            break;
+        case ProductNameType.AlternativeName:
+            name = productName.AlternativeName;
+            break;
+        case ProductNameType.DTName:
+        default:
+            name = productName.DTName;
+            break;
+    }
+    
+    return name;
+} 
+
+function checkDeliveryEarlyCell(xmlOrderView) {
+	if(xmlOrderView != null && xmlOrderView.@isDeliveryEarly == "true"){
+		//Let's filter items that is not deliveryEarly
+		var itemCount = xmlOrderView.ItemView.length();  
+		var currentDeliveryEarlyItemLevel = null;  
+		for (var i = 0; i < itemCount; i++) {
+			item=xmlOrderView.ItemView[i];
+			if (item.isDeliveryEarly != null && item.isDeliveryEarly == "true") {
+				currentDeliveryEarlyItemLevel = item.level;
+				item.isDeliveryEarly = "false";
+			} else {
+				if (currentDeliveryEarlyItemLevel && item.level > currentDeliveryEarlyItemLevel)
+					continue;
+				else 
+					currentDeliveryEarlyItemLevel = null;
+
+				var maxLevel = item.level;
+				for (var j = i+1; j < itemCount && xmlOrderView.ItemView[j].level > maxLevel ;++j) {
+					var currentLevel = Number(xmlOrderView.ItemView[j].level)
+					--currentLevel;
+					xmlOrderView.ItemView[j].level = currentLevel.toString();
+				}
+				item=null;
+				delete xmlOrderView.ItemView[i];
+				i--;
+                itemCount--;
+			}
+		}
+	}
+	return xmlOrderView;
+}
+
+/** PUBLIC FUNCTION
+ * Run for each item the logic of PLAIN
+ *
+ * @param xmlOrderView Orderview that will be formatted
+ * @return formated xml
+ */
+function checkPlainForKVS(xmlOrderView) {
+    var level = 0;
+    var plainApplied = false;
+
+    var itemCount = xmlOrderView.ItemView.length();    
+    for (var i = 0; i < itemCount; i++) {  
+        item=xmlOrderView.ItemView[i];
+
+        if(level != item.level){
+            plainApplied = false;
+        }
+        level = item.level;
+        if(item.grillReason == 1){
+            if(plainApplied == false){
+                item.quantity = 1;
+                item.grilledQuantity = 1;
+                item.componentDefaultQtd = 0;
+                item.componentMinQtd = 0;
+                item.componentMaxQtd = 1;
+                item.specialModifiers = GrillSpecialModifiers.NO;
+                item.productType = ProductTypes.COMMENT;
+                item.familyGroup = FamilyGroup.NON_PRODUCT;
+                item.longName = GrillTextMessages.PLAIN;
+                item.dtName = GrillTextMessages.PLAIN;
+                item.formattedGrillQty = GrillTextMessages.PLAIN;
+                item.grillType = "PLAIN";
+                item.description = GrillTextMessages.PLAIN;
+                item.name = GrillTextMessages.PLAIN;
+                item.displayOrder = 0;
+                item.productCode = 0;
+                
+                plainApplied = true;
+            }else{
+                item=null;
+                delete xmlOrderView.ItemView[i];
+                i--;
+                itemCount--;
+            }
+        }
+    }
+
+    return xmlOrderView;
+}
+/** PUBLIC FUNCTION
+ * Removes components which contains ForceCompDisplay POS
+ *
+ * @param xmlOrderView Order view that will be formatted
+ * @param showForceCompDisplay If it's false, all forceComponents will be removed.
+ * @return formated xml
+ */
+ 
+function checkForceCompForKVS(xmlOrderView, showForceCompDisplay, monitorType) {
+	var isValueMealContext = false;
+	var valueMealLevel = null;
+	
+	var itemCount = xmlOrderView.ItemView.length();
+	var kvsHelper = new KVSHelper;
+	for (var i = 0; i < itemCount; i++) {  
+	
+		item=xmlOrderView.ItemView[i];
+		
+		// turn off value meal context if it is on and current item is the same (or outer) level as the previous value meal item
+		if (isValueMealContext) {
+			if (Number(item.level) <= valueMealLevel) {
+				valueMealLevel = null;
+				isValueMealContext = false;
+			}
+		}
+		
+		// turn on value meal context if current item is a value meal
+		if (Number(item.productType) == 3) {
+			// current item is a value meal
+			isValueMealContext = true;
+			valueMealLevel = Number(item.level);
+			isValueMealBundle = kvsHelper.isBundleTagPresentInVM(item.productCode); //NVS-5861
+		}
+		
+		if (item.isGrillLine == "true") {
+			// Lindomar Araujo: 2016/11/09 - NVS-5846 - Changed to display the sequence items in the KVS, according to the KVSdisplayMode parameter
+			if (item.ForceCompDisplay == "MONITORS" || item.ForceCompDisplay == "ALL") {
+				if (item.CYTIngredientGroup == "BUN") {
+				// Lindomar Araujo: 2017/02/20 - NVS-6965 - Changes
+					item.displayOrder = -3;
+				} else if(item.CYTIngredientGroup == "PATTY") {
+					item.displayOrder = -2;
+				} else {
+					item.displayOrder = -1;
+				}
+			}
+			//item.displayOrder = -1;  //commented out as a fix for NVS-1447
+			continue;
+		}
+		
+		if( (showForceCompDisplay == false || showForceCompDisplay == "false" || showForceCompDisplay == "OFF") && (item.ForceCompDisplay == "POS" || item.ForceCompDisplay == "MONITORS" || item.ForceCompDisplay == "ALL" || item.ForceCompDisplay == "POS_EXPO" || item.ForceCompDisplay == "EXPO" || item.ForceCompDisplay == "POS_PROD" || item.ForceCompDisplay == "PROD") ) { 	
+			item = null;
+			delete xmlOrderView.ItemView[i];
+			i--;
+			itemCount--;
+		} else if(item.ForceCompDisplay == "POS") {	
+			item=null;
+			delete xmlOrderView.ItemView[i];
+			i--;
+			itemCount--;
+		} else if((item.ForceCompDisplay == "POS_PROD" || item.ForceCompDisplay == "PROD") && (monitorType != PRODUCTION_MONITOR)) { //NVS-5828 NVS-5861
+ 			item=null; 
+ 			delete xmlOrderView.ItemView[i]; 
+ 			i--; 
+			itemCount--;
+		} else {
+			if (showForceCompDisplay == "PRODUCT" && isValueMealContext && item.ForceCompDisplay != undefined) {
+				item.appendChild(<doNotShowCostInclusiveComponent />);
+			} else if (showForceCompDisplay == "VALUE_MEAL" && !isValueMealContext && item.ForceCompDisplay != undefined) {
+				item.appendChild(<doNotShowCostInclusiveComponent />);
+			}else if (showForceCompDisplay == "PRODUCT_VALUE_MEAL" && item.ForceCompDisplay != undefined){
+				if(!isValueMealContext || (isValueMealContext && !isValueMealBundle)){
+					if(item.ForceCompDisplay == "POS_EXPO" || item.ForceCompDisplay == "EXPO"){
+						if(monitorType != EXPO_MONITOR && monitorType != STORE_MONITOR){
+							item.appendChild(<doNotShowCostInclusiveComponent />);
+			}
+					}
+				} else if(isValueMealContext && isValueMealBundle && !(Number(item.productType) == 3)){
+					item.appendChild(<doNotShowCostInclusiveComponent />);
+				}
+			} else if (showForceCompDisplay == "BUNDLE" && item.ForceCompDisplay != undefined){
+				if(isValueMealContext && isValueMealBundle){
+					if(item.ForceCompDisplay == "POS_EXPO" || item.ForceCompDisplay == "EXPO"){
+						if(monitorType != EXPO_MONITOR && monitorType != STORE_MONITOR){
+							item.appendChild(<doNotShowCostInclusiveComponent />);
+				}
+					}
+				}else{
+					item.appendChild(<doNotShowCostInclusiveComponent />);
+			}
+			
+            } else if(item.ForceCompDisplay == "POS_EXPO" || item.ForceCompDisplay == "EXPO") {
+                if(monitorType != EXPO_MONITOR && monitorType != STORE_MONITOR) {
+                    item.appendChild(<doNotShowCostInclusiveComponent />);
+                }
+			} else if ((item.ForceCompDisplay == "MONITORS" || item.ForceCompDisplay == "ALL") && item.isGrillLine == "false") {
+				item.displayOrder = -1;
+			}
+			
+			var orderDisplayMode = API.findParamInSectionConfig("KVSdisplayMode","UserInterface");
+			if(orderDisplayMode == "CHRONOLOGICAL")
+			{ 
+				if(item.displayOrder<0){
+					item.displayOrder = item.displayOrder*(-1);
+				}else{
+					item.displayOrder = item.displayOrder*(-1)-1;
+				}
+			}
+			else if(orderDisplayMode == "CHRONONLY")
+			{
+				item.displayOrder = -1;
+			}
+			else if(orderDisplayMode == "BYPRODUCT")
+			{
+				if(item.displayOrder<0) {
+				    item.displayOrder = 0;
+				} else {
+				    item.displayOrder = item.displayOrder+1;
+				}
+			}
+			// Lindomar Araujo: 2016/11/09 - NVS-5846 - Changed to display the sequence items in the KVS, according to the KVSdisplayMode parameter
+			if ((item.ForceCompDisplay == "MONITORS" || item.ForceCompDisplay == "ALL")) {
+				if (item.CYTIngredientGroup == "BUN") {
+				// Lindomar Araujo: 2017/02/20 - NVS-6965 - Changes
+					item.displayOrder = -3;
+				} else if(item.CYTIngredientGroup == "PATTY") {
+					item.displayOrder = -2;
+				} else {
+					item.displayOrder = -1;
+				}
+			}
+		}
+	}
+	
+	// sortItemsCYT(xmlOrderView);
+	// sortItemsChefCrafted(xmlOrderView);
+	// sortItems(xmlOrderView);
+
+	adjustChefCraftedGrill(xmlOrderView); 	//NVS-6690 - code fix
+	return xmlOrderView;
+}
+
+//Kalpesh - NVS-6690 - Bun and protein of signature crafted sandwiches are displaying after the grill items on register sales panel.
+function adjustChefCraftedGrill(view) {
+levelChefCrafted = 0;
+isChefCrafted = false;
+	for (var j = 0; j < view.ItemView.length(); ++j) {
+			if(isChefCrafted && levelChefCrafted == (toInt(view.ItemView[j].level)-1)){
+				if(view.ItemView[j].isGrillLine == "true") {
+					// Change displayOrder of grill of Signature Crafted items in order to display grill instructions at the end of the item
+					view.ItemView[j].displayOrder = 999999 + toInt(view.ItemView[j].displayOrder);
+				}
+			} else {
+				isChefCrafted = false;
+				levelChefCrafted = 0;
+				var pCode = new XML(API.getProductdbProduct(view.ItemView[j].productCode));
+				if(pCode != null && pCode != ""){
+					if(pCode.CustomParameters != null){
+						for each (var param in pCode.CustomParameters.Parameter){
+							if(param.@name == "isChefCrafted" && param.@value == "true"){
+								levelChefCrafted = toInt(view.ItemView[j].level);
+								isChefCrafted = true;
+								break;
+							}
+						}
+				}
+			}
+		}
+	} //end of for loop
+} 
+function sortItemsCYT(xmlOrderView) {
+	var itemCount = xmlOrderView.ItemView.length();
+	
+	if(xmlStoreDB.StoreDB.CytIngredientGroups != null && 
+	   xmlStoreDB.StoreDB.CytIngredientGroups.length() > 0) {
+		var cytGroupConfig = xmlStoreDB.StoreDB.CytIngredientGroups[0].Group;
+		var allItemGroups = getCYTItemGroups(xmlOrderView);
+		var allItemGroupsSorted = [];
+		
+		for (var i = 0; i < allItemGroups.length; i++) {
+			allItemGroups[i].sort(compareByProductDesc);
+		}
+		
+		for (var i = 0; i < allItemGroups.length; i++) {
+			var groupUnsorted = allItemGroups[i];
+			var groupSorted = [];
+			
+			for each(itemGroup in cytGroupConfig) {
+				for(var j = 0; j < groupUnsorted.length; j++) {
+					var cytItem = groupUnsorted[j];
+				
+					if(itemGroup.@name == cytItem[1].CYTIngredientGroup) {
+						groupSorted.push(cytItem);
+					}
+				}
+			}
+			
+			allItemGroupsSorted.push(groupSorted);
+		}
+		
+		applySortedPositions(xmlOrderView, allItemGroupsSorted);
+	}
+}
+
+//GROUP CYT ITEMS BY LEVEL
+function getCYTItemGroups(xmlOrderView) {
+	var itemsGroup = [];
+	var itemCount = xmlOrderView.ItemView.length();	
+	var isCYT = false;
+	
+	for (var i = 0; i < itemCount; i++) {
+		item = xmlOrderView.ItemView[i];
+				
+		if(Number(item.level) == 0) {
+			if(item.isCYT == "true") {
+				itemsGroup.push([]);
+				isCYT = true;
+			} else if(item.isCYT == "false") {
+				isCYT = false;
+			}
+		} else if(Number(item.level) > 0 && isCYT) {
+			var itemTuple = [i, item];
+			itemsGroup[itemsGroup.length - 1].push(itemTuple); //ADD ITEM (INDEX + ITEM ITSELF) TO LAST GROUP
+		}
+	}
+	
+	return itemsGroup;
+}
+
+//COMPARE DESC PRODUCT BY DISPLAY ORDER THEN BY PRODUCT CODE
+function compareByProductDesc(tuple1, tuple2) {
+	item1 = tuple1[1];
+	item2 = tuple2[1];
+	displayOrderItem1 = removeProductDisplayOrderOffset(item1.displayOrder);
+	displayOrderItem2 = removeProductDisplayOrderOffset(item2.displayOrder);
+	
+	if(displayOrderItem2 != displayOrderItem1) {
+		return displayOrderItem2 - displayOrderItem1;
+	} else {
+		return item2.productCode - item1.productCode;
+	}
+}
+
+function sortItemsChefCrafted(xmlOrderView) {
+	var itemsGroup = getRegularItemGroups(xmlOrderView);
+	
+	for (var i = 0; i < itemsGroup.length; i++) {
+		itemsGroup[i].sort(compareChefCraftedItems);
+	}
+	
+	applySortedPositions(xmlOrderView, itemsGroup);
+}
+
+function compareChefCraftedItems(tuple1, tuple2) {
+	item1 = tuple1[1];
+	item2 = tuple2[1];
+	
+	var displayOrder1 = 0;
+	var displayOrder2 = 0;
+	
+	if(item1.isGrillLine == "true")
+		displayOrder1 = displayOrder1 + 10000;
+	else
+		displayOrder1 = item1.displayOrder;
+	
+	if(item2.isGrillLine == "true")
+		displayOrder2 = displayOrder2 + 10000;
+	else
+		displayOrder2 = item2.displayOrder;
+	
+	return displayOrder1 - displayOrder2;
+}
+
+function sortItems(xmlOrderView) {
+	var orderDisplayModeKVS = API.findParamInSectionConfig("KVSdisplayMode","UserInterface");
+	var orderDisplayModeStoreWide = API.findParamInSectionWide("displayMode","OrderDisplay");
+
+	if(orderDisplayModeStoreWide == "CHRONOLOGICAL") {
+		if (orderDisplayModeKVS == "BYPRODUCT") {
+			var itemsGroup = getRegularItemGroups(xmlOrderView);
+			
+			for (var i = 0; i < itemsGroup.length; i++) {
+				itemsGroup[i].sort(compareByProduct);
+			}
+			
+			applySortedPositions(xmlOrderView, itemsGroup);
+		}
+	}
+}
+
+//GROUP ITEMS BY LEVEL
+function getRegularItemGroups(xmlOrderView) {
+	var itemsGroup = [];
+	var itemCount = xmlOrderView.ItemView.length();
+	var isCYT = true;
+	
+	for (var i = 0; i < itemCount; i++) {
+		item = xmlOrderView.ItemView[i];
+		
+		if(Number(item.level) == 0) {
+			if(item.isCYT == "true") {
+				isCYT = true;
+			} else if(item.isCYT == "false") {
+				itemsGroup.push([]);
+				isCYT = false;
+			}
+		} else if(Number(item.level) > 0 && !isCYT) {
+			var itemTuple = [i, item];
+			itemsGroup[itemsGroup.length - 1].push(itemTuple); //ADD ITEM (INDEX + ITEM ITSELF) TO LAST GROUP
+		}
+	}
+	
+	return itemsGroup;
+}
+
+//APPLY SORTED POSITIONS TO ORDER VIEW
+function applySortedPositions(xmlOrderView, itemsGroup) {
+	for (var i = 0; i < itemsGroup.length; i++) {
+		for (var j = 0; j < itemsGroup[i].length; j++) { 
+			var itemIndex = itemsGroup[i][j][0];
+			xmlOrderView.ItemView[itemIndex].displayOrder = j;
+		}
+	}
+}
+
+//COMPARE PRODUCT BY DISPLAY ORDER THEN BY PRODUCT CODE
+function compareByProduct(tuple1, tuple2) {
+	item1 = tuple1[1];
+	item2 = tuple2[1];
+	displayOrderItem1 = removeProductDisplayOrderOffset(item1.displayOrder);
+	displayOrderItem2 = removeProductDisplayOrderOffset(item2.displayOrder);
+	
+	if(displayOrderItem1 != displayOrderItem2) {
+		return displayOrderItem1 - displayOrderItem2;
+	} else {
+		return item1.productCode - item2.productCode;
+	}
+}
+
+//EXTRACT DISPLAY ORDER FROM MESSAGE
+function removeProductDisplayOrderOffset(displayOrder) {
+	return parseInt(displayOrder / 10000);
+}
+
+/** PUBLIC FUNCTION
+ * Removes components which contains grillReason USERACTION
+ *
+ * @param xmlOrderView Order view that will be formatted
+ * @return formated xml
+ */
+function checkSmartGrillForKVS(xmlOrderView) {
+    var itemCount = xmlOrderView.ItemView.length();
+    for (var i = 0; i < itemCount; i++) {  
+        item=xmlOrderView.ItemView[i];
+
+        if(item.grillReason == GrillReasons.USERACTION){
+            item=null;
+            delete xmlOrderView.ItemView[i];
+            i--;
+            itemCount--;
+        }
+    }        
+
+    return xmlOrderView;
+}
+
+/** PUBLIC FUNCTION
+ * 
+ *
+ * @param xmlOrderView Order view that will be formatted
+ * @return formated xml
+ */
+function checkShowChosenItemAsIngredientForKVS(xmlOrderView) {
+    var itemCount = xmlOrderView.ItemView.length();
+    for (var i = 0; i < itemCount; i++) {  
+        var item = xmlOrderView.ItemView[i];
+        
+        if(item.showChosenItemAsIngredient == "true"){
+            var level = Number(item.level) + 1;
+            
+            for(var j=i+1; j < itemCount; j++) {
+                var subItem = xmlOrderView.ItemView[j];
+                
+                if(subItem.level == level) {
+                    if(subItem.componentType == ProductTypes.VALUE_MEAL) { 
+                        subItem.displayOrder = -1;
+                    }
+                }else {
+                    break;
+                }
+            }
+        }
+    }        
+
+    return xmlOrderView;
+}
+/** PUBLIC FUNCTION
+ * Format the XML fields, adds the grill modifiers
+ *
+ * @param OrderView the item view that will be formatted
+ * @return the text to display
+ * NVS-5861
+ */
+ function formatXMLFields(OrderView, Language, NameType, showForceCompDisplay, monitorType) {
+	var kvsType = parseInt(monitorType);
+	var xml=new XML(OrderView);
+	if (xml.localName() == "KvsRefresh" && xml.Views.length() > 0) { 
+	 for each (view in xml.Views.View) {  
+		 formatKvsView(view, Language, NameType, showForceCompDisplay, kvsType);
+	 } 
+	}
+	if (xml.localName() == "KvsRefresh" && xml.View.length() > 0) {
+	 for each (view in xml.View) { 
+		 formatKvsView(view, Language, NameType, showForceCompDisplay, kvsType);
+	 }
+	}	
+	if (xml.localName() == "Views") {
+		for each (var view in xml) {
+			formatKvsView(view, Language, NameType, showForceCompDisplay, kvsType);
+		}
+	} else {
+		formatKvsView(xml, Language, NameType, showForceCompDisplay, kvsType);
+	}
+
+	return xml.toString();
+}
+
+/** PUBLIC FUNCTION
+ * Add "**Mobile** or "**Curbside**" if order is a mobile order
+ *
+ * @param xmlOrderView Order view that will be formatted
+ * @return formated xml
+ */
+function checkMobileOrder(xmlOrderView, monitorType) {
+	
+  	var newItemViewForMobile = new XML('<ItemView><productCode>98011</productCode><quantity>1</quantity><summaryCytQty>0</summaryCytQty><totalPrice>0</totalPrice><totalTax>0</totalTax><itemCode>0</itemCode><currentSelected>false</currentSelected><isNewItem>false</isNewItem><isModified>false</isModified><level>0</level><description>** Mobile **</description><shortName>** Mobile **</shortName><longName>** Mobile **</longName><dtName>** Mobile **</dtName></ItemView>'); 
+ 	var newItemViewForCurbside = new XML('<ItemView><productCode>98012</productCode><quantity>1</quantity><summaryCytQty>0</summaryCytQty><totalPrice>0</totalPrice><totalTax>0</totalTax><itemCode>0</itemCode><currentSelected>false</currentSelected><isNewItem>false</isNewItem><isModified>false</isModified><level>0</level><description>** Curbside **</description><shortName>** Curbside **</shortName><longName>** Curbside **</longName><dtName>** Curbside **</dtName></ItemView>'); 
+	//var isUberEatsOrder = isUberEatsOrder(xmlOrderView);
+	
+	var orderSource = toInt(xmlOrderView.@orderSrc);//0-regular, 1-mobile, 2-web, 3-call
+	var isMobileOrder = xmlOrderView.CustomInfo.Info.(@name == "isMobileOrder").@value;
+	var deliveryBillableSale = xmlOrderView.CustomInfo.Info.(@name=="deliveryBillableSale").@value;
+	
+	if (orderSource === 1 && isMobileOrder == "true" && (deliveryBillableSale == undefined || deliveryBillableSale == "" || deliveryBillableSale == "false" || deliveryBillableSale == false)){
+
+		var curbsideStallNumber = xmlOrderView.@curbsideStallNumber.toString();
+		var isCurbsideOrder = (curbsideStallNumber != null && curbsideStallNumber != "");
+		
+		if(isCurbsideOrder && monitorType == STORE_MONITOR){
+			xmlOrderView.appendChild(newItemViewForCurbside);
+			
+		}else if(monitorType == STORE_MONITOR){
+			 xmlOrderView.appendChild(newItemViewForMobile);
+		 }
+	}
+	
+	return xmlOrderView;
+}
+
+/** PUBLIC FUNCTION
+ * Format the XML fields for one view
+ *
+ * @param xml OrderView the item view that will be formatted
+ * @return the text to display
+ * NVS-5861
+ */
+function formatKvsView(xml, language, nameType, showForceCompDisplay, monitorType) {
+
+    // TODO: Make it more efficient reducing number of for loops, possibly merging some checks inside the same for loop.
+    // A solution to do it in just one for loop does exist, but was avoided to favor code readability. 
+	xml=checkPlainForKVS(xml);
+	xml=checkForceCompForKVS(xml, showForceCompDisplay, monitorType); //NVS-5861
+	xml=checkSmartGrillForKVS(xml);
+	xml=checkShowChosenItemAsIngredientForKVS(xml);
+	xml=checkDeliveryEarlyCell(xml);  //commeting out code for NVS-4598 fix (undoing as part of NVS-4699)
+	xml=checkMobileOrder(xml, monitorType);
+	var orderSource = toInt(xml.@orderSrc); //0-regular, 1-mobile, 2-web, 3-call
+	var kvsType = parseInt(monitorType);
+	var customerNickname=xml.CustomInfo.Info.(@name == "customerNickname").@value;
+	// NVS-7581 Mobile Ordering Table Service Tishin
+	var isMobileOrder=xml.CustomInfo.Info.(@name == "isMobileOrder").@value;
+	var saleType = toInt(xml.@type);
+	var tableServiceMode = xml.@tableServiceMode.toString();
+	var isTableServiceOrder = (tableServiceMode != null && tableServiceMode != "" && tableServiceMode != "disable");
+	var eatin = API.getLocalMsg("MSG_CYT_KVS_HME_EAT_IN");
+	var takeout = API.getLocalMsg("MSG_CYT_KVS_HME_TAKE_OUT");  //BAG
+	var other = API.getLocalMsg("MSG_KVS_SALE_TYPE_OTHERS");	//Delivery
+		
+	if((saleType == 0) && isTableServiceOrder && xml.@tableTagId != undefined && xml.@tableTagId != "-1" && xml.@tableTagId != ""){
+			xml.@displayOnOrb = "false";
+		}
+	
+	if (orderSource === 1 && isMobileOrder == "true"){
+		
+		var saleType = toInt(xml.@type);
+		var tagIDfirst = xml.@tableTagId;
+		if (tagIDfirst.length() > 0 && tagIDfirst != "-1") {
+			if(saleType === 0) {
+				xml.@tableTagId = (eatin + "-" + tagIDfirst);
+				xml.@displayOnOrb = "false";
+			} else if(saleType === 1) {
+				xml.@tableTagId = (takeout + "-" + tagIDfirst);
+			} else {
+				xml.@tableTagId = (other + "-" + tagIDfirst);
+			}
+		} else {
+			if(saleType === 0) {
+				xml.@tableTagId = eatin;
+			} else if(saleType === 1) {
+				xml.@tableTagId = takeout;
+			} else {
+				xml.@tableTagId = other;
+				}
+			}
+		}
+
+	var curbsideStallNumber = xml.@curbsideStallNumber.toString();
+	var isCurbsideOrder = (curbsideStallNumber != null && curbsideStallNumber != "");
+	if(isCurbsideOrder && (saleType != 0) ){
+			xml.@tableTagId = "";	// NVS-8164 - Kalpesh
+		}
+	
+	if (orderSource != 1 && xml.@pod =="1" && kvsType==0){ //NVS-7022, if non mobile DT order and monitor is production monitors
+		if (xml.@isInsertedOrder==true){
+			var insertInfo = API.getLocalMsg("MSG_KVS_HEADER_INSERTED");
+			xml.@tableTagId = insertInfo;
+		}
+		else {//NVS-6648 part2, set DT tag id to space to override the DT image.
+			xml.@tableTagId = " ";
+		}			
+	} 
+	// Lindomar Araujo - March/10 - NVS-3754 
+	if ((xml.@CYTArea != undefined) && xml.@pod != "1" && xml.@trackSaleStatus != "1" && orderSource!="1") {
+		var saleType = toInt(xml.@type);
+		var tagIDfirst = xml.@tableTagId;
+		if (tagIDfirst.length() > 0) {
+			if(saleType === 0) {
+				xml.@tableTagId = (eatin + "-" + tagIDfirst);
+			} else if(saleType === 1) {
+				xml.@tableTagId = (takeout + "-" + tagIDfirst);
+			} else {
+				xml.@tableTagId = (other + "-" + tagIDfirst);
+			}
+		} else {
+			if(saleType === 0) {
+				xml.@tableTagId = eatin;
+			} else if(saleType === 1) {
+				xml.@tableTagId = takeout;
+			} else {
+				xml.@tableTagId = other;
+				}
+			}
+		
+	}
+
+	var uberOrderKey = GetUberEatsOrderKeyC(xml);
+	if(uberOrderKey != false){
+		xml.@tableTagId = uberOrderKey;
+	}
+	
+	var items = xml.ItemView.length();
+	// NPS-8178 FR1. show cost-inclusive components logic
+	for (var i = 0; i < items; ++i) {
+		var item = xml.ItemView[i];
+		var level = Number(item.level);
+		
+		//NVS-6884 
+		 if(Number(item.quantity) == 0)
+		 {
+			 if(monitorTypeParam != null && (monitorTypeParam == "Parked" || monitorTypeParam == "Customer"))
+			 {
+				 delete xml.ItemView[i];
+				 i--;
+				 items--;
+			}
+		 }
+		// for each cost-inclusive item (featuring the ForceCompDisplay -- by convention of Production code), check the doNotShowCostInclusiveComponent element
+		// N.B. The CostInclusive XML element is not sent to the KVS, but NPS-8178 design decisions have been made that assume that cost-inclusive items will have the ForceCompDisplay element. That's what we will test.
+		if (item.ForceCompDisplay != undefined) {
+			if (item.doNotShowCostInclusiveComponent == undefined) {
+			} else {
+				// delete the item
+				delete xml.ItemView[i];
+				i--;
+				items--;
+				// recursively delete all subitems -- to maintain view consistency
+				if (i + 1 < xml.ItemView.length()) {
+					for (++i; i < items; ++i) {
+						if (Number(xml.ItemView[i].level) <= level) {
+							i--;
+							break;
+						}
+						
+						delete xml.ItemView[i];
+						i--;
+						items--;
+					}
+				}
+			}
+		}
+	}
+
+	var sgpEnabled = API.findParamInSectionWide("enableSmartRouting","SmartRouting"); 
+    var sgpHideAddGrill = API.findParamInSectionWide("hideAddGrillModifier","SmartRouting"); 
+	if(sgpEnabled == "true" && sgpHideAddGrill == "true") { 
+		var items = xml.ItemView.length();
+		// NPS-8178 FR1. alternative name logic
+		for (var i = 0; i < items; ++i) {
+			var item = xml.ItemView[i];
+			var level = Number(item.level);
+			//NVS-3656 default quantity should not show for the cyt items
+			if((xml.ItemView[i].isCYT == 'true') && (Number(xml.ItemView[i].quantity) == 1) && (Number(level) == 1))
+				xml.ItemView[i].appendChild(<hideQuantity>true</hideQuantity>);
+			// look for the next item at same level
+			var j = i + 1;
+			for (; j < items; ++j) {
+				if (Number(xml.ItemView[j].level) <= Number(level))
+					break;
+				if (j + 1 >= items) {
+					j = items - 1;
+					break;
+				}
+				// found an item with inner level than the current item -- check whether to use alternate name
+				if (xml.ItemView[j].ForceCompDisplay == "MONITORS" || xml.ItemView[j].ForceCompDisplay == "ALL") {
+					// use alternate name if defined
+					item.appendChild(<useAlternateName>true</useAlternateName>);
+					break;
+				}
+			}
+																				
+		}
+	}
+	// Get the length again to avoid errors
+	items = xml.ItemView.length();	
+	// NPS-8178 FR2.
+	// for each item at level n, if its productType is not 3 (PC_VALUE_MEAL) and it is followed by an item of level n+1 (the subitem) which ForceCompDisplay is "ALL" or "MONITORS"
+	// set a <hideQuantity>true</hideQuantity> element on the subitem
+	for (var i = 0; i < items; i++)
+	{
+		var item = xml.ItemView[i];
+		var level = item.level;
+
+		//If the items is not a Value Meal we go through its components and add-on 
+		if (item.productType != 3)
+		{
+			//NPS-15082 - when displayComponentsNumbers = true we need to show the default quantity of the component 
+			var kvsHelper = new KVSHelper;
+			var paramDisplayComponentsNumbers = API.findParamInSectionWide("displayComponentsNumbers","OperationMode");
+			var displayComponentsNumbers = (paramDisplayComponentsNumbers == "true") && kvsHelper.displayNumbersInsteadofModifiers(xml.ItemView[i].productCode);
+
+			//Peek the next item, if it is a level higher than mine, it is a composition or add-on
+			var j = i + 1;
+			for(; j < items && xml.ItemView[j].level > level; j++)
+			{
+				var nextForceCompDisplay = xml.ItemView[j].ForceCompDisplay;
+				var isGrillLine = (xml.ItemView[j].isGrillLine == 'true');
+				var isCYT = (xml.ItemView[j].isCYT == 'true');
+				//NPS-15082 - when displayComponentsNumbers = true we need to show the default quantity of the component 
+				if(isGrillLine && !isCYT && (paramDisplayComponentsNumbers == "true") && (displayComponentsNumbers != true))
+				{
+					xml.ItemView[j].appendChild(<hideQuantity>true</hideQuantity>);
+				}
+			}
+			//Update i so that it will go to next level-0 item 
+			i = j - 1;
+		}
+	}
+	
+	// Get the length again to avoid errors
+	items = xml.ItemView.length();	
+	// NPS-8178 FR4.
+	// for each item at level n, if its productType is 3 (PC_VALUE_MEAL), until the next item at level n, iterate through all items with level > n;
+	// for these items, if an item with level n+2 has componentType 4 (auto-condiment), remove the item, change its level to n+1 and reinsert it as the last item before the next level n item
+	for (var i = 0; i < items; ++i) {
+		var item = xml.ItemView[i];
+		var level = Number(item.level);
+		// is current item a value meal?
+		if (Number(item.productType) == 3) {
+			// look for the next item at same level
+			var j = i + 1;
+			for (; j < items; ++j) {
+				if (Number(xml.ItemView[j].level) <= Number(level)) {
+					j--;
+					break;
+				}
+				if (j + 1 >= items) {
+					j = items - 1;
+					break;
+				}
+			}
+			// now j is the index of the next item with same or outer level as the current item
+			// so in the interval [i, j[ we have all items that are children of i
+			// iterate through all children of i 
+			if (i + 1 < items) for (var k = i + 1; k <= j; ++k) {
+				var component = xml.ItemView[k];
+				if ((Number(component.level) == Number(level) + 2) && (Number(component.componentType) == 4)) {
+					// this is an autocondiment component
+					var tmp = component.copy();
+					// change its level one up
+					tmp.level = Number(level) + 1;
+					// add it to the value meal item
+					xml.insertChildAfter(xml.ItemView[j], tmp);
+					// remove it
+					delete xml.ItemView[k];
+				}
+			}
+			
+			// all these children can be bypassed in the outer loop
+			i = j;
+		} // not a value meal? try next item
+	}
+	
+	// Get the length again to avoid errors
+	items = xml.ItemView.length();	
+	for (var i = 0; i < items; ++i) {  
+		var item = xml.ItemView[i];
+		if(item.isGrillLine == 'true' && (item.grilledQuantity != 0 || item.specialModifiers != 0) ){
+			if(item.grillReason != 1){
+				var ret = getTextToDisplayXml(item, true, language, nameType);
+				item.formattedGrillQty = ret[0];
+				item.grillType = ret[1];
+				item.asImageGrillQty = ret[2];
+			}
+		} else if (item.isCYT == 'true' && item.grilledQuantity == 0) {
+		    //NVS-3656 default quantity should not show for the cyt items
+			item.appendChild(<hideQuantity>true</hideQuantity>);
+		}
+	}
+
+}
+
+function formatOrderId(orderKey, major, minor) {
+	var orderNumber = major + "";
+	if (orderNumber.length === 1) {
+		orderNumber = "0" + orderNumber;
+	} else if (orderNumber.length > 2) {
+		orderNumber = orderNumber.substring(orderNumber.length - 2);
+	}
+	var index = orderKey.indexOf(":");
+	if (index == -1) {
+		return orderNumber;
+	}
+	var id = orderKey.charAt(index - 1);
+	return "" + id + orderNumber;
+}
+
+/** PUBLIC FUNCTION
+ * Gets the text to be displayed on screen, given an ItemView
+ * 
+ * @param xItem the item view that will be formatted
+ * @param showDescription true if should show item description too
+ * @param language The language where we're going to find in the names-db
+ * @param nameType The name type that will be returned 
+ * @return the text to display
+ * @author Thiago
+ */
+function getTextToDisplayXml(xItem, showDescription, language, nameType) {
+    
+    var results = "";
+    
+    var specialModifier = Number(xItem.specialModifiers);
+    var componentType = Number(xItem.productType);
+    var itemCode = Number(xItem.itemCode);
+    
+    if (xItem.description.search("SUB") != -1) {
+        results = ["", "SUB", ""];
+        return results;
+    }
+    
+    if (specialModifier == GrillSpecialModifiers.NO) {
+        // If this item was grilled in a normal way (no special modifiers)
+        // we calculate the text from component's quantities
+        results = getTextFromQuantities(xItem, showDescription, language, nameType);
+    } else {
+        // Item's description (name)
+        var description = showDescription ? " " +  getProductName(xItem.productCode, language, nameType) : "";
+        if (specialModifier == GrillSpecialModifiers.LIGHT) {
+            results = [GrillTextMessages.LIGHT + " " + description, 
+                       "LIGHT", 
+                       description];
+        } else if (specialModifier == GrillSpecialModifiers.ONLY) {
+            results = [GrillTextMessages.ONLY + " " + description, 
+                       "ONLY", 
+                       description];
+        } else if (specialModifier == GrillSpecialModifiers.ONLYLIGHT) {
+            results = [GrillTextMessages.ONLYLIGHT + " " + description, 
+                       "ONLYLIGHT", 
+                       description];
+        } else {
+            results = ["[" + specialModifier + "]" + description, 
+                       "", 
+                       "[" + specialModifier + "]" + description];
+        }
+    }
+    return results;
+
+	/** PRIVATE FUNCTION
+	 * Calculates the text to be displayed on screen.
+	 * This function will consider conponent quantities to know witch text to display on screen
+	 * @param view the view to get item from
+	 * @param itemIndex the index of the item we want to get (on the view)
+	 * @param showDescription true if should show item description too
+	 * @param languageName The language where we're going to find in the names-db
+	 * @param nameType The name type that will be returned 
+	 * @return the text to display
+	 * @author Rodrigo
+	 */
+	function getTextFromQuantities(viewItem, showDescription, Language, NameType) {
+		function parseAttribute(value) {
+			var a = parseInt(value);
+			if (isNaN(a)) {
+				return 0;
+			} else {
+				return a; 
+			}
+		}
+		var defaultItemQuantity = parseAttribute(viewItem.componentDefaultQtd);
+		var grilledQuantity = parseAttribute(viewItem.grilledQuantity);
+		var quantity = defaultItemQuantity + grilledQuantity;
+		var maximumItemQuantity = parseAttribute(viewItem.componentMaxQtd);
+		var itemDescription = showDescription ? "" +  getProductName(viewItem.productCode, Language, NameType) : "";
+		var quantityToShow = Math.abs(grilledQuantity);
+		var productType = parseInt(viewItem.productType);
+		
+		if( defaultItemQuantity > 0 && grilledQuantity == 0 ) {
+			quantity = 0;
+		}
+		
+		if (quantity == 0) {
+			// If the item will have quantity of zero, we just show the remove sign. eg. "sin queso"
+			return [GrillTextMessages.NO + " " + itemDescription, 
+					"NO", 
+					itemDescription];
+		}
+
+		if (defaultItemQuantity == quantity) {
+			// An item arrived with default quantity equals quantity. That should not happen.
+			return [quantity + " " + itemDescription, 
+					"", 
+					quantity + " " + itemDescription];
+		}
+		
+		
+		if (defaultItemQuantity <= 0) {  // This check about negative number is just an additional guard. We just care 
+										 // about 0 here. Check if not part of recipe.
+			if (maximumItemQuantity == 1 || quantityToShow == 1) {
+				// If it's a comment, we dont show the ADD
+				if (productType != ProductTypes.COMMENT) { 
+					return [GrillTextMessages.ADD + " " + itemDescription, 
+							"ADD", 
+							itemDescription];
+				} else {
+					return [itemDescription, "", itemDescription];
+				}
+			} else {
+				return [GrillTextMessages.ADD + " " + quantityToShow + " " + itemDescription, 
+						"ADD", 
+						quantityToShow + " " + itemDescription];
+			}
+		} else {
+			if (quantity > defaultItemQuantity) {  // Adding extra items 
+				if ((maximumItemQuantity == defaultItemQuantity + 1 && 
+					 quantity == maximumItemQuantity) || quantityToShow == 1) {
+					return [GrillTextMessages.EXTRA + " " + itemDescription, 
+							"EXTRA", 
+							itemDescription];
+				} else {
+					return [GrillTextMessages.EXTRA + " " + quantityToShow + " " + itemDescription, 
+							"EXTRA", 
+							quantityToShow + " " + itemDescription];
+				}
+			} else {  // Removing extra Itens
+				if (quantityToShow == 1) {
+					return [GrillTextMessages.REMOVE + " " + itemDescription, 
+							"REMOVE", 
+							itemDescription];
+				} else {
+					return [GrillTextMessages.REMOVE + " " + quantityToShow + " " + itemDescription, 
+							"REMOVE", 
+							quantityToShow + " " + itemDescription];
+				}
+			}
+		}
+	}
+}
+
+/**
+ * @brief Helper function
+ *
+ * @param storeDbPath - path to the desired parameter in store-db
+ * @param psoDbpath -path to the desired parameter in pos-db
+ * @return the value of a configuration parameter
+ * @since 1.17-
+ */
+function getConfigValue(storeDbPath, posDbPath) {
+	if(typeof(xmlPosDB) =="undefined") {
+		xmlPosDB = new XML(API.getPosdb());
+		if(xmlPosDB != null) {
+			if(posDbPath!="" && posDbPath!=null) {
+				var value = eval("xmlPosDB."+posDbPath);
+				var ret_true = value.indexOf("true");
+				if (ret_true >= 0) {
+					return "true";
+				}
+				var ret_false = value.indexOf("false");
+				if (ret_false >= 0) {
+					return "false";
+				}
+			}
+		}
+	}
+	if(typeof(xmlStoreDB) =="undefined") {
+		xmlStoreDB = new XML(API.getStoredb());
+		if(xmlStoreDB == null) {
+			xmlStoreDB = new XML(API.getStoredb());
+		}
+	}
+	return  eval("xmlStoreDB."+storeDbPath)+"";
+}
+
+function filterProducts(view) {
+
+	var xml = new XML(view);
+	var changed = false;
+	var curbsideStallNumber = xml.@curbsideStallNumber.toString();
+	var tableServiceMode = xml.@tableServiceMode.toString();
+	var isCurbsideOrder = (curbsideStallNumber != null && curbsideStallNumber != "");
+	var isTableServiceOrder = (tableServiceMode != null && tableServiceMode != "" && tableServiceMode != "disable");
+
+	var customerNickname=xml.CustomInfo.Info.(@name == "customerNickname").@value;	 //NVS-7563 - Kalpesh - Add Delivery Orders to BVS		
+	
+	//NVS-7470 - msilva - Change the BVS filter in order to check parent products, then add all the childs (grill) components to be displayed on BVS monitor
+	var isParentDrink = false;
+	var parentDrinkItemCode = 0;
+	var parentDrinkLevel = 0;
+	// NVS-7581 Mobile Ordering Table Service Tishin 
+	var saleType = toInt(xml.@type); 
+	//NVS-7696 Tishin 
+	var saleStatus = toInt(xml.@saleStatus); 
+	var trackSaleStatus = toInt(xml.@trackSaleStatus); 
+	var routeToBvsByOrderType = API.findParamInSectionWide("routeToBvsByOrderType","BVS"); 
+	var AvoidtheOrderRoutingToBVS=xml.CustomInfo.Info.(@name == "AvoidtheOrderRoutingToBVS").@value; 
+	var ModifyButtinClicked=xml.CustomInfo.Info.(@name == "ModifyButtinClicked").@value; 
+	// Dont show table service orders to ORB 
+	var eatin = API.getLocalMsg("MSG_CYT_KVS_HME_EAT_IN"); 
+	//NVS-7888 Tishin Thomas 
+	var pod = toInt(xml.@pod); 
+	if((saleType == 0) && isTableServiceOrder){ 
+		xml.@displayOnOrb="false"; 
+	} 
+	// Routing to BVS Tishin 
+	var isPaidMobileOrder = xml.CustomInfo.Info.(@name == "isPaidMobileOrder").@value; 
+	var saleAlreadyTotalized = (trackSaleStatus & SALE_STATUS_ON_TOTAL) > 0; 
+	var isTakeOut = saleType == SALE_TYPE_TAKE_OUT; 
+	for each (item in xml.ItemView) { 
+		var allowRouteBVS = false; 
+		if((customerNickname == "UberEats") && routeToBvsByOrderType != null && routeToBvsByOrderType.search("DELIVERY") != -1){ 
+			allowRouteBVS = true; 
+		} 
+		else if((isCurbsideOrder) && routeToBvsByOrderType != null && routeToBvsByOrderType.search("CURBSIDE") != -1){ 
+			allowRouteBVS = true; 
+		} 
+		else if((isPaidMobileOrder == "true") && (saleType == 0) && routeToBvsByOrderType != null && routeToBvsByOrderType.search("TABLE_MOBILE") != -1){ 
+			allowRouteBVS = true; 
+		} 
+		else if((saleType == 0) && routeToBvsByOrderType != null && routeToBvsByOrderType.search("TABLE_EI") != -1){ 
+			allowRouteBVS = true; 
+		} 
+		if( (AvoidtheOrderRoutingToBVS == "true") || (saleStatus == 1 && !saleAlreadyTotalized) || (saleStatus == 1 && saleAlreadyTotalized && isTakeOut) ||(xml.@tableTagId == eatin) ){ 
+			allowRouteBVS = false; 
+		} 
+		if ( pod == 8 && saleStatus == 64) { 
+			allowRouteBVS = false;
+		}
+		if(allowRouteBVS == false){
+			item.appendChild(<displayKVS>false</displayKVS>);
+			changed = true;
+			continue;
+		}
+		
+		var familyGroup = Number(item.familyGroup.text());
+		var itemCode = item.itemCode;
+		var level = item.level;
+		
+		//Check if is a drink product
+		if(familyGroup == FamilyGroup.BREAKFAST_DRINK || familyGroup == FamilyGroup.REGULAR_DRINK){
+			isDrink = true;
+			isParentDrink = true;
+			parentDrinkItemCode = item.itemCode;
+			parentDrinkLevel = item.level
+
+		//Check if parent is a drink product
+		}else if(isPreviousDrink && (item.itemCode == parentDrinkItemCode) && (item.level >= parentDrinkLevel)){
+			isDrink = true;
+		
+		//Is not a drink product
+		}else{
+			isDrink = false;
+			isParentDrink = false;
+			parentDrinkItemCode = 0;
+			parentDrinkLevel = 0;
+		}
+		
+		if(!isDrink) {
+			item.appendChild(<displayKVS>false</displayKVS>);
+			changed = true;
+		}
+	}
+
+	if (changed) {
+		return xml.toXMLString();
+	}
+	return view;
+} 
+
+/** 
+ * Filters the orders to be displayed on ORB
+ * @param sview the order view provided by prodution
+ * @param monitorType the monitor type provided by the production
+ * @return the boolean enabling order to be displayed on ORB
+ * @author Marcelo Silva
+ * @since NVS-6213 - Mobile Ordering - In curbside unattended flow, the order code is routing to ORB monitor .
+ */
+function filter(sview, monitorType){
+		
+	//Check Orb - 3 or MiniOrb - 4 monitors
+	if(monitorType == "3" || monitorType == "4"){
+			
+		var view = new XML(sview);	
+
+		//Curbside - Avoid curbside unattended orders to be displayed on Orb
+		if(view.@pod == "4" || view.@remPod == "4"){
+			return false;
+		}
+	}
+	
+	return true;
+		
+}
+
+/** 
+ * @brief Check when the order in progress is a UberEats Order
+ * @return 
+ * true: The order is a UberEats order
+ * false: Order is not a UberEats order
+ * @since UberEats NVS-8526 - msilva - UberEats Integration 
+ */
+function isUberEatsOrder(xml){
+	 
+	var deliveryBillableSale = xml.CustomInfo.Info.(@name=="deliveryBillableSale").@value;
+	
+	if(deliveryBillableSale == undefined || deliveryBillableSale == "" || deliveryBillableSale == "false" || deliveryBillableSale == false){
+		return false
+	}
+
+	//Check UberEats NickName
+	var customerNickName = xml.CustomInfo.Info.(@name=="customerNickname").@value;
+	
+	if(customerNickName == undefined || customerNickName == null || customerNickName == ""){
+		return false;
+	}
+	 
+	if((deliveryBillableSale == true || deliveryBillableSale.toString() == "true") && customerNickName.toString() == "UberEats"){
+		return true;
+	}else{
+		return false;
+	}
+}
+
+/** 
+ * \brief Verify and return the UberEats Order Key 
+ * \since NVS-8526 - msilva - UberEats Integration
+ * @return false: Is not a UberEats Order
+ * @Other then false: UberEats Order Number (shortCode)
+ */ 
+function GetUberEatsOrderKeyC(xml){
+	
+	try{
+
+		if(isUberEatsOrder(xml)){
+
+			var uberEatsOrderKey = xml.@homeDeliveryOrderId;
+			if(uberEatsOrderKey == undefined || uberEatsOrderKey == null || uberEatsOrderKey == ""){
+				var LowerCaseuberEatsOrderKey = xml.@shortCode + xml.@longCode;
+				uberEatsOrderKey = LowerCaseuberEatsOrderKey.toUpperCase();
+				
+			}
+			
+			return uberEatsOrderKey;
+			
+		}
+		
+	}catch(e){
+		return false;
+	}
+	
+	return false;
+}
+/* signed aut version 9-9076
+ * authority id = coe
+ * authority level = 40
+ * authority name = NewPOS COE developer
+ * group = npi
+ * validity = 2010-04-18
+ * signature type = slash_star
+ * time stamp (GMT) = Wed Jan 31 01:28:45 2018
+ * certificate = 393735312d3739343700df1480705173204253718534328a8ceae8f01f149d8df7417db8f29e411d286a4d31e7d62d622849bf25dc6f227a3086332a0010
+ * =================================================================================================================================
+*/

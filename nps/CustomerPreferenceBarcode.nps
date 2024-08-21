@@ -1,0 +1,600 @@
+/** 
+ * @file CustomerPreferenceBarcode.nps
+ * @brief 		Contains functions to generate/read the customer preference barcode and create a sale.
+ *
+ * Copyright (C) 2016 McDonalds Corp. All rights reserved.
+ *
+ * @author Frederico Gama (of Creation)
+ * @since 2017/03/03
+ * @remarks 
+ */ 
+
+function CustomerPreferenceBarcodeUseScanButton(){
+	var useScanButton = rootHlp.findParamInSectionWide("useScanButton","CustomerPreferenceBarcode");
+	
+	if (useScanButton == "false") {
+		return false;
+	}
+	return true;
+}
+ 
+function PosSetCustomerPreferenceBarcodeUseScanButton(){
+	
+	var enableBarcodePreferences = rootHlp.findParamInSectionWide("enable","CustomerPreferenceBarcode");
+	var enableCustomerPreferenceBarcode = rootCtx.get("enableCustomerPreferenceBarcode");
+	var useButton = CustomerPreferenceBarcodeUseScanButton();
+	
+	if(!useButton || enableBarcodePreferences != "true" || enableCustomerPreferenceBarcode != "true"){
+		PosChangeButtonProperties(0,"visible|false");
+	}
+	else{
+		PosChangeButtonProperties(0,"visible|true");
+		PosChangeButtonProperties(0,"bitmap|customer_preference_scanner_off.png");
+	}	
+	
+	return true;
+}
+
+function SetCustomerBarcodePreferencesScanButton(enabled){	
+	var scannerButtonOn = enabled != undefined ? enabled : 
+		rootCtx.get("scannerButtonOn") == "true" ? false : true;
+	
+	if( scannerButtonOn ){
+		PosScannerStartCapture(true);
+		rootCtx.set("scannerButtonOn", "true");
+		PosChangeButtonProperties(0,"bitmap|customer_preference_scanner_on.png");
+		return;
+	}	
+	PosScannerStopCaptureJS(true);
+	rootCtx.set("scannerButtonOn", "false");
+	PosChangeButtonProperties(0,"bitmap|customer_preference_scanner_off.png");
+}
+
+function SetEnableCustomerBarcodePreferences(enabled){
+	PosSetSessionProperty("enableCustomerPreferenceBarcode", enabled ? "true" : "false", "true");
+	
+	if(CustomerPreferenceBarcodeUseScanButton()) return;
+		
+	if(enabled){
+		PosScannerStartCapture(true);
+		return;
+	}		
+	PosScannerStopCaptureJS(true);	
+}
+
+function IsEnabledCustomerBarcodePreferences(isKiosk){
+	var enableBarcodePreferences = rootHlp.findParamInSectionWide("enable","CustomerPreferenceBarcode");
+	if (enableBarcodePreferences != "true" || CustomerPreferenceBarcodeUseScanButton()) {
+		return false;
+	}		
+	if(isKiosk == null || isKiosk == undefined || !isKiosk){
+		var enableCustomerPreferenceBarcode = rootCtx.get("enableCustomerPreferenceBarcode");
+		return enableCustomerPreferenceBarcode == "true";
+	}
+	return true;		
+}
+
+function IsEnabledCustomerPrefenceReceipt(isKiosk){
+	var enableBarcodePreferences = rootHlp.findParamInSectionWide("enable","CustomerPreferenceBarcode");
+	if (enableBarcodePreferences != "true") {
+		return false;
+	}		
+	var enableQRCodePrint = rootHlp.findParamInSectionWide("enableQRCodePrint","CustomerPreferenceBarcode");
+	if (enableQRCodePrint != "true") {
+		return false;
+	}
+	if(isKiosk == null || isKiosk == undefined || !isKiosk){
+		var enableCustomerPreferenceBarcode = rootCtx.get("enableCustomerPreferenceBarcode");
+		return enableCustomerPreferenceBarcode == "true";
+	}
+	return true;
+}
+
+function PrintQRcode(orderKey, view, lastView, isKiosk){
+	if(!IsEnabledCustomerPrefenceReceipt(isKiosk)) return false;
+	
+	var barcodePrintQuantity = rootHlp.findParamInSectionWide("barcodePrintQuantity","CustomerPreferenceBarcode");	
+	var qrCodeQuantity = 1;
+	if (barcodePrintQuantity != null) {
+		qrCodeQuantity = Number(barcodePrintQuantity);
+	}
+	
+	var qrCode = GetQRCode(view);
+	
+	if(qrCodeQuantity <= 0 || qrCode.length <= 0) return false;		
+	
+	var encodedView = Base64.encode(String(lastView));
+	var customJson = "{\"barcode\" : \"" + qrCode + "\", \"view\" : \"" + encodedView + "\"}";
+		
+	for(i=0; i < Number(barcodePrintQuantity); i++) {
+		API.SLog("LOGLEVL_DEBUG", "[PrintQRcode] customJson = " + customJson);
+		
+		PosCreateReport("CUSTOMDATA", "printSaleQRCode@reports.nps", "NOPREVIEW", customJson);
+	}	
+	
+	return true;		
+}
+ 
+function PosToggleCustomerPreferenceBarcode() {
+	var enableCustomerPreferenceBarcode = rootCtx.get("enableCustomerPreferenceBarcode");
+	if(enableCustomerPreferenceBarcode != "true") {
+		SetEnableCustomerBarcodePreferences(true);
+		PosChangeButtonProperties(0,"bitmap|customerbarcodeon.png");		
+	}
+	else {
+		SetEnableCustomerBarcodePreferences(false);
+		PosChangeButtonProperties(0,"bitmap|customerbarcodeoff.png");
+	}
+	return true;
+}
+
+function PosSetCustomerPreferenceBarcodeButton() {
+	var customerPreferenceBarcodeConfig = rootHlp.findParamInSectionWide("enable","CustomerPreferenceBarcode");
+	if((customerPreferenceBarcodeConfig == null) || (customerPreferenceBarcodeConfig.length <= 0) || (customerPreferenceBarcodeConfig != "true")) {
+		PosChangeButtonProperties(0,"visible|false");
+		return true;
+	}
+	PosChangeButtonProperties(0,"visible|true");
+	var enableCustomerPreferenceBarcode = rootCtx.get("enableCustomerPreferenceBarcode");
+	if(enableCustomerPreferenceBarcode != "true") {
+		PosChangeButtonProperties(0,"bitmap|customerbarcodeoff.png");
+	}
+	else {
+		PosChangeButtonProperties(0,"bitmap|customerbarcodeon.png");
+	}
+	return true;
+} 
+
+function GetQRCode(view) {
+	var qrCode = "";
+	
+	try
+	{
+		var plugin = new NpSharpService("CustomerPreferenceBarcode");		
+		var parameters = {'orderKey':String(view.@orderKey), 'orderId':String(view.@orderId)};
+		qrCode = plugin.Call("GetQrCodeByOrderKey", parameters);
+	}
+	catch(ex)
+	{
+		API.SLog("LOGLEVL_DEBUG", "Error retrieving QR code. Type: " + ex.type + ". Message:" + ex.message);
+	}
+	
+	return qrCode;
+}
+
+
+function PosHandleQRCodeJS(QRCodeData)
+{	
+	try
+	{
+		var barcode = new NpSharpService("CustomerPreferenceBarcode");
+		var sale = barcode.Call("ConvertQrCodeToSaleJson", {'qrCode': String(QRCodeData)});
+		if (sale === null)
+		{
+			return false;
+		}
+		
+		if( PosNotATransactionInProgress( true ) == false ) {
+			PosShowMessage("MSG_BC_SALEPROG");
+			return true;
+		}
+		
+		if(!PosIsCODSelectedJS()) {
+			PosSizeSelection(-1);
+			PosRefreshButtons();
+			PosShowMessage("MSG_BC_SELECTCOD");
+			return true;
+		}		
+		var jsonSale = JSON.parse(sale);
+		PosDoSaleQRCode(jsonSale);
+		
+		if(CustomerPreferenceBarcodeUseScanButton()){
+			SetCustomerBarcodePreferencesScanButton(false);
+		}
+		
+		return true;
+	}
+	catch(ex)
+	{
+		API.SLog("LOGLEVL_DEBUG", "[PosHandleQRCode] Error converting QR Code to sale. Type: " + ex.type + ". Message: " + ex.message);
+		return false;
+	}	
+	return true;
+}
+
+function CustomerPreferencesFormatString(format) {
+  var args = Array.prototype.slice.call(arguments, 1);
+  return format.replace(/{(\d+)}/g, function(match, number) { 
+    return typeof args[number] != 'undefined'
+      ? args[number] 
+    : match
+    ;
+  });
+};
+
+function CustomerPreferencesGetProductInfo(items){
+	
+	var prodInfoStr = "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+                + "<ProdInfo>"
+                + "  <Header Version=\"2.5\" Command=\"0\" />"
+                + "  <Order storeId=\"-1\" type=\"0\" pod=\"{0}\" podName=\"FOE0001\" remPod=\"{0}\" "
+                + "localOrderKey=\"{1}\" major=\"-1\" minor=\"-1\" orderSrc=\"0\" taxMode=\"0\" "
+                + "multipleMenuType=\"true\" status=\"64\" businessDate =\"{2}\" saleDate=\"{2}\" saleTime=\"{3}\" > "
+                + "  {4}"
+                + "  </Order>"
+                + "</ProdInfo>";
+
+	var podStr = rootCtx.get("POD");	
+	var pod = PosCheckSessionProperty("POD","DRIVE_THRU") ? 1 : 0;
+	var businessDate = new XML(rootHlp.getBusinessDate("true"));
+	var wayBusinessDate = String(businessDate.@Register);
+	
+	var curDate = new NPDate();
+	var curTime = curDate.getHours().toString() + curDate.getMinutes().toString() + curDate.getSeconds().toString();
+	
+	var localOrderKey = Math.floor((Math.random() * 100000) + 1);
+	
+	return CustomerPreferencesFormatString(prodInfoStr, pod, localOrderKey, wayBusinessDate, curTime, items);	
+}
+
+
+function ValidateIsInProductOutage(productCode) {
+		
+	var outageFile = API.getProductOutage();
+	var outageXML;		
+	
+	// Check if the outage file exists.
+	if(outageFile == undefined || outageFile == null) {
+		return false;
+	}
+	
+	outageXML = new XML(outageFile.toString());
+	
+	// Check if the current product code is inside the outage file.
+	for each(var outageProductCode in outageXML.Product.@code) {
+	
+		// If the current product is in the outage file.
+		if(outageProductCode == productCode.toString()) {
+			return true;
+		}
+	}
+	
+	// If the current product isn't in the outage file.
+	return false;
+}
+
+function ConvertDayPartFromStringToCodeJS(dayPartString) {
+
+	if (dayPartString == "BREAKFAST_MENU") {
+		return DAYPART_BREAKFAST_MENU;
+	}
+	else if (dayPartString == "DAY_MENU") {
+		return DAYPART_DAY_MENU;
+	}
+	else if (dayPartString == "BREAKFAST_DAY_MENU") {
+		return DAYPART_BREAKFAST_DAY_MENU;
+	}
+	else {
+		API.STTDebugLog("0", "[ConvertDayPartFromStringToCodeJS] No day part string matches the value: " + dayPartString + ". Using the default value (BREAKFAST_DAY_MENU", BC_EVENTS_NAME);
+		return DAYPART_BREAKFAST_DAY_MENU; // Default value.
+	}
+}
+
+function ValidateProductDayPartJS(productDayPart, initialize){
+	if (!productDayPart) return true;
+	
+	var currentDayPart = rootCtx.get("CURRENT_DAYPART");
+	
+	if((initialize == undefined || initialize) && !currentDayPart){
+		PosGetDayPart();
+		return ValidateProductDayPartJS(productDayPart, false);
+	}
+	if(!currentDayPart) return true;
+	
+	var productDayPartCode = ConvertDayPartFromStringToCodeJS(productDayPart);
+	
+	// If the day part code is DAYPART_BREAKFAST_DAY_MENU, than this product belongs to both day parts and may be selled at any time.
+	if(DAYPART_BREAKFAST_DAY_MENU == productDayPartCode) return true;
+	return productDayPartCode == currentDayPart;
+}
+
+function ValidateSale(saleItems, validationObj){
+	
+	for (var i = 0; i < saleItems.length; i++)
+	{
+		var item = saleItems[i];
+		
+		if(item.Children != null && item.Children.length > 0){
+			ValidateSale(item.Children, validationObj);
+		}
+			
+		if(productDictionary == null){
+			API.SLog("LOGLEVL_DEBUG", "[ValidateSale] productDictionary = null");
+			continue;
+		}
+		
+		var productNode = productDictionary[item.ProductCode];
+				
+		var strProductName = rootHlp.getProductName(item.ProductCode, 1);
+		
+		if(strProductName == null) strProductName = "Cod: " + item.ProductCode.toString();
+				
+		if(productNode == undefined || productNode == null) {
+			
+			API.SLog("LOGLEVL_DEBUG", "[ValidateSale] roductNode == undefined || productNode == null");			
+			validationObj.isValid = false;
+			validationObj.invalid.push({'code' : item.ProductCode, 'name' : strProductName, 'description' : strProductName + " - Product not found."});
+			continue;
+		}
+		else if(productNode.@salable == "false") {
+		
+			API.SLog("LOGLEVL_DEBUG", "[ValidateSale] Product no salable: " + strProductName + ". Code: " + item.ProductCode);			
+			validationObj.isValid = false;
+			validationObj.invalid.push({'code' : item.ProductCode, 'name' : strProductName, 'description' : strProductName + " - Product no salable."});
+			continue;
+		}
+		else if(productNode.@statusCode == "INACTIVE") {
+				
+			API.SLog("LOGLEVL_DEBUG", "[ValidateSale] Product inactive: " + strProductName + ". Code: " + item.ProductCode);			
+			validationObj.isValid = false;
+			validationObj.invalid.push({'code' : item.ProductCode, 'name' : strProductName, 'description' : strProductName + " - Product inactive."});
+			continue;
+		}
+		else if(ValidateIsInProductOutage(item.ProductCode)){
+			
+			API.SLog("LOGLEVL_DEBUG", "[ValidateSale] Product outage: " + strProductName + ". Code: " + item.ProductCode);			
+			validationObj.isValid = false;
+			validationObj.invalid.push({'code' : item.ProductCode, 'name' : strProductName, 'description' : strProductName + " - Product outage."});
+			continue;			
+		}
+		else if(!ValidateProductDayPartJS(productNode.DayPartCode)){
+			
+			API.SLog("LOGLEVL_DEBUG", "[ValidateSale] Product out of daypart: " + strProductName + ". Code: " + item.ProductCode);			
+			validationObj.isValid = false;
+			validationObj.invalid.push({'code' : item.ProductCode, 'name' : strProductName, 'description' : strProductName + " - Product out of day part."});
+			continue;			
+		}		
+		
+		validationObj.valid.push({'code' : item.ProductCode, 'name' : strProductName, 'description' : strProductName});
+		API.SLog("LOGLEVL_DEBUG", "[ValidateSale] Valid item: " + strProductName);
+				
+	}
+}
+
+
+function IsValidCodeToCustomerPreferenceSale(code, validationObj){
+	if(validationObj.isValid) return true;	
+	for each(var item in validationObj.invalid){
+		if(code === item.code){
+			return false;
+		}
+	}
+	return true;
+}
+
+/**
+ * @brief -
+ * @param -
+ * @return true in case of sale
+ */
+function PosDoSaleQRCode(jsonSale) {
+	
+	try
+	{		
+		var validationObj = {isValid : true, 'valid' : [], 'invalid' : []};	
+		ValidateSale(jsonSale.SaleItems, validationObj);	
+						
+		if(!validationObj.isValid){
+			if(validationObj.valid.length == 0){
+				API.SLog("LOGLEVL_DEBUG", "[PosDoSaleQRCode] No valid items to process");
+				PosShowMessage("The scanned order only contains invalid products");
+				return false;
+			}			
+			var jsonString = JSON.stringify(validationObj);
+			PosCreateReport("CUSTOMDATA", "printCustomerPreferencesValidProducts@reports.nps", "PREVIEW", jsonString);
+			API.SLog("LOGLEVL_DEBUG", "[PosDoSaleQRCode] Processing only valid items");
+		}			
+		
+		if(!PosCreateSaleProdInfoFromJson(jsonSale, validationObj)){
+			return false;	
+		}
+		if(jsonSale.Customer && jsonSale.Customer.Id > 0){
+			API.SLog("LOGLEVL_DEBUG", "[PosDoSaleQRCode] Customer id set: " + jsonSale.Customer.Id);
+			PosSetCustomerInfoOnSale(jsonSale.Customer.Id);
+		}		
+		return true;	
+	}
+	catch(ex)
+	{
+		API.SLog("LOGLEVL_DEBUG", "[PosDoSaleQRCode] Error creating sale");		
+	}
+	
+	
+	return true;
+	
+	
+	/** PosCreateSaleProdInfoFromJson
+		*
+	 * @brief - This function does a sale item by item from a json
+	 * @param - jsonSale - string with all items
+	 * @param - validationObj - object with items validated
+	 * @return  Customer nick string
+	 * @since 1.17
+	 */
+	function PosCreateSaleProdInfoFromJson(jsonSale, validationObj) {
+		PosCommStatusCOD("MSG_BC_ERRORSETCOD1");
+		
+		var showGrillScreen = rootCtx.get("showGrillScreen");
+		
+		// set to not do PosAutoChoice on BCEvents.nps, function onChoiceMade
+		rootCtx.set("isQRCodeOrder", "true");
+		
+		var items = GetItems();		
+		
+		var prodInfo = CustomerPreferencesGetProductInfo(items);
+		
+		API.SLog("LOGLEVL_DEBUG", "[PosCreateSaleProdInfoFromJson] prodInfo: " + prodInfo);
+		
+		var ret = PosCreateSaleFromProdInfo(prodInfo, "false");
+		
+		if(!ret){
+			var conversionError = getLastFail("PosCreateSaleFromProdInfo");
+			var msg = API.geti18nMsg(5, conversionError); 
+			API.SLog("LOGLEVL_DEBUG", "[PosCreateSaleProdInfoFromJson] Error on PosCreateSaleFromProdInfo: " + prodInfo);
+			API.SLog("LOGLEVL_DEBUG", "[PosCreateSaleProdInfoFromJson] Error: " + msg);
+			PosShowMessage(msg);
+		}
+		
+		
+		rootCtx.set("isQRCodeOrder", "false");
+				
+		return ret;
+		
+		/**
+		 * @brief - do a sale or grill of each item
+		 */
+		function GetItems() {
+			var itemsXmlTag = "";			
+			var itemXmlTag = "<Item index=\"{0}\">{1}</Item>";
+			
+			var parentQty = Number(jsonSale.SaleItems[0].Quantity);
+			
+			var productSoldQty = new Array();
+			productSoldQty.indexOfItem = function(value) {
+				var l = this.length;
+				for( var i = 0; i < l; i++ ) {
+					if ( this[i].item === value) {
+						return i;
+					}
+				}
+				return -1;
+			}
+			
+			var indexCounter = 0;
+			for each(var item in jsonSale.SaleItems){
+				if(!IsValidCodeToCustomerPreferenceSale(item.ProductCode, validationObj)){
+					continue;
+				}
+				var products = GetProducts(item);
+				
+				itemsXmlTag += CustomerPreferencesFormatString(itemXmlTag, indexCounter, products);
+				
+				indexCounter++;
+			}			
+			return itemsXmlTag;
+						
+			
+			function GetProducts(item)
+			{
+				if(item.IsGrillLine)
+				{
+					return ProcessGrill(item);
+				}				
+				return ProcessItem(item);		
+			}
+			
+			/**
+			 * @brief - do a sale or choice for an item
+			 */
+			function ProcessItem(item) {
+				var productXmlTag = "<product code=\"{0}\" qty=\"{1}\">{2}</product>";
+				var qtyToSell = 0;
+				
+				if((item.Level == 0) || (item.Action == 3)){ // 3-Choice
+					qtyToSell = GetQtyToSell(item, item.Level != 3 ? null : parentQty);	
+				}
+								
+				var subProducts = "";
+				for (var i = 0; i < item.Children.length; i++)
+				{
+					var subProduct = GetProducts(item.Children[i]);
+					if(subProduct != "") subProducts += subProduct;
+				}
+				
+				return qtyToSell == 0 ? "" : CustomerPreferencesFormatString(productXmlTag, item.ProductCode, qtyToSell, subProducts);
+				
+				
+				function GetQtyToSell(item, parentQuantity) {
+					
+					var prodCode = item.ProductCode.toString();
+					var prodQty = Number(item.Quantity);
+					if (parentQuantity != null && parentQuantity != 0) {
+						prodQty = prodQty * parentQuantity;
+					}
+					var quantityToSell = prodQty;
+					
+					var ix = productSoldQty.indexOfItem(prodCode);
+					if (ix >= 0) {
+						quantityToSell = quantityToSell + productSoldQty[ix].qty;
+					}
+					else {
+						ix = productSoldQty.push({item:prodCode, qty:quantityToSell});
+						ix--;
+					}
+					
+					productSoldQty[ix].qty = quantityToSell;
+					return quantityToSell;
+				}				
+			}
+			
+			
+			/**
+			 * @brief - process item grill
+			 */
+			function ProcessGrill(item) {
+				var grillXmlTag = "<grill modifier=\"{0}\" qty=\"{1}\" code=\"{2}\"/>";
+								
+				var oper;
+				var mod;
+				var qty = 1;
+				
+				if (Number(item.GrilledQuantity) < 0) {
+					oper = 'm'; // Remove
+					qty = Number(item.GrilledQuantity) * (-1);
+				} else if (Number(item.GrilledQuantity) == 0) {
+					oper = '0'; // Modifier
+					qty = 1;
+				}
+				else {
+					oper = 'p'; // Add
+					qty = Number(item.GrilledQuantity);
+				}
+				
+				// @todo. Why (mod = item.SpecialModifiers) didn't work?
+				if (0 == Number(item.SpecialModifiers)) {
+					mod = '-1';
+				}
+				else if (1 == Number(item.SpecialModifiers)) {
+					mod = '1';
+				}
+				else if (2 == Number(item.SpecialModifiers)) {
+					mod = '2';
+				}
+				else if (3 == Number(item.SpecialModifiers)) {
+					mod = '3';
+				}
+				else {
+					mod = '4';
+				}
+				
+				if (Number(item.SpecialModifiers) > 0) {
+					// Change operation to Modifier
+					oper = '0'; 
+				}				
+								
+				return CustomerPreferencesFormatString(grillXmlTag, mod, qty, item.ProductCode);				
+			}
+		}
+	}
+}
+/* signed aut version 9-9076
+ * authority id = coe
+ * authority level = 40
+ * authority name = NewPOS COE developer
+ * group = npi
+ * validity = 2010-04-18
+ * signature type = slash_star
+ * time stamp (GMT) = Wed Jan 31 01:28:44 2018
+ * certificate = 393735312d37393437009952ede4f40ff688768cc934f53fbc717cd033432b77548d7d0646db9ca07c55b095d2e104a232e41f57f10f43c219e25d1d0010
+ * =================================================================================================================================
+*/

@@ -1,0 +1,3651 @@
+/**
+ * @file CSL_Screen.nps
+ * @brief This NPS file implements BusinessComponents Screen.
+ * @addtogroup 	CSL
+ * @defgroup 	Screen
+ * @ingroup 	CSL
+ *
+ * Copyright (C) 2008 McDonalds Corp. All rights reserved.
+ *
+ * @author Raphael (of Creation)
+ * @since NPS-4831 / 2009/06/09
+ *
+ * @version $Id: CSL_Screen.nps 776 2009-08-06 13:46:38Z rcaram $
+ * @remarks Business Components related to manipulating Screens.
+ * @{
+ */
+
+/* Variable used for version control */
+CSL_SCREEN_VERSION = "$WCURL$:$WCREV$";
+
+/* Set the variable. */
+SRC_BC_SCREEN='CSL_Screen.nps';
+
+/* global variables */
+var xmlNamesDb = null;
+
+/* product Outage */
+var level_zero_products = null;
+var product_outage = null;
+var current_outage_filter = null;
+var search_products_text = "";
+
+/**
+ * @brief loadProductOutage
+ *
+ * @since 1.17-
+ */
+ function loadProductOutage() {
+	var cmd = "loadProductOutage";
+	CSL_dbglog(7, SRC_BC_TOOLS, cmd, "Start ");
+	var temp = API.getProductOutage();
+	if(temp == null) {
+		return;
+	}
+	var sRawProductOutage = temp.toString();
+	var sProductOutage	= sRawProductOutage;
+
+	// check for E4X documented bug
+	if (sRawProductOutage.indexOf("<?xml") != -1) {
+		var cutting = sRawProductOutage.indexOf("?>");
+		if (cutting != -1) {
+			sProductOutage = sRawProductOutage.substring(cutting + 2, sRawProductOutage.length);
+		}
+	}
+
+	product_outage	= new XML(sProductOutage);
+}
+
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosActivateScreenSaver</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC activates the screen saver. It can be: Screen-saver, Closed Window Exibition Start and Closed Window Exibition end.
+ * The default is Screen-saver.
+ *
+ * @param mode - string - optional - 0: screen-saver (default), 1: closed window exhibition start, 2: closed window exhibition end.
+ * @success Screen saver activated successfully.
+ * @remarks
+ * This BC aways returns true. If the parameter is anything other than 0, 1 or 2, the default screen-saver (NPWM_DLG_SCREENSAVER)
+ * will be activated.
+ * @since 1.17-
+ */
+function PosActivateScreenSaver(mode) {
+	var cmd = "PosActivateScreenSaver";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, [mode]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosCrewPanelBtn</b>.
+ *
+ * Persistence:<b>Persisted</b>\n
+ * The PosCrewPanelBtn is responsible for handle unserve button clicks in double crew Panel.
+ * It is used internally by the kernel.
+ * In java script it should be called:<b>PosCrewPanelBtn()</b>
+ * @success Double Crew disabled.
+ * @success POS blocked with a logged in operator or POS opened with a logged in operator.
+ * @failure <i>Time Blocked</i> - POS is time blocked.
+ * @since 1.17-
+ */
+function PosCrewPanelBtn() {
+	var cmd = "PosCrewPanelBtn";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start - ");
+    return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosCrewPanelMoveOrder</b>.
+ *
+ * Persistence:<b>Persisted</b>\n
+ * The PosCrewPanelMoveOrder is responsible for handle next/previous button clicks in double crew Panel.
+ * In java script it should be called:<b>PosCrewPanelMoveOrder(direction)</b>
+ * @param direction - String - allowed values: "left" [or "previous"], "right" [or "next"] or "recall".
+ * @failure <i>Argument Missing</i> - direction parameter is missing.
+ * @failure <i>Time Blocked</i> - POS is time blocked.
+ * @failure <i>No Next Order</i> - There is no next order.
+ * @failure <i>No Previous Order</i> - There is no previous order.
+ * @failure <i>List View Error</i> - Error getting list of unserved views.
+ * @todo Check return codes.
+ * @since 1.17-
+ */
+function PosCrewPanelMoveOrder(direction) {
+	var cmd = "PosCrewPanelMoveOrder";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start - ");
+    return executeBC(cmd, [direction]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosCrewPanelServe</b>.
+ *
+ * Persistence:<b>Persisted</b>\n
+ * The PosCrewPanelServe is responsible for handle served button click in double crew Panel.\n
+ * It is used internally by the kernel.\n
+ * In java script it should be called:<b>PosCrewPanelServe(PosKey)</b>
+ * @param PosKey - String - Sale key.
+ * @success Order served, sale panel refreshed with the next order to serve.
+ * @failure <i>Argument Missing</i> - PosKey parameter is missing.
+ * @failure <i>Not in Sale Mode</i> - POS is not in sale mode.
+ * @failure <i>Serialize Error</i> - Error serializing a served item.
+ * @since 1.17-
+ */
+function PosCrewPanelServe(PosKey) {
+	var cmd = "PosCrewPanelServe";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start - ");
+    return executeBC(cmd, [PosKey]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosHandleDoubleClick</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * The PosHandleDoubleClick is responsible for handle a double click event in Util Panel. (might toogle between last sale view and stored orders).\n
+ * It is used internally by the kernel.\n
+ * In java script it should be called:<b>PosHandleDoubleClick()</b>
+ * @success Always, except when not in sale mode.
+ * @failure <i>Not in Sale Mode</i> - POS is not in sale mode.
+ * @remarks
+ *
+ * Property Messages:\n
+ * 	MSG_BC_DBLCLICK: Message Shown double click to see the last sale.\n
+ * @since 1.17-
+ */
+function PosHandleDoubleClick() {
+	var cmd = "PosHandleDoubleClick";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start - ");
+    return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosRefreshSalePanel</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * The PosRefreshSalePanel is responsible for refreshing the sale panel for the current transaction (sale).
+ * In java script it should be called:<b>PosRefreshSalePanel(clearMsg)</b>
+ * @param successMsg - String - Optional, if defined, fills the sale panel with the values set on this string.\n
+ *		  each line on the sale panel if formed by 4 fields that should come separeted by \\n in this string,\n
+ *		  the first field is the line index, the second the text, the third a monetary value, and the last the color.\n
+ *		  eg.:2\\nBIG MAC PLUS\\n2.33\\n21\\n  \n
+ *		  if defined, and equals "STORE", refreshes sale panel with current sale, storing current view on production\n
+ *		  if not defined just refreshes sale panel with current sale.
+ * @success Always return true.
+ * @since 1.17-
+ */
+function PosRefreshSalePanel(clearMsg) {
+	var cmd = "PosRefreshSalePanel";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start - ");
+    return executeBC(cmd, [clearMsg]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosRefreshLineDisplay</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * The PosRefreshLineDisplay is responsible for refreshing the line display for the current transaction (sale).
+ * In java script it should be called:<b>PosRefreshLineDisplay()</b>
+ * @success Always return true.
+ * @since 1.33-
+ */
+function PosRefreshLineDisplay() {
+	var cmd = "PosRefreshLineDisplay";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start - ");
+    return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosBackToPreviousScreen</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC is responsible for returning to the previous screen based on the screen stack.
+ *
+ * @success Returned to the previous screen successfully
+ * @failure	<i>Screen not found.</i>This failure ocurred on PosShowScreen.
+ * @remarks
+ * The screen stack is alimented by the BC PosShowScreen (means that the navigation is going
+ * deeper in screen structure) and the BC below just consumes the stack making the crew member
+ * able to navigate back in the POS screen structure.
+ * Note that, for any reason, if the screen navigation (configured by screen.xml) swaps from a deep
+ * screen to the base screen the stack will be reset automatically.
+ * This BC does not require parameters.
+ * This BC calls PosShowScreen.
+ * @todo Verify the return value in this BC. (It returns True, but the comment says that it should return False)
+ * @since 1.17-
+ */
+function PosBackToPreviousScreen() {
+	var cmd = "PosBackToPreviousScreen";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosChangeBaseScreen</b>.
+ *
+ * Persistence:<b>Persisted</b>\n
+ * This BC is responsible for changing the POS base screen.
+ *
+ * @param ListOfScreenIds - string - List with screen ids separeted by '|'.
+ * @param ListOfScreenNames - string - List with screen ids separeted by '|'.
+ * @success Base screen changed successfully.
+ * @failure	<i>Chosen screen cannot be set as Base screen</i>
+ * @sessioncontext <i>"baseScreenId"</i> This contains the base screen ID. Its value is set to the chosen Screen.
+ * @remarks
+ * It receives two lists one with the screens ids and other with their titles.
+ * A window is opened for the operator to pick the desired base screen, based on the received lists.
+ * Elements in the lists should be separeted by '|'.
+ * Property Message:\n
+ * 		MSG_BC_SCREENPICKTITLE: when the dialog to choose the screen is prompted.
+ * @since 1.17-
+ */
+function PosChangeBaseScreen(ListOfScreenIds, ListOfScreenNames) {
+	var cmd = "PosChangeBaseScreen";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, [ListOfScreenIds, ListOfScreenNames]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosChangeRemoteBaseScreen</b>.
+ *
+ * Persistence:<b>Persisted</b>\n
+ * This BC is responsible for changing the POS base screen and It sets the new base screen id for changeover.
+ *
+ * @param ListOfScreenIds - string - List with screen ids separeted by '|'.
+ * @param ListOfScreenNames - string - List with screen ids separeted by '|'.
+ * @success Base screen changed successfully.
+ * @failure	<i>Chosen screen cannot be set as Base screen</i>
+ * @sessioncontext <i>"baseScreenPrevId"</i> This contains the choosen screen ID.
+ * @remarks
+ * It receives two lists one with the screens ids and other with their titles.
+ * A window is opened for the operator to pick the desired base screen, based on the received lists.
+ * Elements in the lists should be separeted by '|'.
+ * Property Message:\n
+ * 		MSG_BC_SCREENPICKTITLE: when the dialog to choose the screen is prompted.
+ * @since 1.17-
+ */
+function PosChangeRemoteBaseScreen(ListOfScreenIds, ListOfScreenNames) {
+	var cmd = "PosChangeRemoteBaseScreen";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, [ListOfScreenIds, ListOfScreenNames]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosWayOnline</b>.
+ *
+ * Persistence:<b>Persisted</b>\n
+ * This BC verifies if Way Station is online or offline .\n
+ *
+ * @param none.
+ * @success Way Station is online.
+ * @failure	Way Station is offline
+ * Property Message:\n
+ * 		none
+ * @since 1.17-
+ */
+function PosWayOnline() {
+	var cmd = "PosWayOnline";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosSendBaseScreenInformation/b>.
+ *
+ * Persistence:<b>Persisted</b>\n
+ * This BC is responsible for send the new screen id information to Way Station.\n
+ *
+ * @param ScreenId - string.
+ * @success Information was sent sucessfully.
+ * @failure	A error had ocurred when information was sent
+ * @remarks
+ * Property Message:\n
+ * 		none
+ * @since 1.17-
+ */
+function PosSendBaseScreenInformation(ScreenId) {
+	var cmd = "PosSendBaseScreenInformation";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, [ScreenId]);
+}
+
+function PosChangeScreenProperties(BtnNbr) {
+	var cmd = "PosChangeScreenProperties";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, Array.prototype.slice.call(arguments));
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosChangeButtonProperties</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * The PosChangeButtonProperties is responsible for change properties in a button configured in the current loaded screen.
+ * The button to have its properies changed is identified by the parameter BtnNbr.
+ *
+ * @param BtnNbr - String - Number that identifies the button (<= 0 uses the button number correspondent to the button itself).
+ * @param paramTk1 - Pipe-tokenized string - Optional first pipe-tokenized string parameter. Use these parameters as follows:\n
+ *										   - "nameOfProperty|value" E.g.: "title|test" or "bgDn|test.png"\n
+ *										   - One special property is the "visible", it can be used to hide/show a button\n
+ * @param paramTkn - Pipe-tokenized string - Optional n'th pipe-tokenized string parameter.
+ * @success Button parameters correctly changed.
+ * @failure <i>Invalid Parameters</i> - Given Parameters are in a wrong format.
+ * @since 1.17-
+ */
+function PosChangeButtonProperties(BtnNbr) {
+	var cmd = "PosChangeButtonProperties";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, Array.prototype.slice.call(arguments));
+}
+function PosChangeClearTableServiceZoneButtonProperties(BtnNbr) {
+	var cmd = "PosChangeClearTableServiceZoneButtonProperties";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, Array.prototype.slice.call(arguments));
+}
+
+function PosChangeTableServiceZoneButtonProperties(BtnNbr) {
+	var cmd = "PosChangeTableServiceZoneButtonProperties";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, Array.prototype.slice.call(arguments));
+}
+
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosChangeTitleBar</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC is responsible for changing information shown in the POS title bar or the POS working mode area.
+ * It receives two parameters: the first with the information area to change and the second with the actual display text.
+ *
+ * @param areaName - string - display info to change: 'pointName' to change the POS working mode;\n
+ *													  'ipAddress' to change the ip address in the title bar;\n
+ *													  'wayStatus' to change the Way Station operation status;\n
+ *													  'hasUpdate' to change the Aditional Text;\n
+ *													  other string: is shown in Order in Memory indication.
+ * @param value - string - Text to display.\n
+ * @success Information shown in POS title bar changed successfully.
+ * @todo Verify 'hasUpdate' value for value parameter.
+ * @todo This BC needs a revision.
+ * @since 1.17-
+ */
+function PosChangeTitleBar(areaName, value) {
+	var cmd = "PosChangeTitleBar";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, [areaName, value]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosCheckCurrentScreen</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC checks if the current screen is the received parameter or is in a range.
+ *
+ * @param ScreenNumber - string - Screen to Validate or range: nbr1-nbr2 (nbr1 and nbr2 included)
+ * @success Current screen is the specified by the parameter, or it is in the range.
+ * @failure	<i>Current screen is not the specified by the parameter, or it is not in the range.</i>
+ * @remarks
+ * The screen stack is alimented by the BC PosShowScreen (means that the navigation is going
+ * deeper in screen structure) and the BC below just consumes the stack making the crew member
+ * able to navigate back in the POS screen structure.
+ * Note, that for any reason, if the screen navigation (configured by screen.xml) swaps from a deep
+ * screen to the base screen the stack will be reset automatically.
+ *
+ * @since 1.17-
+ */
+function PosCheckCurrentScreen(ScreenNumber) {
+	var cmd = "PosCheckCurrentScreen";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, [ScreenNumber]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosChooseDayPart</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC shows a list with all possible values for DayPart and if one was selected its value is set in the session context variable
+ * 'CONFIGURED_DAYPART'
+ *
+ * @param lstTitle - string - title for list (can be a property)
+ * @param confMsg - string - confirmation message (can be a property)
+ * @success List of DayPart shown successfully. Selected value set in session context variable.
+ * @failure	<i>Unable to genereate an array list.</i> A problem occured when trying to create a new arrayList for DayPart.
+ * @failure <i>Unable to retrieve DayPart.</i> A problem occurred when trying to retrieve the current DayPart from WayStation.
+ * @failure <i>No value selected.</i> No value for DayPart was selected.
+ * @sessioncontext <i>"CONFIGURED_DAYPART"</i> - Key to set value in the context variable.
+ * @remarks
+ * Property Messages:\n
+ *	MSG_BC_DAYPART_AUTO_TRANSITION_MENU: when the current configuration is Auto Transition menu.\n
+ *	MSG_BC_DAYPART_BREAKFAST_MENU: when the current configuration is Breakfast menu.\n
+ *	MSG_BC_DAYPART_DAY_MENU: when the current configuration is Day menu.\n
+ *	MSG_BC_DAYPART_BREAKFAST_DAY_MENU: when the current configuration is Breakfast Day menu.
+ * @since 1.17-
+ */
+function PosChooseDayPart(lstTitle, confMsg) {
+	var cmd = "PosChooseDayPart";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, [lstTitle, confMsg]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosChooseKvs</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC shows a list with all KVS in the network and if one was selected its value is set in the session context variable '"SELECTED_REMKVS"'
+ *
+ * @param type - string - type of desired list: 0->list for cash drawer;\n
+												1->list for remote detach;\n
+												2->list for logged-in, 3->list for loggin.
+ * @param lstTitle - string - title for list (can be a property).
+ * @param confMsg - string - confirmation message (can be a property).
+ * @success List of KVS shown successfully. Choosen KVS value set in the session context variable.\n
+ * @failure	<i>Unable to show list of KVS</i> - Error getting list of KVS.\n
+ * @failure	<i>List of KVS is null</i> - List of KVS on the network recieved from WayStation is null.\n
+ * @failure <i>Unable to get list of KVS</i> - Error when trying to get list of KVS from the WayStation.\n
+ * @failrue <i>No value selected</i> - No KVS selected from the list retrieved.\n
+ * @sessioncontext <i>"SELECTED_REMKVS"</i> - Key to set value of remote KVS in the context variable.
+ * @remarks
+ * Property Messages:\n
+ *	MSG_BC_KVSDETACH_NOKVS: when the list of kvs retrieved from WayStation is null.\n
+ *	MSG_BC_KVSDETACH_WSUNAVAIABLE: when no kvs list is retrieved from WayStation.\n
+ * @since 1.17-
+ */
+function PosChooseKVS(type, lstTitle, confMsg) {
+	var cmd = "PosChooseKVS";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, [type, lstTitle, confMsg]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosChooseRemotePOS</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC shows a list with all POS in the network and if one was selected its value is set in the session context variobale '"SELECTED_REMPOS"'.
+ *
+ * @param type - string - type of desired list: 0->list for cash drawer;\n
+												1->list for remote detach;\n
+												2->list for logged-in;\n
+												3->list for loggin.
+ * @param lstTitle - string - title for list (can be a property).
+ * @param confMsg - string - confirmation message (can be a property).
+ * @success List of Remote POS shown successfully. Selected POS set in the session context variable.\n
+ * @failure <i>List of POS is null</i> - List of POS on the network returned from the WayStation is null.\n
+ * @failure <i>Unable to get list of POS</i> - Error wueh trying to get list of POS from the WayStation.\n
+ * @sessioncontext <i>"SELECTED_REMPOS"</i> - Key to set value of remote POS in the context variable.
+ * @since 1.17-
+ */
+function PosChooseRemotePOS(type, lstTitle, confMsg) {
+	var cmd = "PosChooseRemotePOS";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, [type, lstTitle, confMsg]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosChooseService</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * The PosChooseService is responsible for show a list of disposable KVS, and let the user select or add a new one.
+ *
+ * @param Service - String - Service name shown appended in the Title of KVS list.
+ * @param selectedKvs - String - Required parameter, but not used.
+ * @success Disposed KVS list shown and selected KVS set in session context.
+ * @success Disposed KVS list shown and a new KVS added in session context.
+ * @failure <i>Invalid Parameter</i> - Service and selectedKvs parameters are required.\n
+ * @failure <i>NULL Parmeter</i> - Argument is NULL.\n
+ * @failure <i>Insert KVS Invalid</i> - Invalid KVS number typed when trying to include a new KVS.\n
+ * @failure <i>Invalid Index</i> - BC retrieved an invalid index.\n
+ * @sessioncontext <i>"listKvs"</i> - Read to check if there is a list of KVS.
+ * @remarks
+ * Property Messages:\n
+ * 	MSG_BC_INVRPTTYPE: Shown if any of the arguments are NULL.\n
+ *	MSG_BC_ENDLISTKVS: Shown in the last line of the list, it's the option to include a new KVS.\n
+ *	MSG_BC_LISTKVSTITLE: Shown in the title of the KVS list.\n
+ *	MSG_BC_INPUTKVS: Shown in the main part of the calculator display.\n
+ * @since 1.17-
+ */
+function PosChooseService(Service, selectedKvs) {
+	var cmd = "PosChooseService";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, [Service, selectedKvs]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosClearVisitedScreens</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC clears the visited counter for all screens.
+ *
+ * @success Visited counter cleared successfully.
+ * @remarks
+ * This BC does not require parameters.
+ * @since 1.17-
+ */
+function PosClearVisitedScreens() {
+	var cmd = "PosClearVisitedScreens";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosCloseStoreMessage</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC finalizes exhibition of a message (Store dialog window).
+ *
+ * @success Store dialog window finalized successfully.
+ * @remarks
+ * This BC does not require parameters.
+ * This BC aways returns true.
+ * @since 1.17-
+ */
+function PosCloseStoreMessage() {
+	var cmd = "PosCloseStoreMessage";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosDisplayText</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * The PosDisplayText is responsible for display a text (UTF8 format) to a given destination.
+ *
+ * @param Message - String - Message text to show (UTF8 format).
+ * @param DstType - String - Destination (1->"operator", 2->"customer", 3->"both").
+ * @param SysMsg - String - Optional parameter, if it's TRUE, this function searchs the message in the properties file.
+ * @param ClearInfoArea - String - Optional parameter, TRUE if should clear info message when loading next screen.
+ * @param ... - String - Optional parameters, up to five strings - complements to Message.
+ * @success Show user defined message, according to the given parameters.
+ * @failure <i>Argument Missing</i> - Invalid number of arguments.
+ * @since 1.17-
+ */
+function PosDisplayText(Message, DstType, SysMsg, ClearInfoArea) {
+	var cmd = "PosDisplayText";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, Array.prototype.slice.call(arguments));
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosExtendScreenTimeOut</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC extends the timeout for the current screen.
+ *
+ * @success Screen timeout extended successfully.
+ * @failure	<i>Unable to extend screen timeout</i> - Problem when trying to alloc memory to string command.\n
+ * @remarks
+ * This BC does not require parameters.
+ * @todo This BC requires one parameter in the core, which is the command.
+ * @since 1.17-
+ */
+function PosExtendScreenTimeOut() {
+	var cmd = "PosExtendScreenTimeOut";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosGetPriceForButton</b>.
+ *
+ * Persistence:<b>Not Persisted.</b>\n
+ * This BC can be used to change the image and title associated with a button in order to display a product price.
+ * The button to have its properies changed is identified by the parameter BtnNbr.
+ *
+ * @param BtnNbr - string - Number that identifies the button (<= 0 uses the button number correspondent to the button itself).
+ * @param Upgrade - string - size selection (dimension).
+ * @param ProductCode - string - product code to get the price for.
+ * @param SecUpgrade - string - optional - secondary product size selection (dimension, if -1:no selection, if <-1:gets the difference).
+ * @param SecProductCode - string - optional - secondary product code to get the price and add to the first.
+ * @success The product does not have a correspondent price.
+ * @success Button properties changed successfully.
+ * @failure	<i>Equal values</i> - Price of second product (given by SecProductCode and SecUpgrade) is the same as the first product.
+ * @remarks
+ * If BtnNbr is invalid (<= 0) the BtnNbr used will be the number that corresponds to the button itself.
+ * This BC calls PosChangeButtonProperties.
+ * @todo Review true return when the product does not have a price.
+ * @since 1.17-
+ */
+function PosGetPriceForButton(BtnNbr, Upgrade, ProductCode, SecUpgrade, SecProductCode) {
+	var cmd = "PosGetPriceForButton";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, [BtnNbr, Upgrade, ProductCode, SecUpgrade, SecProductCode]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosGetRollBackAvailable</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC is used to show a list with dates available to do the rollback.
+ * Then the date selected is set on "SELECTED_ROLLDATE".
+ *
+ * @success Rollback date chosen successfully.
+ * @failure	<i>Empty list of POS on the network</i> - Waystation returned error when checking if all nodes are online.
+ * @failure <i>Invalid store state</i>
+ * @failure	<i>POS offline</i> - At least one POS is offline.
+ * @failure <i>No backup available to rollback</i>
+ * @failure <i>Error obtaning the rollback list</i>
+ * @sessioncontext <i>"SELECTED_ROLLDATE"</i> - This session context variable contains the selected date to do the Rollback.
+ * @remarks
+ *
+ * Property Messages:\n
+ *	MSG_BC_CFGROLLBACK_NO_BKP: when there is no backup available to rollback\n
+ *	MSG_BC_CFGROLLBACK_WAY_FAILED: when occurred an error obtaning the rollback list\n
+ *	MSG_BC_CFGROLLBACK_DAYCLOSED: when the store state is invalid\n
+ *	MSG_BC_CFGROLLBACK_NODE_OFF: when there is at least one node offline\n
+ *	MSG_BC_CFGROLLBACK_DATAMASK: when the date is formated\n
+ *	MSG_BC_CFGROLLBACK_LIST: when the selection box with the dates is shown.\n
+ * @todo This BC is returning BOOL value. It should return JSBool.
+ * @todo Verify the parameters of this BC in the core.
+ * @since 1.17-
+ */
+function PosGetRollBackAvailable() {
+	var cmd = "PosGetRollBackAvailable";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosHandleCalculatorButton</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC handles the pressing of a KeyPad/Calculator button.
+ *
+ * @param BtnNbr - string - number of pressed button, if prefixed by a '.' its considered as the "decimal part".
+ * @success Button pressed handled successfully.
+ * @failure	<i>Unable to handle button pressed</i> - An error occurred when executing the workflow sequence.
+ * @remarks
+ * For numeric buttons the correspondent numbers are concatenated in the KeyPad/Calculator display.
+ * The clear button resets this display.
+ * The enter button executes a workflow (if any) configured with PosPrepareCalculator.
+ * @since 1.17-
+ */
+function PosHandleCalculatorButton(BtnNbr) {
+	var cmd = "PosHandleCalculatorButton";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, [BtnNbr]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosHandleCalculatorTitle</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC is used to update the KeyPad/Calculator title display.\n
+ * The KeyPad/Calculator can be pre-configured, in a screen type 1002, or can be created by RFM in screens type 1001;\n
+ * in which case the positioning of the KeyPad/Calculator display is given by a button number.\n
+ *
+ * @param BtnNbr - string - Number of button that will receive KeyPad/Calculator display in screen type 1001;\n
+ *                          should be 0 otherwise.
+ * @success Title updated successfully.
+ * @sessioncontext <i>"floatScreenType"</i> - this contains the float screen type.
+ * @sessioncontext <i>"floatLastIndex"</i> - this contains the last index selected to the float screen.
+ * @sessioncontext <i>"floatLastProdCode"</i> - this contains the last product code selected to the float screen.
+ * @remarks
+ * @todo Check the return of this BC. It never returns false value.
+ * @since 1.17-
+ */
+function PosHandleCalculatorTitle(BtnNbr) {
+	var cmd = "PosHandleCalculatorTitle";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, [BtnNbr]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosHideFloatScreen</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC hides a float Screen.
+ *
+ * @success Screen hidden successfully.
+ * @failure	<i>Unable to hide the screen</i> - A problem occurred when reloading the screen.
+ * @remarks
+ * This BC does not require parameters.
+ * This BC calls PosReloadCurrentScreen.
+ * @since 1.17-
+ */
+function PosHideFloatScreen() {
+	var cmd = "PosHideFloatScreen";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosItemSelection</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC opens a dialog window with a list of images/titles, allowing the user to pick one of them.
+ * If this BC returns TRUE, the title of the item chosen by the user is placed in the Session Context variable "SelectedButtonValue".
+ *
+ * @param ImgNames - string limited to 511 bytes - list with images to select (separeted by |).
+ * @param btnValues - string limited to 127 bytes - list with values correspondent to the images (separeted by |).
+ * @param title - string limited to 255 bytes - Text to be used as the window title.
+ * @param msg - string limited to 511 bytes - Message to show in the window (a place to hold instructions for the user).
+ * @success Item chosen by user successfully set on "SelectedButtonValue" variable.
+ * @failure	<i>Error getting response from UI</i>
+ * @sessioncontext <i>"SelectedButtonValue"</i> - This contains the value chosen by the user.
+ * @since 1.17-
+ */
+function PosItemSelection(ImgNames, btnValues, title, msg) {
+	var cmd = "PosItemSelection";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, [ImgNames, btnValues, title, msg]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosLoadProductImage</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC can be used to change an image in a button configured in the current loaded screen.
+ * The image used will be the grill image associated with the product, given by its code.
+ * The button to have its properies changed is identified by the parameter BtnNbr.
+ *
+ * @param BtnNbr - string - Number that identifies the button (<= 0 uses the button number correspondent to the button itself).
+ * @param ProdCode - string - optional - Product code to which the correspondent grill image should be loaded.
+ * @success Image loaded successfully.
+ * @sessioncontext <i>"selectedProductWithSize"</i> - This contains a product that has a dimension(small, medium, large, etc).
+ * @remarks
+ * If BtnNbr is invalid (<= 0) the BtnNbr used will be the number that corresponds to the button itself
+ * If the Parameter prodCode is ommited the current selection will be used.
+ * @since 1.17-
+ */
+function PosLoadProductImage(BtnNbr, ProdCode) {
+	var cmd = "PosLoadProductImage";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, [BtnNbr, ProdCode]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosOutageUpdate</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC shows a list with all products in the database and another with the outage products.
+ * In this screen the user can update its outage list and then choose between save or cancel its changes.
+ *
+ * @param title - string - title for list (can be a property).
+ * @param confMsg - string - confirmation message (can be a property).
+ * @success List of products and outage products shown successfully.
+ * @failure	<i>Unable to generate the list of products</i> - The list of products was not created.
+ * @failure	<i>Unable to generate the list of outage products</i> - The list of outage products was not created.
+ * @failure	<i>Error filling the Arraylists</i> - The Array list of products and outage products can not be filled.
+ * @since 1.17-
+ */
+function PosOutageUpdate(title, confMsg) {
+	var cmd = "PosOutageUpdate";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, [title,confMsg]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosPlaySound</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC plays a sound according to the parameter sound received.
+ *
+ * @param sound - string - string with the file name of the sound to play.
+ * @success Sound played successfully.
+ * @todo Verify condition to return JSVAL_FALSE, in case of error playing the sound.
+ * @since 1.17-
+ */
+function PosPlaySound(sound) {
+	var cmd = "PosPlaySound";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, [sound]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosPrepareCalculator</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC is used to configure the KeyPad/Calculator before its exhibition.
+ * It is possible to set the format of the number to be entered, as a floating point decimal or as an integer;
+ * the action taken when the "enter" button is pressed (a workflow to execute); a value to be shown as Total;
+ * and a value to be shown as intial value.
+ *
+ * @param NumberFormat - string - Format of the number to be entered: 0=> floating point decimal; 1=> integer.
+ * @param EnterAction - string - workflow to execute when ENTER is pressed.
+ * @param TotalValue - string (optional) - initial total value.
+ * @param InitialValue - string (optional) - initial value.
+ * @success KeyPad/Calculator configured successfully.
+ * @since 1.17-
+ */
+function PosPrepareCalculator(NumberFormat, EnterAction, TotalValue, InitialValue) {
+	var cmd = "PosPrepareCalculator";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, [NumberFormat, EnterAction, TotalValue, InitialValue]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosRefreshButtons</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC refreshes the buttons in the current screen.
+ *
+ * @success Buttons refreshed successfully.
+ * @remarks
+ * The actions of type "onactivate" that were configured for the current screen buttons are executed.
+ * This BC does not require parameters.
+ * @since 1.17-
+ */
+function PosRefreshButtons() {
+	var cmd = "PosRefreshButtons";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosRefreshFloatButtons</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC refreshes the buttons in the current screen.
+ *
+ * @success Buttons refreshed successfully.
+ * @remarks
+ * The actions of type "onactivate" that were configured for the current screen buttons are executed.
+ * This BC does not require parameters.
+ * @since 1.17-
+ */
+function PosRefreshFloatButtons() {
+	var cmd = "PosRefreshFloatButtons";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosReloadCurrentScreen</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC reloads the current Screen.
+ *
+ * @success Screen reloaded successfully.
+ * @remarks
+ * During the reload of the screen, the actions of type "onactivate" that were configured for the screen and its buttons,
+ * are executed.
+ * This BC calls PosShowScreen.
+ * @since 1.17-
+ */
+function PosReloadCurrentScreen() {
+	var cmd = "PosReloadCurrentScreen";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosSendUICmd</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * The PosSendUICmd is responsible for send to an external GUI api a string command.
+ *
+ * @param parcmd - String - command to be sent to UI.
+ * @success Command successfully sent to the UI.
+ * @failure <i>Missing Argument</i> - parcmd parameter is missing.
+ * @since 1.17-
+ */
+function PosSendUICmd(parcmd) {
+	var cmd = "PosSendUICmd";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, [parcmd]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosSetDynCrew</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC sets the Dynamic Crew Panel in the screen. It simply sends a request to the UI
+ * with the command to set the Dynamic Crew Panel
+ *
+ * @param action - string - action to Dynamic Crew Panel.
+ * @success Dynamic Crew Panel
+ * @remarks
+ * This BC aways returns true.
+ * @todo Validate the parameter received in the core.
+ *
+ * @since 1.17-
+ */
+function PosSetDynCrew(action) {
+	var cmd = "PosSetDynCrew";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, [action]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosSetOnTotalSmartReminder</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC hides a Set the on total status to smart reminder and present the first question
+ *
+ * @success There is a choice to be made. Message shown in smart reminder successfully.
+ * @failure	<i>There is no choice to be made</i> - There is no choice to be made in the current sale.\n
+ * @failure	<i>Smart reminder is not enable</i>\n
+ * @sessioncontext <i>"isSmartReminderON"</i> This session context is set to true, if the smart reminder is enable.
+ * @todo Review the function lMissingChoiceSReminder(). The description of parameters does not match the function.
+ * @since 1.17-
+ */
+function PosSetOnTotalSmartReminder() {
+	var cmd = "PosSetOnTotalSmartReminder";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosSetShowPrice</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC set the show prices mode.
+ *
+ * @success Show prices mode set successfully.
+ * @failure	<i>Invalid POD</i> This BC returns false for the folowing PODs: Cold Kiosk;\n
+																			Cold Kiosk - Drinks;\n
+																			Delivery;\n
+																			Handheld Order Taker.
+ * @sessioncontext <i>"ISPRICEON"</i> - Read to check if the show price status is true.
+ * If it is true, it is set to false, and vice versa.
+ * @remarks
+ * This BC calls PosShowPrice.
+ * @since 1.17-
+ */
+function PosSetShowPrice() {
+	var cmd = "PosSetShowPrice";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosSetSimulatorRunning</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC sets rfm packages directory in simulator.
+ *
+ * @param val - string - path for the rfm simulator
+ * @param tempDir - string - temp dir for the rfm simulator
+ * @success Path values set successfully.
+ * @todo The rval is set by default to JSVAL_TRUE. Shouldn't it be JSVAL_FALSE?
+ * @since 1.17-
+ */
+function PosSetSimulatorRfmPath(rfm_pkgs_path, tempDir) {
+	var cmd = "PosSetSimulatorRfmPath";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, [rfm_pkgs_path, tempDir]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosSetSimulatorRunning</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC set simulator mode in POS\n
+ *
+ * @param isRunning - boolean - simulator mode.
+ * @success Simulator mode set successfully.
+ * @remarks
+ * This BC aways returns true.
+ * @since 1.17-
+ */
+function PosSetSimulatorRunning(isRunning) {
+	var cmd = "PosSetSimulatorRunning";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, [isRunning]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosShowConfirmationMessage</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC opens a window to the operator asking for a confirmation.
+ *
+ * @param QuestionTxt - string - text with the message/question (or entry in property file) to show.
+ * @param yesCaption - string - optional - text with the yes option (or entry in property file) to show.
+ * @param noCaption - string - optional - text with the no option (or entry in property file) to show.
+ * @param qttyParameters [1.19]
+ * @success First/left button (YES) has been chosen.
+ * @failure	<i>'No' button chosen</i> - Second/right button (NO) has been chosen.\n
+ * @remarks
+ * The first received parameter should be the text with the confirmation question.
+ * This text is used to look for the native language message in the system messages file,
+ * (pos-messages_xx.properties). If the native language message is not found the text is used as it is.
+ * In this case, the string has a limitation of 1024 bytes and should be in an UTF8 format.
+ * By default the opened window has 2 buttons with YES and NO captions in native language
+ * (the texts correspondents to the entries "MSG_YES" and "MSG_NO" in pos-messages_xx.properties),
+ * but these captions can be overriden using the 2 optional parameters
+ * (again, each of them is fisrt looked for in pos-messages_xx.properties).
+ * @since 1.17-
+ */
+function PosShowConfirmationMessage(QuestionTxt, yesCaption, noCaption, qttyParameters) {
+	var cmd = "PosShowConfirmationMessage";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, Array.prototype.slice.call(arguments));
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosShowFloatScreen</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC loads and shows a new float Screen, according to the parameter ScreenNumber received.
+ *
+ * @param ScreenNumber - string - Number of the float screen to show.
+ * @success The float screen specified by ScreenNumber parameter is already shown.
+ * @success Float screen loaded successfully.
+ * @failure	<i>Screen not found</i> The screen specified by ScreenNumber parameter was not found.\n
+ * @sessioncontext <i>"floatScreenType"</i> This contains the float screen Type
+ * @sessioncontext <i>"floatLastIndex"</i> This indicates the last index selected to the float screen
+ * @sessioncontext <i>"floatLastProdCode"</i> This indicates the last product code selected to the float screen
+ * @remarks
+ * During the load of a new float screen, the actions of type "onactivate" that were configured for the float screen and its buttons,
+ * are executed.
+ * The current loaded screen will be kept, however the 10 buttons from the first line will be removed.
+ * @since 1.17-
+ */
+function PosShowFloatScreen(ScreenNumber) {
+	var cmd = "PosShowFloatScreen";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, [ScreenNumber]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosShowChoiceFloatScreen</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC loads and shows a new float Screen, according to the parameter ChoiceGroup and ScreenNumber received.
+ *
+ * @param ChoiceGroup - string - Choice Group to show on the float screen.
+ * @param ScreenNumber - string - Number of the float screen to show (Optional).
+ * @success The float screen specified by ScreenNumber parameter is already shown.
+ * @success Float screen loaded successfully.
+ * @failure	<i>Screen not found</i> The screen specified by ScreenNumber parameter was not found.\n
+ * @sessioncontext <i>"floatScreenType"</i> This contains the float screen Type
+ * @sessioncontext <i>"floatLastIndex"</i> This indicates the last index selected to the float screen
+ * @sessioncontext <i>"floatLastProdCode"</i> This indicates the last product code selected to the float screen
+ * @remarks
+ * During the load of a new float screen, the actions of type "onactivate" that were configured for the float screen and its buttons,
+ * are executed.
+ * The current loaded screen will be kept, however the 10 buttons from the first line will be removed.
+ * @since 1.20 - NPS-7492 / 2011/02/25
+ */
+function PosShowChoiceFloatScreen(ChoiceGroup, ScreenNumber) {
+	var cmd = "PosShowChoiceFloatScreen";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, [ChoiceGroup, ScreenNumber]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosClearChoiceGroup</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC clean a Choice, according to the parameter ChoiceGroup received.
+ *
+ * @param ChoiceGroup - string - Choice Group to show on the float screen.
+ * @success The Sice Choice is cleared.
+ * @failure	<i>Side Choice not found</i> The Side Choice with the received ChoiceGroup was not found.\n
+ * @remarks
+ * @since 1.20 - NPS-7492 / 2011/02/25
+ */
+function PosClearChoiceGroup(ChoiceGroup) {
+	var cmd = "PosClearChoiceGroup";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, [ChoiceGroup]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosChangeSize</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC loads a Float Screen to choose the desired product Size according to <SizeSelection> from product-db.xml
+ *
+ * @param ScreenNumber - string - Number of the float screen to show (Optional).
+ * @success The float screen specified by ScreenNumber parameter is already shown.
+ * @success Float screen loaded successfully.
+ * @failure	<i>Side Choice was not changed</i> The Side Choice has more than one option or there is not Side Options.\n
+ * @remarks
+ * @since 1.20 - NPS-7492 / 2011/02/25
+ */
+function PosChangeSize(ScreenNumber) {
+	var cmd = "PosChangeSize";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, [ScreenNumber]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosShowGrillFloatScreen</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC loads and shows a Grill Float Screen.
+ *
+ * @param forceShow - boolean - "true" to force the show. "false"(default)
+ * @param forceDefault - boolean - "true" to force the show of default grill screen. "false"(default)
+ * @success Grill Float Screen correctly loaded.
+ * @failure <i>Unable to change screen type</i> - Curretn screen type is already of Grill.
+ * @failure <i>Invalid index parameter</i> - The value of index parameter must be zero or higher.
+ * @failure <i>Not in a sale</i>
+ * @failure <i>Selected item can not be grilled</i> - The product correspondent to the given index is not grillable.
+ * @failure <i>Product not found</i> - Product not found in the sale representation.
+ * @failure <i>Screen not found</i> - The screen was not found. Not even the default screen.
+ * @sessioncontext <i>"floatScreenType"</i> - contains the type of float screen.
+ * In case of success showing the grill float screen, the session context is set to the current screen type.
+ * If a product can not be grilled, set this context session to a no used value (-99)
+ * @sessioncontext <i>"floatLastIndex"</i> - contains the last index selected to the float screen.
+ * In case of success showing the grill float screen, the session context is set to the product index(either passed as parameter
+ * or selected on the screen).
+ * If a product can not be grilled, set this context session to a no used value (-99)
+ * @sessioncontext <i>"floatLastProdCode"</i> - if a product can not be grilled, set this context session to a no used value (-99)
+ * @remarks
+ * This BC calls PosDoTryGrillEnd
+ * @since 1.17-
+ */
+function PosShowGrillFloatScreen(forceShow, forceDefault) {
+	var cmd = "PosShowGrillFloatScreen";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd,[forceShow, forceDefault]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosShowMessage</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * The PosShowMessage is responsible for open a small window and shows a message on it until the operator closes the window.
+ * The BC uses the first parameter received to look for the native language message in the system messages file,
+ * (pos-messages_xx.properties) using the following parameters (up to 5) as complements.
+ * If the native language message is not found, then all parameters are concateneted in a single string that is shown.
+ * The concateneted string has a limitation of 1024 bytes and should be in an UTF8 format.
+ *
+ * @param Message - String - The message to look for in the system messages file or to exhibit.
+ * @param ... - String - Optional up to five strings - complements to Message.
+ * @success Show the user defined system message, according to the given parameters.
+ * @success Test if non modal window button was pressed, if the first optional string has the text "_NOMODAL:STBTN:xxx".
+ * @success Close the non modal window, if the first optional string has the text "_NOMODAL:END".
+ * @failure <i>Button Not Pressed</i> - If a non modal window button was pressed.\n
+ * @sessioncontext <i>"_TIMEOUT:xxx"</i> - The message time out is given by the session context variable given by xxx.
+ * @sessioncontext <i>"_NOMODAL:STBTN:xxx"</i> - The button text is given by the session context variable given by xxx or by xxx itself if no session context variable has this key.
+ * @remarks
+ *			 NB: if the first optional string has the text "FNT_LARGE", the message is shown in large font and an extra string might appear.\n
+ *				 if the first optional string has the text "_TIMEOUT:xxx", the message time out is given by the session context variable given by xxx.\n
+ *				 if the first optional string has the text "_NOMODAL:START", a non modal window to show the message is opened without button.\n
+ *				 if the first optional string has the text "_NOMODAL:STBTN:xxx", a non modal window to show the message is opened with a button.\n
+ *									The button text is given by the session context variable given by xxx or by xxx itself if no session context variable has this key...\n
+ *				 if the first optional string has the text "_NOMODAL:END", the non modal window to show the message is closed.\n
+ *				 if the first optional string has the text "_NOMODAL:TEST", the return is status of the no modal window botton.\n
+ * @since 1.17-
+ */
+function PosShowMessage(Message) {
+	var cmd = "PosShowMessage";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, Array.prototype.slice.call(arguments));
+}
+
+function PosDoSetGenericCounter(bActivate,nTimeout)
+{
+	var cmd = "PosDoSetGenericCounter";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd,[bActivate,nTimeout]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosShowPrice</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC present the prices of the products in the current screen.
+ *
+ * @param floatScreen - boolean - true for float screen.
+ * @param workflow - boolean - optional - true if it is in a workflow (default).
+ * @success "ISPRICEON" is not set to true.
+ * @success Prices shown successfully on the screen.
+ * @sessioncontext <i>"ISPRICEON"</i> This contains the show prices status. Read to check if it is true.
+ * @remarks
+ * This BC aways returns true.
+ * @since 1.17-
+ */
+function PosShowPrice(updateFloatScreen) {
+	var cmd = "PosShowPrice";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, [updateFloatScreen]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosShowScreen</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC loads and shows a new Screen, according to the parameter ScreenNumber received.
+ *
+ * @param ScreenNumber - string - Number of the screen to show.
+ * @success Screen loaded successfully.
+ * @failure	<i>Screen not found</i> - The screen specified by the ScreenNumber parameter was not found in the screen table.
+ * @failure	<i>Unable to unload screen</i> - Hook onUnloadScreen() can not unload a previous screen.
+ * @failure	<i>Unable to load screen</i> - Hook onLoadScreen can not load screen.
+ * @hook <i>onUnloadScreen()</i> - when there is a previous screen loaded.
+ * @hook <i>onLoadScreen()</i> - called before the actual loading of the screen.
+ * @hook <i>onCheckScreenSound()</i> - called before sending the command to the UI to play a sound.
+ * @remarks
+ * During the load of a new screen, the actions of type "onactivate" that were configured for the screen and its buttons,\n
+ * are executed. There is a screen stack that is incremented if the ScreenNumber is different from the base screen,\n
+ * or reset if equal.\n
+ * @since 1.17-
+ */
+function PosShowScreen(ScreenNumber) {
+	var cmd = "PosShowScreen";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, [ScreenNumber]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosShowScreenWithPassword</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ *
+ * The PosShowScreenWithPassword is responsible for load and show a new Screen, according to the parameter screenNumer received
+ * only if a correct password is entered.
+ * During the load of a new screen, the actions of type "onactivate" that were configured for the screen and its buttons,
+ * are executed.
+ *
+ * @param ScreenNumber - String - Number of the screen to show.
+ * @success Show user defined success message, sends the whole ApplyUpdate process log file to the waystation and perform a clean up operation with the given list of files.
+ * @failure <i>Argument Missing</i> - ScreenNumber argument is missing.\n
+ * @remarks
+ *
+ * Property Messages:\n
+ * 	MSG_PROMPTUPSWD: Message to prompt password.\n
+ *	MSG_INVPASSWD: Error message for invalid password.\n
+ * @since 1.17-
+ */
+function PosShowScreenWithPassword(ScreenNumber) {
+	var cmd = "PosShowScreenWithPassword";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, [ScreenNumber]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosShowSelectKvs</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * The PosShowSelectKvs is responsible for get end show the KVS previously selected.
+ *
+ * @param selKVS - String - Name of the selected KVS.
+ * @success Show the name of selected KVS in POS.
+ * @failure <i>Argument Missing</i> - selKVS parameter is missing.
+ * @since 1.17-
+ */
+function PosShowSelectKvs(selKVS) {
+	var cmd = "PosShowSelectKvs";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, [selKVS]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosShowStoreMessage</b>.
+ *
+ * This BC requests exibition of a message. The message is shown in a dialog window.
+ * The text of the button can be set as well.
+ *
+ * @param Msg - string - message to exhibit\n
+ * @param ButtonText - string - text of the button\n
+ * @param State - string - state to be monitored\n
+ * @success Message exibited successfully.
+ * @remarks
+ * This BC aways returns true.
+ * @since 1.17-
+ */
+function PosShowStoreMessage(Msg, ButtonText, State) {
+	var cmd = "PosShowStoreMessage";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, [Msg, ButtonText, State]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosSwapSalePanel</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC sets the sale panel position.
+ * It can be:\n
+ *		EAST: on the left hand side of the screen;\n
+ *		WEST: on the right hand side of the screen.
+ *
+ * @param direction - string - sales panel side: EAST or WEST
+ * @success Sale panel position set successfully.
+ * @remarks
+ * This BC aways returns true.
+ * @since 1.17-
+ */
+function PosSwapSalePanel(direction) {
+	var cmd = "PosSwapSalePanel";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, [direction]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosYesNoMessage</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC show a message and ask user to choose yes or no.
+ *
+ * @param pConfMsg - string - ask message (can be a property)
+ * @param pYesMsg - string - button Yes message (optimal)
+ * @param pNoMsg - string - button No message (optional)
+ * @success 'Yes' button chosen.
+ * @failure	<i>'No' button chosen.</i>
+ * @todo Verify the value returned when validating the parameter.
+ * @since 1.17-
+ */
+function PosYesNoMessage(pConfMsg, pYesMsg, pNoMsg) {
+	var cmd = "PosYesNoMessage";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, [pConfMsg, pYesMsg, pNoMsg]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosShowCalculator</b>.
+ *
+ *            Persistence:<b>Not Persisted</b>. This BC is shows the calculator as it is
+ *          possible to set the format of the number to be entered, as a floating point
+ *          decimal or as an integer; the action taken when the "enter" button is pressed
+ *            (a workflow to execute); a value to be shown as Total; and a value to be shown
+ *          as intial value.
+ *
+ * @parameters:
+ *        1. Message - string - brief description to the value being typed.
+ *        2. CurrencySymbol - string - currency symbol to show. If not defined it
+ *           shows the default currency symbol. To not show a empty string must be used.
+ *        3. FormatType - string - value entry type, valid types:
+ *                0 - decimal
+ *                1 - integer
+ *                2 - date
+ *                3 - time
+ *                4 - password
+ *                5 - percent
+ *                6 - hour
+ *        4. DialogType - string - calculator dialog type
+ *                0 - dialog calculator input
+ *                1 - screen calculator input
+ *                2 - best fit (the system decides between screen or dialog calculator input)
+ *        5. MaxValue - string (optional) - maximum value allowed
+ *        6. CurValue - [1.18]
+ *        7. TextBkColor - string (optional) - background color of Message. 
+ *        8. DigitLimit - string (optional) - max quantity of characters allowed. 
+ * @property Messages:none
+ * @return entered characteres.
+ * @since 1.17- - NPS-5384 and SDO-1375
+ */
+function PosShowCalculator(Message, CurrencySymbol, FormatType, DialogType, MaxValue, CurValue, TextBkColor, DigitLimit) {
+	var cmd = "PosShowCalculator";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, [Message, CurrencySymbol, FormatType, DialogType, MaxValue, CurValue, TextBkColor, DigitLimit]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosShowLoginKeyboard</b>.
+ *
+ * @parameters:
+ *        1. Message - string - brief description to the value being typed.
+ *        2. FormatType - string - value entry type, valid types:
+ *                0 - normal
+ *                1 - password
+ *        3. MaxValue - string (optional) - maximum value allowed
+ *        4. CurValue - [1.18]
+ *        5. TextBkColor - string (optional) - background color of Message. 
+ *        6. DigitLimit - string (optional) - max quantity of characters allowed. 
+ * @property Messages:none
+ * @return entered characteres.
+ */
+function PosShowLoginKeyboard(Message, CurrencySymbol, FormatType, DialogType, MaxValue, CurValue, TextBkColor, DigitLimit) {
+	var cmd = "PosShowLoginKeyboard";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, [Message, CurrencySymbol, FormatType, DialogType, MaxValue, CurValue, TextBkColor, DigitLimit]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosCheckSessionProperty</b>
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC checks if a property value (given by a pair key/value) in the session context is that received by parameter.\n
+ * @returning TRUE if value is the same stored, FALSE otherwise.\n
+ * In a workflow sequence it is called:<b>PosCheckSessionProperty $key $value</b>\n
+ * In java script it should be called:<b>PosCheckSessionProperty(key,value)</b>\n
+ * Where: key - string - key in session context against which value will be tested\n
+ *        value - string - value to be tested\n
+ * Property Messages:none\n
+ * @return rval - True if the values match
+ * @since 1.17-
+ */
+function PosCheckSessionProperty(key, value) {
+	var cmd = "PosCheckSessionProperty";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, [key, value]);
+}
+
+/**
+ * @brief This BC hhides a button (according to a type)
+ *
+ * @return rval - true
+ * @since 1.17-
+ */
+function HideButtonIfMatchPOD_CSL(podType,btnType) {
+	var cmd = "HideButtonIfMatchPOD_CSL";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+
+	if(PosCheckSessionProperty("POD",podType)) {
+		PosChangeButtonProperties(btnType,"visible|false");
+	}
+	else {
+		PosChangeButtonProperties(btnType,"visible|true");
+	}
+	return(true);
+}
+
+/**
+ * @brief This BC hhides a button (according to a type)
+ *
+ * btnType: 0 -> RecallByPreview button on a regular screen
+ * 			1 -> Simple Recall button on a regular screen
+ * 			2 -> RecallByPreview button on a tender screen
+ * 			3 -> Simple Recall button on a tender screen
+ * @return rval - true
+ * @since 1.17-
+ */
+function HideMeIfPreviewByType_CSL(btnType) {
+	var cmd = "HideMeIfPreviewByType_CSL";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+
+	var hide=false;
+
+
+	if( !PosCheckSessionProperty("POD","DRIVE_THRU") ||
+		PosCheckSessionProperty("workingMode","orderTaker")) {
+		hide=true;
+	}
+	else {
+		if(PosCheckParameter("UserInterface","DDTsupport","true")) {
+			if((Number(btnType)%2) == 1) {
+				// Simple Recall cannot have DDTsupport true
+				hide=true;
+			}
+		}
+		else {
+			if((Number(btnType)%2) == 0) {
+				// Recall by preview cannot have DDTsupport false
+				hide=true;
+			}
+		}
+		if(!hide && (Number(btnType) > 1) && !PosCheckSessionProperty("saleRecalled","true")) {
+			// Tender Screen
+			hide=true;
+		}
+	}
+	if(hide) {
+		PosChangeButtonProperties(0,"visible|false");
+	}
+	else {
+		PosChangeButtonProperties(0,"visible|true");
+	}
+	return(true);
+}
+
+/**
+ * @brief Set the aspect of the button dimension when show prices is true
+ *
+ * @since 1.17-
+ */
+function PosShowPricesSizeSelection_CSL(btnSize, IsFloat) {
+	var cmd = "PosShowPricesSizeSelection_CSL";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+
+	var hlp = new BusinessObjectHelper;
+	var actualSize = hlp.getSizeSel();
+
+	if(actualSize == btnSize) {
+		PosChangeButtonProperties(0,"invert|true");
+	}
+	else {
+		PosChangeButtonProperties(0,"invert|false");
+	}
+	return(true);
+}
+
+/**
+ * @brief This BC verifies if activate button is referent to size selected
+ *
+ * 		   if is true, change button to pressed
+ *
+ * @return rval - true
+ * @since 1.17-
+ */
+function PosCheckIsSizeJS(parameter)
+{
+	var size;
+	var boHelper = new BusinessObjectHelper();
+	size = boHelper.getSizeSel();
+	if (size==parameter){
+		PosChangeButtonProperties(0,"invert|true");
+	}
+	else{
+		PosChangeButtonProperties(0,"invert|false");
+	}
+	return(true);
+}
+
+/**
+ * @brief This BC display change base screen message if Way online
+ *
+ * @return rval: true  - if user choose yes
+ * @since 1.17-
+ */
+function PosShowChangeScreenMessageOnline_CSL(){
+
+var hlp = new BusinessObjectHelper;
+var ctx = new SessionContext;
+var screenMessage1 = hlp.getSysMessage("MSG_BC_AUTOMENU_CONFIRM_ON_1");
+var screenMessage2 = hlp.getSysMessage("MSG_BC_AUTOMENU_CONFIRM_ON_2");
+
+var changeScreenMessage= screenMessage1 +" "+ "\"" + ctx.get("baseScreenName") + "\"" + "\n"+screenMessage2;
+var result = PosYesNoMessage(changeScreenMessage);
+	return(result);
+}
+
+/**
+ * @brief This BC display change base screen message if Way offline
+ *
+ * @return rval: true  - if user choose yes
+ * @since 1.17-
+ */
+function PosShowChangeScreenMessageOffline_CSL(){
+var hlp = new BusinessObjectHelper;
+var ctx = new SessionContext;
+var screenMessage1 = hlp.getSysMessage("MSG_BC_AUTOMENU_CONFIRM_OFF_1");
+var screenMessage2 = hlp.getSysMessage("MSG_BC_AUTOMENU_CONFIRM_OFF_2");
+
+var changeScreenMessage= screenMessage1 +" "+ "\"" + ctx.get("baseScreenName") + "\"" + "\n"+screenMessage2;
+var result=PosShowConfirmationMessage(changeScreenMessage,"MSG_YES","MSG_NO",1);
+	return(result);
+}
+
+/**
+ * @brief This sets base screen id of all online pos
+ *
+ * @return rval: true
+ * @since 1.17-
+ */
+function PosSetChangeScreenId_CSL(){
+var oldScreen;
+var ctx = new SessionContext;
+oldScreen=ctx.get("baseScreenPrevId");
+PosSetSessionProperty("baseScreenId",oldScreen,true);
+	return(true);
+}
+
+/**
+ * @brief This BC verifies if POD is McCafe or Kiosk.
+ *
+ * Used in Automatic Menu Changeover
+ * @return rval: true  - POD is not Kiosk or McCafe
+ * @since 1.17-
+ */
+function PosCheckIsAllowedPOD_CSL(){
+
+var ctx = new SessionContext;
+var podType =ctx.get("POD");
+	switch(podType)
+	{
+	case "MCC":
+		return(false);
+	case "CKD":
+		return(false);
+	case "CSO":
+		return(false);
+	case "CK":
+		return(false);
+	default:
+		return(true);
+	}
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosHOTHideNumericScreen</b>
+ *
+ * This BC hides the actual loaded numeric panel\n
+ * In a workflow sequence it is called:<b>PosHOTHideNumericScreen </b>\n
+ * In java script it should be called:<b>PosHOTHideNumericScreen( )</b>\n
+ *
+ * @success Hide the numeric screen.
+ * @since 1.17-
+ */
+function PosHOTHideNumericScreen() {
+	var cmd = "PosHOTHideNumericScreen";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosHOTShowNumericScreen</b>
+ *
+ * This BC shows the numeric panel in the current screen!\n
+ * The actions of type "onactivate" that were configured for the current screen buttons are executed.\n
+ * In a workflow sequence it is called:<b>PosHOTShowNumericScreen </b>\n
+ * In java script it should be called:<b>PosHOTShowNumericScreen( )</b>\n
+ *
+ * @param screen_number - Integer - screen number.
+ * @success Show the numeric screen.
+ * @failure <i>Screen not found</i> - the screen number is invalid.
+ * @failure <i>Invalid screen</i> - the screen type isn't numeric screen.
+ * @since 1.17-
+ */
+function PosHOTShowNumericScreen(screen_number) {
+	var cmd = "PosHOTShowNumericScreen";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd,[screen_number]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosHOTRefreshNumericButtons</b>
+ *
+ * This BC refreshes the buttons in the current numeric screen!\n
+ * The actions of type "onactivate" that were configured for the screen buttons are executed.\n
+ * In a workflow sequence it is called:<b>PosHOTRefreshNumericButtons </b>\n
+ * In java script it should be called:<b>PosHOTRefreshNumericButtons( )</b>\n
+ *
+ * @success Refresh the numeric screen.
+ * @since 1.17-
+ */
+function PosHOTRefreshNumericButtons() {
+	var cmd = "PosHOTRefreshNumericButtons";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosHOTChangeNumericButtonProp</b>
+ *
+ * This BC change a property of a button in the current numeric screen!\n
+ * In a workflow sequence it is called:<b>PosHOTChangeNumericButtonProp </b>\n
+ * In java script it should be called:<b>PosHOTChangeNumericButtonProp( )</b>\n
+ *
+ * @param btn_number - Integer - button number, if zero use the current button.
+ * @param property - String - property to be changed and the new value, separated with "|", example: "visible|true".
+ * @success Button is changed.
+ * @since 1.17-
+ */
+function PosHOTChangeNumericButtonProp (btn_number, property) {
+	var cmd = "PosHOTChangeNumericButtonProp";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd,[btn_number,property]);
+}
+
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosAskDate</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * The PosAskDate shows a screen or dialog calculator with the date and returns the date entered by the user.\n
+ * It also validates the date. In case of invalid date, it shows a message configured in MSG_BC_INVDATE.\n
+ * It keeps asking until a valid date is entered, or canceled by the user.\n
+ * In java script it should be called:<b>PosAskDate(date, message, dialogType)</b>
+ * @param date - string - The date to be intially prompted to the user, in format yyyyMMdd
+ * @param message - string - a message do be shown in the calculator when prompted to the user
+ * @param dialogType - string (optional) - calculator dialog type:\n
+ *				0 - dialog calculator input\n
+ *				1 - screen calculator input\n
+ *				2 - best fit (the system decides between screen or dialog calculator input - default)\n
+ * @success User entered a date in calculator. The value is returned in success session context in format yyyyMMdd.
+ * @failure <i>User cancelled the operation</i>
+ * @sessioncontext <i>The date entered by the user, in format yyyyMMdd</i> - To obtain this value, use getLastSuccess("PosAskDate").
+ * @remarks
+ *
+ * Property Messages:
+ *		MSG_BC_INVDATE: Shown when the user entered an invalid date
+ * @since 1.18
+ */
+function PosAskDate(date, message, dialogType) {
+	var cmd = "PosAskDate";
+	CSL_dbglog(7, SRC_BC_REGISTER, cmd, "Start");
+	return executeBC(cmd,[date, message, dialogType]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosShowSmartReminderScreen</b>
+ *
+ * This BC loads and shows a smart reminder screen, according to the parameter product code received!\n
+ * During the load of a new smart reminder screen, the actions of type "onactivate" that were configured for the smart reminder screen and its buttons,\n
+ * are executed.\n
+ * The current loaded screen will be kept, however the 10 buttons from the first line will be removed\n
+ * In a workflow sequence it is called:<b>PosShowSmartReminderScreen $productCode</b>\n
+ * In java script it should be called:<b>PosShowSmartReminderScreen(productCode)</b>\n
+ * @param productCode - string - product code.
+ * @success the screen was correctly loaded
+ * @since 1.18
+ */
+function PosShowSmartReminderScreen (productCode) {
+	var cmd = "PosShowSmartReminderScreen";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd,[productCode]);
+}
+
+function auxGetStationGroupList()
+{//station groups
+	var station_groups = rootProductDB.Product.(@statusCode == "ACTIVE").StationGroup;
+	var unique = new Array();
+	var station_list = "";
+
+	for each(StationGroup in station_groups)
+	{
+		var strStationGroup = String(StationGroup);
+		
+		if(strStationGroup && unique.indexOf(strStationGroup) == -1)
+		{
+			station_list += StationGroup + "|";
+			unique.push(strStationGroup);
+		}
+	}
+	
+	return station_list;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosProductOutage</b>
+ *
+ * This BC Show the product outage screen\n
+ * In a workflow sequence it is called:<b>PosProductOutage </b>\n
+ * In java script it should be called:<b>PosProductOutage( )</b>\n
+ * @success the screen was correctly loaded
+ * @failure <i>Screen not found</i> - Outage screen is missing.
+ * @failure <i>Error loading screen</i> - Could not load outage screen.
+ * @since 1.19
+ */
+function PosProductOutage () {
+	loadProductOutage();
+
+	var cmd = "PosProductOutage";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	var prod_list = "";
+	var first = true;
+	for each (prod in product_outage) {
+		if(first != true) {
+			prod_list += "|"
+		}
+		first = false;
+		prod_list += prod.@code;
+	}
+	
+	return executeBC(cmd, [prod_list, auxGetStationGroupList()]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosSetFamilyGroupPreFilterList</b>
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC Fill the pre filter list to family group in the outage screen\n
+ * In a workflow sequence it is called:<b>PosSetFamilyGroupPreFilterList </b>\n
+ * In java script it should be called:<b>PosSetFamilyGroupPreFilterList( )</b>\n
+ * @success Pre filter list filled
+ * @since 1.19
+ */
+function PosSetFamilyGroupPreFilterList () {
+	 var cmd;
+	if(PosCheckSessionProperty("OutageScreenNumber", "9997")) {
+		cmd =  "PosSetOutageFilteredList";
+		CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+		executeBC(cmd,["", "WF_SelectOutageSecondList"]);
+	}
+	else if(PosCheckSessionProperty("OutageScreenNumber", "9996")) {
+		cmd =  "PosSetActivationFilteredList";
+		CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+		executeBC(cmd,["", "WF_SelectOutageSecondList", true]);
+	}
+
+	var cmd = "PosSetFamilyGroupPreFilterList";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	var ret = executeBC(cmd);
+	if(ret) {
+		current_outage_filter = "family";
+	}
+	return ret;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosSetOutageListByFamilyGroup</b>
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC Fill the product list according to the family group\n
+ * In a workflow sequence it is called:<b>PosSetOutageListByFamilyGroup </b>\n
+ * In java script it should be called:<b>PosSetOutageListByFamilyGroup( )</b>\n
+ * @param selectedItems - string - family group.
+ * @success Select(outage screen)/outage(activation screen) list filled
+ * @since 1.19
+ */
+function PosSetOutageListByFamilyGroup(selectedItems) {
+	var cmd;
+	// Send a empty list
+	if(selectedItems == "none") {
+		if(PosCheckSessionProperty("OutageScreenNumber", "9997")) {
+			cmd =  "PosSetOutageFilteredList";
+			CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+			return executeBC(cmd,["", "WF_SelectOutageSecondList"]);
+		}
+		else if(PosCheckSessionProperty("OutageScreenNumber", "9996")) {
+			cmd =  "PosSetActivationFilteredList";
+			CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+			return executeBC(cmd,["", "WF_SelectOutageSecondList", true]);
+		}
+	}
+
+	PosShowMessage("MSG_LOADING","_NOMODAL:START");
+	try {
+		var family_groups = selectedItems.split("|");
+		var first = true;
+		var key_family = "";
+		for each(family in family_groups) {
+			if(!first) {
+				key_family += " || ";
+			}
+			first = false;
+			key_family += "(\"";
+			key_family += family;
+			key_family += "\"== FamilyGroup)";
+		}
+		var prod_list = "";
+		var family_products = rootProductDB.Product.(@statusCode == "ACTIVE").(eval(key_family)).ProductCode;
+		first = true;
+		for each(productCode in family_products) {
+			if(first != true) {
+				prod_list += "|"
+			}
+			first = false;
+			prod_list += productCode;
+		}
+
+		if(PosCheckSessionProperty("OutageScreenNumber", "9997")) {
+			cmd =  "PosSetOutageFilteredList";
+		}
+		else if(PosCheckSessionProperty("OutageScreenNumber", "9996")) {
+			cmd =  "PosSetActivationFilteredList";
+		}
+	} catch (e) {
+		PosShowMessage("MSG_LOADING","_NOMODAL:END");
+		throw e;
+	}
+	PosShowMessage("MSG_LOADING","_NOMODAL:END");
+	var workflow = "WF_SelectOutageSecondList";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd,[prod_list, workflow]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosSetOutageListByStationGroup</b>
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC Fill the product list according to the station groups\n
+ * In a workflow sequence it is called:<b>PosSetOutageListByStationGroup </b>\n
+ * In java script it should be called:<b>PosSetOutageListByStationGroup(selectedItems)</b>\n
+ * @param selectedItems - string - station groups.
+ * @success Select(outage screen)/outage(activation screen) list filled
+ */
+function PosSetOutageListByStationGroup(selectedItems) {
+	var cmd;
+	// Send a empty list
+	if(selectedItems == "none") {
+		if(PosCheckSessionProperty("OutageScreenNumber", "9997")) {
+			cmd =  "PosSetOutageFilteredList";
+			CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+			return executeBC(cmd,["", "WF_SelectOutageSecondList"]);
+		}
+		else if(PosCheckSessionProperty("OutageScreenNumber", "9996")) {
+			cmd =  "PosSetActivationFilteredList";
+			CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+			return executeBC(cmd,["", "WF_SelectOutageSecondList", true]);
+		}
+	}
+
+	PosShowMessage("MSG_LOADING","_NOMODAL:START");
+
+	var station_groups = selectedItems.split("|");
+	var prod_list = "";
+
+	for each(station in station_groups)
+	{
+		for each (product in rootProductDB.Product.(@statusCode == "ACTIVE"))
+		{
+			if(product.StationGroup == station) prod_list += product.ProductCode + "|";
+		}
+
+	}
+
+	if(PosCheckSessionProperty("OutageScreenNumber", "9997")) {
+		cmd =  "PosSetOutageFilteredList";
+	}
+	else if(PosCheckSessionProperty("OutageScreenNumber", "9996")) {
+		cmd =  "PosSetActivationFilteredList";
+	}
+
+	PosShowMessage("MSG_LOADING","_NOMODAL:END");
+
+	var workflow = "WF_SelectOutageSecondList";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd,[prod_list, workflow]);
+}
+
+/**
+ * @brief
+ *
+ * @since 1.19
+ */
+function VerifySizeSelection(xml_list) {
+	for each(attribute in xml_list) {
+		if(attribute.name() == "SizeSelection") {
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosSetSizeSelectionPreFilter</b>
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC Fill the pre filter list to size selection in the outage screen\n
+ * In a workflow sequence it is called:<b>PosSetSizeSelectionPreFilter </b>\n
+ * In java script it should be called:<b>PosSetSizeSelectionPreFilter( )</b>\n
+ * @success Pre filter list filled
+ * @since 1.19
+ */
+function PosSetSizeSelectionPreFilter () {
+	var cmd;
+	if(PosCheckSessionProperty("OutageScreenNumber", "9997")) {
+		cmd =  "PosSetOutageFilteredList";
+		CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+		executeBC(cmd,["", "WF_SelectOutageSecondList"]);
+	}
+	else if(PosCheckSessionProperty("OutageScreenNumber", "9996")) {
+		cmd =  "PosSetActivationFilteredList";
+		CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+		executeBC(cmd,["", "WF_SelectOutageSecondList", true]);
+	}
+
+	cmd = "PosSetSizeSelectionPreFilter";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	var ret = executeBC(cmd);
+	if(ret) {
+		current_outage_filter = "size";
+	}
+	return ret;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosSetOutageListBySizeSelection</b>
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC Fill the product list according to the selected items\n
+ * In a workflow sequence it is called:<b>PosSetOutageListBySizeSelection </b>\n
+ * In java script it should be called:<b>PosSetOutageListBySizeSelection( )</b>\n
+ * @param selectedItems - string - product code.
+ * @success Select(outage screen)/outage(activation screen) list filled
+ * @since 1.19
+ */
+function PosSetOutageListBySizeSelection (selectedItems) {
+	var cmd = "PosSetOutageListBySizeSelection";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd,[selectedItems]);
+}
+
+/** PosOutageSearchProducts
+*
+* @brief - This function implements the BC,Business Component: <b>PosOutageSearchProducts</b>\n
+* Persistence:<b>Not Persisted</b>\n
+* This BC is responsible for showing the outage float keyboard\n
+* In a workflow sequence it is called:<b>PosOutageSearchProducts </b>\n
+* In java script it should be called:<b>PosOutageSearchProducts()</b>\n
+* Property Messages:none\n
+* Return: - rval - True.
+*/
+function PosOutageSearchProducts() {
+	if(PosCheckSessionProperty("OutageScreenNumber", "9997")) {
+		var cmd =  "PosSetOutageFilteredList";
+		CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+		executeBC(cmd,["", "WF_SelectOutageSecondList", true, true]);
+	}
+	else if(PosCheckSessionProperty("OutageScreenNumber", "9996")) {
+		var cmd =  "PosSetActivationFilteredList";
+		CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+		executeBC(cmd,["", "WF_SelectOutageSecondList", true, true]);
+	}
+
+	var cmd = "PosSetPreFilterList";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	executeBC(cmd,["", "", "none"]);
+	
+	var cmd = "PosOutageSearchProducts";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd,[]);
+}
+
+/** PosOutageProductsSelected
+*
+* @brief - This function implements the BC,Business Component: <b>PosOutageProductsSelected</b>\n
+* Persistence:<b>Not Persisted</b>\n
+* This BC is responsible for showing the selected product on the outage screen\n
+* In a workflow sequence it is called:<b>PosOutageProductsSelected </b>\n
+* In java script it should be called:<b>PosOutageProductsSelected(selectedItems)</b>\n
+* Where: selectedItems - string - list of selected items separeted by "|"\n
+* Property Messages:none\n
+* Return: - rval - True.
+*/
+function PosOutageProductsSelected(selectedItems) {
+	var cmd;
+	
+	if(PosCheckSessionProperty("OutageScreenNumber", "9997")) cmd =  "PosSetOutageFilteredList";
+	else if(PosCheckSessionProperty("OutageScreenNumber", "9996")) cmd =  "PosSetActivationFilteredList";
+
+	var workflow = "WF_SelectOutageSecondList";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd,[selectedItems, workflow]);
+}
+
+/** PosKeyboardTextCommand
+*
+* @brief - This function implements the BC,Business Component: <b>PosKeyboardTextCommand</b>\n
+* Persistence:<b>Not Persisted</b>\n
+* This BC is responsible for populate the search products textbox and textlistbox on the product outage screen\n
+* In a workflow sequence it is called:<b>PosKeyboardTextCommand </b>\n
+* In java script it should be called:<b>PosKeyboardTextCommand(key, command)</b>\n
+* Where: key - string - key to be added to the search text\n
+*		 command - string - command to execute\n
+* Property Messages:none\n
+* Return: - rval - True.
+*/
+function PosKeyboardTextCommand(key, command) {
+	//load namesDb if it is not load yet
+	if(xmlNamesDb == null) xmlNamesDb = new XML(API.getNamesdb());
+
+	//new key or new command typed
+	if (command === "" && key !== "") search_products_text += key;
+	else if (command === "Cancel") search_products_text = "";
+	else if (command === "Clear") search_products_text = "";
+	else if (command === "Backspace") search_products_text = search_products_text.substr(0, search_products_text.length - 1);
+	else if (command === "Space") search_products_text += " ";
+	
+	var languageCode = GetStoreDB().StoreDB.StoreProfile.Localization.Language + "_" + GetStoreDB().StoreDB.StoreProfile.Localization.CountryId;
+	var NamesDB = xmlNamesDb.Language.(@code == languageCode);
+	var productListCodes = "";
+	var productListLines = "";
+	
+	if(search_products_text !== "")
+	{
+		if(isNaN(search_products_text) || (search_products_text.search(' ') != -1))
+		{//alphanumeric search(product names that start with the string)
+			var products = NamesDB.ProductName.(typeof(LongName) != "undefined" && LongName.toUpperCase().substr(0, search_products_text.length) === search_products_text.toUpperCase());
+
+			for each(product in products)
+			{
+				if(productDictionary.length > product.ProductCode && 
+				   productDictionary[product.ProductCode] != null && 
+				   productDictionary[product.ProductCode].@statusCode == "ACTIVE")
+				{
+					productListCodes += product.ProductCode + "|";
+					productListLines += product.LongName + "|";
+				}
+			}
+		}
+		else
+		{//numeric search(product codes that contain the number)
+			var products = NamesDB.ProductName.(typeof(ProductCode) != "undefined" && ProductCode.search(search_products_text) != -1);
+			for each(product in products)
+			{
+				if(productDictionary.length > product.ProductCode && 
+				   productDictionary[product.ProductCode] != null && 
+				   productDictionary[product.ProductCode].@statusCode == "ACTIVE")
+				{
+					productListCodes += product.ProductCode + "|";
+					productListLines += product.ProductCode + " - " + product.LongName + "|";
+				}
+			}
+		}
+	}
+	
+	var cmd = "PosKeyboardTextCommand";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd,[search_products_text, command, productListCodes, productListLines]);
+}
+
+/** PosOutageSort
+*
+* @brief - This function implements the BC,Business Component: <b>PosOutageSort</b>\n
+* Persistence:<b>Not Persisted</b>\n
+* This BC is responsible for sorting a specific column of outage items\n
+* In a workflow sequence it is called:<b>PosOutageSort </b>\n
+* In java script it should be called:<b>PosOutageSort(Sort)</b>\n
+* Where: Sort - string - component id | column\n
+* Property Messages:none\n
+* Return: - rval - True.
+*/
+function PosOutageSort (Sort) {
+	var cmd = "PosOutageSort";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd,[Sort]);
+}
+
+/** PosSetStationGroupPreFilterList
+*
+* @brief - This function implements the BC,Business Component: <b>PosSetStationGroupPreFilterList</b>\n
+* Persistence:<b>Not Persisted</b>\n
+* This BC fills the pre filter list with station groups\n
+* In a workflow sequence it is called:<b>PosSetStationGroupPreFilterList </b>\n
+* In java script it should be called:<b>PosSetStationGroupPreFilterList(button, clear)</b>\n
+* Where: button - string - button to be highlighted\n
+*		 clear - boolean - true to clear the pre filter list\n
+* Property Messages:none\n
+* Return: - rval - True.
+*/
+function PosSetStationGroupPreFilterList (button, clear) {
+	var cmd;
+	if(PosCheckSessionProperty("OutageScreenNumber", "9997")) {
+		cmd =  "PosSetOutageFilteredList";
+		CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+		executeBC(cmd,["", "WF_SelectOutageSecondList"]);
+	}
+	else if(PosCheckSessionProperty("OutageScreenNumber", "9996")) {
+		cmd =  "PosSetActivationFilteredList";
+		CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+		executeBC(cmd,["", "WF_SelectOutageSecondList", true]);
+	}
+
+	if(clear == 'true')
+	{
+		var cmd = "PosSetStationGroupPreFilterList";
+		CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+		return executeBC(cmd,['', button]);
+	}
+	
+	PosShowMessage("MSG_LOADING","_NOMODAL:START");
+	var station_list = auxGetStationGroupList();
+/*	
+	if(!station_list) {
+		PosShowMessage("MSG_LOADING","_NOMODAL:END");
+		return (false);
+	}
+*/
+	PosShowMessage("MSG_LOADING","_NOMODAL:END");
+	var cmd = "PosSetStationGroupPreFilterList";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	var ret = executeBC(cmd,[station_list, button]);
+	if(ret) {
+		current_outage_filter = "StationGroup";
+	}
+	return ret;
+}
+
+function lSetProductCodePreFilter(product_key, exact_match, showLoading) {
+	if(PosCheckSessionProperty("OutageScreenNumber", "9997")) {
+		cmd =  "PosSetOutageFilteredList";
+		CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+		executeBC(cmd,["", "WF_SelectOutageSecondList"]);
+	}
+	else if(PosCheckSessionProperty("OutageScreenNumber", "9996")) {
+		cmd =  "PosSetActivationFilteredList";
+		CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+		executeBC(cmd,["", "WF_SelectOutageSecondList", true]);
+	}
+
+	cmd = "PosSetProductCodePreFilter";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	if(!executeBC(cmd,[product_key])) {
+		return (false);
+	}
+
+	return PosSetProductsByProductCode(product_key, exact_match, showLoading);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosSetProductCodePreFilter</b>
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC Fill the pre filter list to product code in the outage screen\n
+ * In a workflow sequence it is called:<b>PosSetProductCodePreFilter </b>\n
+ * In java script it should be called:<b>PosSetProductCodePreFilter( )</b>\n
+ * @success Pre filter list filled
+ * @since 1.19
+ */
+function PosSetProductCodePreFilter () {
+	var cmd;
+	if(current_outage_filter != "productCode") {
+		var hlp = new BusinessObjectHelper;
+		product_key = hlp.getSysMessage("MSG_OUTAGE_ACT_ALL_PRODUCTS");
+		
+		if(!lSetProductCodePreFilter(product_key, "false", "false")) {
+			return false;
+		}
+	}
+	
+	var product_key = PosShowCalculator("MSG_OUTAGE_CALCULATOR","","1","0");
+
+	if(product_key == "") {
+		return (true);
+	}
+	if(product_key == ";") {
+		var hlp = new BusinessObjectHelper;
+		product_key = hlp.getSysMessage("MSG_OUTAGE_ACT_ALL_PRODUCTS");
+	}
+
+	var ret = lSetProductCodePreFilter(product_key, "false", "true");
+	if(ret) {
+		current_outage_filter = "productCode";
+	}
+	return ret;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosSetProductsByProductCode</b>
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC Fill the list of products according to the entered key in the outage screen\n
+ * In a workflow sequence it is called:<b>PosSetProductsByProductCode </b>\n
+ * In java script it should be called:<b>PosSetProductsByProductCode( )</b>\n
+ * @param key - string - part of the product code to be searched.
+ * @param exact_match - string - could be "true" or "false" and indicate if the filter need to consider\n
+ *								 the key like a substring of the product code or like the exact product code.
+ * @param showLoading - string - could be "true" or "false" and indicate if it is necessary to show MSG_LOADING.
+ * @success Select(outage screen)/outage(activation screen) list filled
+ * @since 1.19
+ */
+function PosSetProductsByProductCode (key, exact_match, showLoading) {
+	if(showLoading == "true") {
+		PosShowMessage("MSG_LOADING","_NOMODAL:START");
+	}
+	var products;
+	var hlp = new BusinessObjectHelper;
+	var all_products = hlp.getSysMessage("MSG_OUTAGE_ACT_ALL_PRODUCTS");
+	if(key == all_products) {
+		products = rootProductDB.Product.(@statusCode == "ACTIVE").ProductCode;
+	}
+	else {
+		if(exact_match == "true") {
+				products = rootProductDB.Product.(@statusCode == "ACTIVE").(ProductCode == key).ProductCode;
+			}
+			else {
+				var pattern=new RegExp(key);
+			products = rootProductDB.Product.(@statusCode == "ACTIVE").(pattern.test(ProductCode)).ProductCode;
+		}
+	}
+
+	var cmd;
+	if(products.length() == 0) {
+		executeBC("PosSetButtonExactMatch", [exact_match]);
+		PosShowMessage("MSG_LOADING","_NOMODAL:END");
+		if(PosCheckSessionProperty("OutageScreenNumber", "9997")) {
+			cmd =  "PosSetOutageFilteredList";
+			CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+			return executeBC(cmd,["", "WF_SelectOutageSecondList"]);
+		}
+		else if(PosCheckSessionProperty("OutageScreenNumber", "9996")) {
+			cmd =  "PosSetActivationFilteredList";
+			CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+			return executeBC(cmd,["", "WF_SelectOutageSecondList", true]);
+		}
+
+		return (true);
+	}
+
+	var prod_list = "";
+	var first = true;
+
+	for each(productCode in products) {
+		if(first != true) {
+			prod_list += "|";
+		}
+		first = false;
+		prod_list += productCode;
+	}
+
+	if(PosCheckSessionProperty("OutageScreenNumber", "9997")) {
+		cmd =  "PosSetOutageFilteredList";
+	}
+	else if(PosCheckSessionProperty("OutageScreenNumber", "9996")) {
+		cmd =  "PosSetActivationFilteredList";
+	}
+
+	executeBC("PosSetButtonExactMatch", [exact_match]);
+	if(showLoading == "true") {
+		PosShowMessage("MSG_LOADING","_NOMODAL:END");
+	}
+	var workflow = "WF_SelectOutageSecondList";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd,[prod_list, workflow]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosSetProductPreFilter</b>
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC Fill the pre filter list according to the product in the outage screen\n
+ * In a workflow sequence it is called:<b>PosSetProductPreFilter </b>\n
+ * In java script it should be called:<b>PosSetProductPreFilter( )</b>\n
+ * @success Pre filter and select(outage screen)/outage(activation screen) list filled
+ * @failure <i>no items found</i> - There is no items to show.
+ * @since 1.19
+ */
+function PosSetProductPreFilter () {
+	var cmd;
+	if(PosCheckSessionProperty("OutageScreenNumber", "9997")) {
+		cmd =  "PosSetOutageFilteredList";
+		CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+		executeBC(cmd,["", "WF_SelectOutageSecondList"]);
+	}
+	else if(PosCheckSessionProperty("OutageScreenNumber", "9996")) {
+		cmd =  "PosSetActivationFilteredList";
+		CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+		executeBC(cmd,["", "WF_SelectOutageSecondList", true]);
+	}
+
+	PosShowMessage("MSG_LOADING","_NOMODAL:START");
+	var products = rootProductDB.Product.(@statusCode == "ACTIVE").(@productClass == "PRODUCT").ProductCode;
+	if(products.length() == 0) {
+		PosShowMessage("MSG_LOADING","_NOMODAL:END");
+		return (false);
+	}
+
+	var prod_list = "";
+	var first = true;
+	for each(productCode in products) {
+		if(first != true) {
+			prod_list += "|"
+		}
+		first = false;
+		prod_list += productCode;
+	}
+
+	PosShowMessage("MSG_LOADING","_NOMODAL:END");
+	var workflow = "WF_SetOutageListByProductComponent";
+	var cmd = "PosSetPreFilterList";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	var ret = executeBC(cmd,[prod_list, workflow, "OutageSearchButtonProduct"]);
+	if(ret) {
+		current_outage_filter = "product";
+	}
+	return ret;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosSetOutageListByProductComponent</b>
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC Fill the product list with all products that has the item selected in the composition\n
+ * In a workflow sequence it is called:<b>PosSetOutageListByProductComponent </b>\n
+ * In java script it should be called:<b>PosSetOutageListByProductComponent( )</b>\n
+ * @param selectedItems - string - list of product codes.
+ * @success Select(outage screen)/outage(activation screen) list filled
+ * @since 1.19
+ */
+function PosSetOutageListByProductComponent (selectedItems) {
+	var cmd;
+	// Send a empty list
+	if(selectedItems == "none") {
+		if(PosCheckSessionProperty("OutageScreenNumber", "9997")) {
+			cmd =  "PosSetOutageFilteredList";
+			CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+			return executeBC(cmd,["", "WF_SelectOutageSecondList"]);
+		}
+		else if(PosCheckSessionProperty("OutageScreenNumber", "9996")) {
+			cmd =  "PosSetActivationFilteredList";
+			CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+			return executeBC(cmd,["", "WF_SelectOutageSecondList", true]);
+		}
+	}
+	PosShowMessage("MSG_LOADING","_NOMODAL:START");
+	var product_codes = selectedItems.split("|");
+
+	var first = true;
+	var key = "";
+	for each(prod_code in product_codes) {
+		if(!first) {
+			key += " || ";
+		}
+		first = false;
+		key += "(";
+		key += prod_code;
+		key += "== ProductCode)";
+	}
+	first = true;
+	var sizes = rootProductDB.Product.(@statusCode == "ACTIVE").Composition.Component.(eval(key)) + rootProductDB.Product.(@statusCode == "ACTIVE").CanAdds.Component.(eval(key));
+	var prod_list = "none";
+	for each(productCode in product_codes) {
+		if(first != true) {
+			prod_list += "|"
+		}
+		else {
+			prod_list = "";
+		}
+		first = false;
+		prod_list += productCode;
+	}
+	
+	for each(productCode in sizes) {
+		if(first != true) {
+			prod_list += "|"
+		}
+		else {
+			prod_list = "";
+		}
+		first = false;
+		prod_list += productCode.parent().parent().ProductCode;
+	}
+
+	if(PosCheckSessionProperty("OutageScreenNumber", "9997")) {
+		cmd =  "PosSetOutageFilteredList";
+	}
+	else if(PosCheckSessionProperty("OutageScreenNumber", "9996")) {
+		cmd =  "PosSetActivationFilteredList";
+	}
+
+	PosShowMessage("MSG_LOADING","_NOMODAL:END");
+	var workflow = "WF_SelectOutageSecondList";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd,[prod_list, workflow]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosSetIngredientPreFilter</b>
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC Fill the pre filter list to ingredient in the outage/activation screen\n
+ * In a workflow sequence it is called:<b>PosSetIngredientPreFilter </b>\n
+ * In java script it should be called:<b>PosSetIngredientPreFilter( )</b>\n
+ * @success Pre filter and select(outage screen)/outage(activation screen) list filled
+ * @failure <i>no items found</i> - There is no items to show.
+ * @since 1.19
+ */
+function PosSetIngredientPreFilter () {
+	var cmd;
+	if(PosCheckSessionProperty("OutageScreenNumber", "9997")) {
+		cmd =  "PosSetOutageFilteredList";
+		CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+		executeBC(cmd,["", "WF_SelectOutageSecondList"]);
+	}
+	else if(PosCheckSessionProperty("OutageScreenNumber", "9996")) {
+		cmd =  "PosSetActivationFilteredList";
+		CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+		executeBC(cmd,["", "WF_SelectOutageSecondList", true]);
+	}
+
+	PosShowMessage("MSG_LOADING","_NOMODAL:START");
+	var ingredients = rootProductDB.Product.(@statusCode == "ACTIVE").(@productClass == "PRODUCT" || @productClass == "RAW_ITEM").Composition.Component.ProductCode +
+		rootProductDB.Product.(@statusCode == "ACTIVE").(@productClass == "PRODUCT" || @productClass == "RAW_ITEM").CanAdds.Component.ProductCode;
+	if(ingredients.length() == 0) {
+		PosShowMessage("MSG_LOADING","_NOMODAL:END");
+		return (false);
+	}
+
+	var prod_list = "";
+	var first = true;
+	for each(productCode in ingredients) {
+		if(first != true) {
+			prod_list += "|"
+		}
+		first = false;
+		prod_list += productCode;
+	}
+
+	PosShowMessage("MSG_LOADING","_NOMODAL:END");
+	var workflow = "WF_SetOutageListByProductComponent";
+	var cmd = "PosSetPreFilterList";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	var ret = executeBC(cmd,[prod_list, workflow, "OutageSearchButtonIngredient"]);
+	if(ret) {
+		current_outage_filter = "ingredient";
+	}
+	return ret;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosSelectOutageSecondList</b>
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC store the selected items to be moved to the select(outage screen)/outage(activation screen) list\n
+ * In a workflow sequence it is called:<b>PosSelectOutageSecondList </b>\n
+ * In java script it should be called:<b>PosSelectOutageSecondList( )</b>\n
+ * @param selectedItems - selected items
+ * @success Items included in the list
+ * @failure <i>no items to move</i> - There is no items to move.
+ * @since 1.19
+ */
+function PosSelectOutageSecondList(selectedItems) {
+	var cmd = "PosSelectOutageSecondList";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd,[selectedItems]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosMoveAllOutageActProduct</b>
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC move all itens from select(outage screen)/outage(activation screen) list to 
+ * outage(outage screen)/activation(activation screen) list\n
+ * In a workflow sequence it is called:<b>PosMoveAllOutageActProduct </b>\n
+ * In java script it should be called:<b>PosMoveAllOutageActProduct( )</b>\n
+ * @success Items moved to outage/activation list
+ * @since 1.19
+ */
+function PosMoveAllOutageActProduct() {
+	var cmd = "PosMoveAllOutageActProduct";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosMoveSelectedOutageActProduct</b>
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC move the selected items from select(outage screen)/outage(activation screen) list to 
+ * outage(outage screen)/activation(activation screen) list\n
+ * In a workflow sequence it is called:<b>PosMoveSelectedOutageActProduct </b>\n
+ * In java script it should be called:<b>PosMoveSelectedOutageActProduct( )</b>\n
+ * @param
+ * @success Items moved to outage(outage screen)/activation(activation screen) list
+ * @since 1.19
+ */
+function PosMoveSelectedOutageActProduct() {
+	var cmd = "PosMoveSelectedOutageActProduct";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosClearAllOutageActProduct</b>
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC clear the selectable items from the outage(outage screen)/activation(activation screen) list\n
+ * In a workflow sequence it is called:<b>PosClearAllOutageActProduct </b>\n
+ * In java script it should be called:<b>PosClearAllOutageActProduct( )</b>\n
+ * @success Items cleared from the list
+ * @since 1.19
+ */
+function PosClearAllOutageActProduct() {
+	var cmd = "PosClearAllOutageActProduct";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosSelectOutageThirdList</b>
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC store the selected items to be moved to the outage(outage screen)/activation(activation screen) list\n
+ * In a workflow sequence it is called:<b>PosSelectOutageThirdList </b>\n
+ * In java script it should be called:<b>PosSelectOutageThirdList( )</b>\n
+ * @param selectedItems - selected items
+ * @success Items included in the list
+ * @failure <i>no items to move</i> - There is no items to move.
+ * @since 1.19
+ */
+function PosSelectOutageThirdList(selectedItems) {
+	var cmd = "PosSelectOutageThirdList";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd,[selectedItems]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosClearSelectOutageActProducts</b>
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC clear the selected itens from the outage(outage screen)/activation(activation screen) list\n
+ * In a workflow sequence it is called:<b>PosClearSelectOutageActProducts </b>\n
+ * In java script it should be called:<b>PosClearSelectOutageActProducts( )</b>\n
+ * @param
+ * @success Selected outage product removed from the list
+ * @since 1.19
+ */
+function PosClearSelectOutageActProducts() {
+	var cmd = "PosClearSelectOutageActProducts";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosEditSelectedOutageProducts</b>
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC edits the selected items from the outage(outage screen) list\n
+ * In a workflow sequence it is called:<b>PosEditSelectedOutageProducts </b>\n
+ * In java script it should be called:<b>PosEditSelectedOutageProducts( )</b>\n
+ * @param
+ * @success Selected outage products edited
+ * @since 1.32 (NPS-23495)
+ */
+function PosEditSelectedOutageProducts() {
+	var cmd = "PosEditSelectedOutageProducts";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosEndOutage</b>
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC Finalize the Outage objects
+ * In a workflow sequence it is called:<b>PosEndOutage </b>\n
+ * In java script it should be called:<b>PosEndOutage()</b>\n
+ * Where:
+ * Property Messages:none\n
+ * @return rval - True.
+ * @since 1.19
+ */
+function PosEndOutage() {
+	product_outage = null;
+	
+	// rootProductDB  = null;     //NPS-13261
+	current_outage_filter = null;
+	var cmd = "PosEndOutage";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosGenerateOutage</b>
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC Generate the outage list
+ * In a workflow sequence it is called:<b>PosGenerateOutage </b>\n
+ * In java script it should be called:<b>PosGenerateOutage( )</b>\n
+ * @success List of outage products was sucessfully created
+ * @failure <i>Error saving product outage</i> - Could not generate product outage.
+ * @since 1.19
+ */
+function PosGenerateOutage() {
+	product_outage = null;	
+	
+	//rootProductDB  = null;  // NPS-13261
+	current_outage_filter = null;
+
+	PosShowMessage("MSG_LOADING","_NOMODAL:START");
+
+	var cmd = "PosGenerateOutage";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+
+	var ret = executeBC(cmd);
+
+	PosShowMessage("MSG_LOADING","_NOMODAL:END");
+	return ret;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosProductActivation</b>
+ *
+ * This BC Show the product activation screen\n
+ * In a workflow sequence it is called:<b>PosProductActivation </b>\n
+ * In java script it should be called:<b>PosProductActivation( )</b>\n
+ * @success the screen was correctly loaded
+ * @failure <i>Screen not found</i> - Activation screen is missing.
+ * @failure <i>Error loading screen</i> - Could not load activation screen.
+ * @since 1.19
+ */
+function PosProductActivation () {
+	loadProductOutage();
+
+	var prod_list = "";
+	var first = true;
+	for each (prod in product_outage) {
+		if(first != true) {
+			prod_list += "|"
+		}
+		first = false;
+		prod_list += prod.@code;
+	}
+
+	var cmd = "PosProductActivation";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, [prod_list, auxGetStationGroupList()]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosDisableButtonsBySizeSelection</b>
+ *
+ * This BC disable buttons according to the current size selection\n
+ * In a workflow sequence it is called:<b>PosDisableButtonsBySizeSelection </b>\n
+ * In java script it should be called:<b>PosDisableButtonsBySizeSelection( )</b>\n
+ * @success Buttons disabled
+ * @since 1.19
+ */
+function PosDisableButtonsBySizeSelection() {
+	var cmd = "PosDisableButtonsBySizeSelection";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosDisableFloatButtonsBySizeSelection</b>
+ *
+ * This BC disable buttons of floating screen according to the current size selection\n
+ * In a workflow sequence it is called:<b>PosDisableFloatButtonsBySizeSelection </b>\n
+ * In java script it should be called:<b>PosDisableFloatButtonsBySizeSelection( )</b>\n
+ * @success Buttons disabled
+ * @since 1.19
+ */
+function PosDisableFloatButtonsBySizeSelection() {
+	var cmd = "PosDisableFloatButtonsBySizeSelection";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosSelectOrderJS</b>.
+ *
+ * This BC is responsible for show a dialog with all orders taken by this POS and
+ return the orderID of the selected order.
+ *
+ * @success The order was selected and the SUCCESS context variable is filled with the orderId
+ * @failure The operator pressed cancel
+ * @param okLabel string - i18n message key for the ok button
+ * @param cancelLabel string - i18n message key for the cancel button
+ * @hook
+ * @remarks
+ * It is possible to pass as parameter the text instead of the i18nKey.
+ * @since 1.20
+ */
+function PosSelectOrder(okLabel, cancelLabel) {
+	var cmd = "PosSelectOrder";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+
+	// Should be in Sale mode (operator logged and not alreday performing a transaction
+	if(!PosIsInSaleMode() || !PosNotATransactionInProgress(false)) {
+		var ctx=new SessionContext;
+		var XMLResult = new XML("<Workflow/>");
+		XMLResult.Command.@name="PosSelectOrder";
+		XMLResult.Command.@fail="";
+		ctx.set("WF_Result",XMLResult,false);
+		API.SLog("LOGLEVL_DEBUG", "[PosSelectOrder] Not in sale mode OR transaction in progress.");
+		return(false);
+	}
+	return executeBC(cmd, ["ALL", "", okLabel, cancelLabel]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosSetVariableAmount</b>.
+ *
+ * This BC is responsible to manage the "VariablePrice" section context variable.
+ *
+ * @success The "VariablePrice" section context variable will store the new value
+ * @failure
+ * @param type string - indicate the operation type (0- Clear, 1- Integer Digits, 2- Digits, 3- Absolute Values, 4- Add)
+ * @param value string - amount
+ * @hook
+ * @remarks
+ * @since 1.20
+ */
+function PosSetVariableAmount(type, value) {
+	var cmd = "PosSetVariableAmount";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, [type, value]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosSetFloatPrice</b>.
+ *
+ * This BC is responsible for apply to the product the new price stored in the "VariablePrice" section context variable
+ *
+ * @success The price product will be changed to he "VariablePrice"
+ * @failure
+ * @param value string - amount
+ * @hook
+ * @remarks
+ * @since 1.20
+ */
+function PosSetFloatPrice(value) {
+	var cmd = "PosSetFloatPrice";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, [value]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosShowVariableAmountScreen</b>.
+ *
+ *  This BC is responsible for show the variable amount screen according to the selected item
+ *
+ * @success Screen is displayed
+ * @failure
+ * @param Screen is not displayed
+ * @hook
+ * @remarks
+ * @since 1.20
+ */
+function PosShowVariableAmountScreen(value) {
+	var cmd = "PosShowVariableAmountScreen";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, [value]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosCrewPanelServeAll</b>.
+ *
+ * Persistence:<b>Persisted</b>\n
+ * The PosCrewPanelServeAll is responsible for serves all opened orders.\n
+ * It is used internally by the kernel.\n
+ * In java script it should be called:<b>PosCrewPanelServeAll()</b>
+ * @success Orders served, sale panel refreshed with no order.
+ * @failure <i>Not in Sale Mode</i> - POS is not in sale mode.
+ * @failure <i>Serialize Error</i> - Error serializing a served item.
+ * @since 1.21
+ */
+function PosCrewPanelServeAll() {
+	var cmd = "PosCrewPanelServeAll";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd);
+}
+
+/** 
+ * @brief This function implements the BC,Business Component: <b>PosShowEmergencyRollbackScreen</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC loads and shows a new Screen
+ *
+ * @success Screen loaded successfully.
+ * @failure	<i>Unable to load screen</i> - Hook onLoadScreen can not load screen.
+ * @hook <i>onLoadScreen()</i> - called before the actual loading of the screen.
+ */
+function PosShowEmergencyRollbackScreen() {
+	var cmd = "PosShowEmergencyRollbackScreen";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/**ChangeSuggestiveSellingModeJS
+ *
+ * @brief - This BC shows/changes the report preview filter used in reports
+ * Return - rval - true if allowed to continue
+ */
+function ChangeSuggestiveSellingModeJS(value)
+{
+	var cmd = "PosDoChangeSuggestiveSellingMode";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	var ret = executeBC(cmd, [value]);
+	ShowSuggestiveSellingModeButtonJS();
+	return ret;
+}
+
+function PosCancelRefundOrderBy()
+{
+	try{
+		onCancelRefundByOrder();
+	}catch(ex){
+		API.dbg("Warning: onCancelRefundByOrder() failed, or it doesn't exists");
+	}	
+}
+/**
+ * @brief This function implements the BC,Business Component: <b>PosRefundByOrderIdOrData</b>.
+ *
+ * Persistence:<b>Persisted</b>\n
+ * The PosRefundByOrderIdOrData is responsible for refund process.\n
+ * It is used internally by the kernel.\n
+ * In java script it should be called:<b>PosRefundByOrderIdOrData()</b>
+ * @param refundReason string - refund reason
+ * @success 
+ * @failure 
+ * @failure 
+ * @since 1.23
+ */  
+function PosRefundByOrderIdOrData(refundReason, functionAndScriptName) {
+	
+	if (!PosIsInSaleMode(true) || !PosNotATransactionInProgress() || !PosRefundByOrderCheckWay()) {
+		return false;
+	}
+
+	var hlp = new BusinessObjectHelper;
+	var buttons = hlp.getSysMessage("MSG_BC_REFUND_SEARCH_BY_ORDER_NUMBER") + "|" + hlp.getSysMessage("MSG_BC_REFUND_SEARCH_BY_OTHER_CRITERIA") + "|" + hlp.getSysMessage("MSG_CANCEL");
+	
+	var mustSearch = true;
+	while (mustSearch) {
+		if (!PosItemSelection(buttons, "0|1|-1", "", "MSG_BC_SELECT_ORDER_SEARCH_CRITERIA")) {
+			PosCancelRefundOrderBy();
+			return false;
+		}
+		var ctx = new SessionContext;
+		var searchMode = Number(ctx.get("SelectedButtonValue"));
+		
+		var searchResult = -1;
+		if ("0" == searchMode) {
+			searchResult = ExecutePosSearchOrderById(functionAndScriptName);
+		}
+		else if ("1" == searchMode) {
+			searchResult = ExecutePosSearchOrderByData(functionAndScriptName);
+		}
+
+		switch (searchResult) {
+		case -1: // Cancel 
+			PosCancelRefundOrderBy();
+			return false;
+		case 0: // Back
+			continue;
+		case 1: // Search succeeded
+			mustSearch = false;
+			break;
+		case 2: // Search failed
+			return false;
+		}
+	}
+	
+	if (PosStartRefundOrder()) {
+		var cashlessType = -1;
+		var cashType = -1;
+		var tenderTypes = GetStoreDB().StoreDB.TenderTypes.TenderType;
+		for each (tenderType in tenderTypes) {
+			if (tenderType.TenderCategory == "TENDER_NATIVE") {
+				cashType = tenderType.TenderId;
+			}
+			else if (tenderType.TenderCategory == "TENDER_ELECTRONIC_PAYMENT") {
+				cashlessType = tenderType.TenderId;
+			}
+		}
+
+		var selectedTenderType = -1;
+		var options = cashlessType + "|" + cashType  + "|-1";
+		var check_result = "ErrorPosDoTender";
+		var refundResult = false;
+
+		while (!refundResult && check_result == "ErrorPosDoTender") {
+			ok = PosItemSelection("cashless.png|cash.png|cancel.png", options, "MSG_REFUND_TITLE", "MSG_REFUND_OPTIONS");
+			if (ok) {
+				selectedTenderType = Number(ctx.get("SelectedButtonValue"));
+			}
+			refundResult = PosEndRefundOrder(selectedTenderType, refundReason);
+			check_result = getLastFail("PosEndRefundOrder");
+		}
+		if (selectedTenderType < 0) {
+			return false;
+		}
+		return ( refundResult );
+	}
+	else {
+		PosEndRefundOrder(-1);
+	}
+	return false;
+	
+	function ExecutePosSearchOrderById(functionAndScriptName) {
+		var orderId;
+		while (true) {
+			orderId = PosShowCalculator("MSG_BC_ENTER_SEARCH_ORDER_NUMBER", "", 1, 0);
+			if (orderId == "") {
+				PosCancelRefundOrderBy();
+				return 0;
+			}
+			else if (orderId == ";") {
+				PosShowMessage("MSG_BC_ENTER_VALID_ORDER_NUMBER");
+			}
+			else {
+				break;
+			}
+		}
+		var ret = PosSearchOrderById(orderId, functionAndScriptName);
+		return ret ? 1 : 2;
+	}
+
+	function ExecutePosSearchOrderByData(functionAndScriptName) {
+		var hlp = new BusinessObjectHelper;
+		var ctx = new SessionContext;
+		var step = 1;
+		var businessDate = "";
+		var posList = "";
+		var podList = "";
+		var lowerAmount = "";
+		var higherAmount = "";
+		var ret = false;
+		var PosText = "";  
+		var PodText = "";  
+		
+		while(true) {
+			// Step 1 - Date
+			if (1 == step) {
+				var months = hlp.findParamInSectionWide("monthsToKeepLog", "Persistence");
+				months = parseInt(months, 10);
+				if (isNaN(months) || (months < 0)) {
+					months = 2;
+				}
+				POSGetDateEx((months * 30) + 1, "MSG_BC_ENTER_SEARCH_BUSINESS_DATE", true);
+
+				businessDate=ctx.get("dlgDate");
+				if(businessDate == "-1") {
+					return(-1);
+				}
+				else if(businessDate == "0") {
+					return(0);
+				}
+				step++;
+			}
+
+			// Step 2 - POS
+			if (2 == step) {
+				var allPos = new Array();
+				var posXML = hlp.getSWPosList();
+				if (posXML != null) {
+					posXML = new XML(posXML);
+					if (posXML != null) {
+						var leading = "*";
+						for each (pos in posXML.PosList.Pos) {
+							allPos.push(leading + pos.@id.toString());
+							leading = "0";
+						}
+					}
+				}
+				if (0 == allPos.length) {
+					posXML = hlp.getPOSState();
+					if (posXML != null) {
+						posXML = new XML(posXML);
+						if (posXML != null) {
+							allPos.push("*" + posXML.@ID);
+						}
+					}
+				}
+				var cmd = "PosShowPickListEx";
+				if (executeBC(cmd, ["MSG_BC_ENTER_SEARCH_POS", allPos, false, true])) {
+					var selection = getLastSuccess(cmd).split("|");
+					var result = selection.shift();
+					if ("NPGUI_DLGBOX_BACK" == result) {
+						step--;
+						continue;
+					}
+					else if ("NPGUI_DLGBOX_OK" == result) {
+						var leading = "";
+						var numPos = 0;
+						for each (element in selection) {
+							var index = parseInt(element, 10);
+							if (isNaN(index) || index < 0) continue;
+							posList = posList + leading + allPos[index].substring(1, allPos[index].length);
+							leading = "|";
+							numPos++;
+						}
+						step++;
+						if(numPos == allPos.length ) {
+							PosText  = "ALL";
+						}				
+					}
+				}
+				else {
+					return(-1);
+				}
+			}
+
+			// Step 3 - POD
+			if (3 == step) {
+				var allPod = ["*DT", " FC", " WT", " DLV", " CK", " MCC", " MCE", " CKD", " CSO"]; // The first item is pre-selected
+				var cmd = "PosShowPickListEx";
+				if (executeBC(cmd, ["MSG_BC_ENTER_SEARCH_POD", allPod, false, true])) {
+					var selection = getLastSuccess(cmd).split("|");
+					var result = selection.shift();
+					if ("NPGUI_DLGBOX_BACK" == result) {
+						step--;
+						continue;
+					}
+					else if ("NPGUI_DLGBOX_OK" == result) {
+						var leading = "";
+						var numPod = 0;
+						for each (element in selection) {
+							var index = parseInt(element, 10);
+							if (isNaN(index) || index < 0) continue;
+							podList = podList + leading + allPod[index].substring(1, allPod[index].length);
+							leading = "|";
+							numPod++;
+						}
+						step++;
+
+						if(numPod == allPod.length ) {
+							PodText  = "ALL";
+						}						
+					}
+				}
+				else {
+					return(-1);
+				}
+			}
+
+			// Step 4 - Lower amount
+			if (4 == step) {
+			    var sHigherAmountMsg=hlp.getSysMessage("MSG_BC_ENTER_SEARCH_HIGHER_AMOUNT");
+			    var sLowerAmountMsg=hlp.getSysMessage("MSG_BC_ENTER_SEARCH_LOWER_AMOUNT");
+				var result = POSGetValueRange(sLowerAmountMsg, sHigherAmountMsg, true)
+				if (result != 0) {
+					// BACK
+					step--;
+					continue;
+				}
+				lowerAmount = ctx.get("ValueMin");
+				higherAmount = ctx.get("ValueMax");
+				if ("0" == lowerAmount && "0" == higherAmount) {
+					PosShowMessage("MSG_BC_HIGHER_AMOUNT_MUST_BE_GREATHER_THAN_LOWER");
+					continue;
+				}
+				step++;
+			}
+			
+			// Step 5 - Search Order by data
+			if(5 == step) {
+				
+				ret = PosSearchOrderByData(businessDate, posList, podList, lowerAmount, higherAmount, PosText, PodText, functionAndScriptName);
+				ret = ret ? 1 : 2;
+			}
+			break;
+		}
+		return ret;
+	}
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosRefundByOrderCheckWay</b>.
+ *
+ * This BC is responsible for checking if the Waystation is online and all the handling required by Refund by Order
+ * @return true: the refund can continue
+ * @since 1.23
+ */
+function PosRefundByOrderCheckWay() {
+	var cmd = "PosRefundByOrderCheckWay";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosSearchOrderById</b>.
+ *
+ * This BC is responsible for show a dialog with all orders found with this orderID
+ *
+ * @param orderID to search
+ * @return true: at least one order was found
+ * @return false: no order with this order id was found.
+ * @remarks
+ * @since 1.21
+ */
+function PosSearchOrderById(orderID, functionAndScriptName) {
+	var cmd = "PosSearchOrderById";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+
+	return executeBC(cmd, [orderID, functionAndScriptName]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosSearchOrderByData</b>.
+ *
+ * This BC is responsible for show a dialog with all orders found with this orderID
+ *
+ * @param businessDate to search
+ * @param posList to search
+ * @param podList to search
+ * @param lowerAmount to search
+ * @param higherAmount to search
+ * @return true: at least one order was found
+ * @return false: any order with this order id was found.
+ * @hook
+ * @remarks
+ * It is possible to pass as parameter the text instead of the i18nKey.
+ * @since 1.23
+ */
+function PosSearchOrderByData(businessDate, posList, podList, lowerAmount, higherAmount,  PosText, PodText, functionAndScriptName) {
+	var cmd = "PosSearchOrderByData";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+
+	return executeBC(cmd, [businessDate, posList, podList, lowerAmount, higherAmount, PosText, PodText, functionAndScriptName]);
+}
+
+function GetStoreDB()
+{
+	if(typeof(xmlStoreDB) =="undefined")
+	{
+		xmlStoreDB = new XML(API.getStoredb());	
+	}
+	
+	return xmlStoreDB;
+}	
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosStartRefundOrder</b>.
+ *
+ * This BC is responsible for start the refund process. This BC check if this order can be refunded 
+ * (if this order wasn't refunded yet, cash is ok,etc.)
+ * 
+ *
+ * @success The order was selected is allowed to be refunded, and the refund process started
+ * @false   This order couldn't be refunded
+ * @hook
+ * @remarks
+ * It is possible to pass as parameter the text instead of the i18nKey.
+ * @since 1.23
+ */
+function PosStartRefundOrder() {
+	var cmd = "PosStartRefundOrder";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+
+	return executeBC(cmd);
+}
+
+ /**
+ * @brief This function implements the BC,Business Component: <b>PosEndRefundOrder</b>.
+ *
+ * This BC is responsible for end the refund process. This BC stores the refund information.
+ * 
+ *
+ * @success Information was successfully stored and refund process ended.
+ * @false   
+ * @hook
+ * @remarks
+ * param  : tendertype -> Tender type that refund process will be done.
+ * param  : refundReason -> Refund reason.
+ * @since 1.23
+ */
+function PosEndRefundOrder(tendertype, refundReason) {
+	var cmd = "PosEndRefundOrder";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+
+	return executeBC(cmd, [tendertype, refundReason]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosCheckStatusGetIdAndSearchOrder</b>.
+ *
+ * This BC is responsible for show a dialog with all orders found with this orderID
+ *
+ * @param orderID to search
+ * @return true: at least one order was found
+ * @return false: no order with this order id was found.
+ * @remarks
+ * @since 1.21
+ */
+function PosCheckStatusGetIdAndSearchOrder( orderID ) {
+	if (!PosIsInSaleMode(true) || !PosNotATransactionInProgress() || !PosRefundByOrderCheckWay()) {
+		return false;
+	}
+
+	while (true) {
+		orderId = PosShowCalculator("MSG_BC_ENTER_SEARCH_ORDER_ID", "", 1, 0);
+		if (orderId == "") {
+			return 0;
+		}
+		else if (orderId == ";") {
+			PosShowMessage("MSG_BC_ENTER_VALID_ORDER_ID");
+		}
+		else {
+			break;
+		}
+	}
+	var ret = PosSearchOrderById(orderId);
+	return ret ? 1 : 2;
+	return true;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosRefundByOrder</b>.
+ *
+ * Persistence:<b>Persisted</b>\n
+ * The PosRefundByOrder is responsible for refund process.\n
+ * It is used internally by the kernel.\n
+ * In java script it should be called:<b>PosRefundByOrder()</b>
+ * @success 
+ * @failure 
+ * @failure 
+ * @since 1.21
+ */  
+function PosRefundByOrder() {
+	var  view;
+	var lstView;		
+	var tenderType=-1;
+	var ctx = new SessionContext;
+	var check_result;
+	var xmlStoreCopy = GetStoreDB();
+	var tenderTypes = xmlStoreCopy.StoreDB.TenderTypes.TenderType;
+	var cashlessType = -1;
+	var cashType = -1;
+	
+	tenderType = -1;
+
+	if( PosCheckStatusGetIdAndSearchOrder() ) {
+
+		if( PosStartRefundOrder() == true ) {		
+			var view= new XML(ctx.get("KEY_VIEW_TO_BE_REFUNDED"));
+			var tenderItems = view.ItemTenderView;
+			for each(tenderItem in tenderItems) {
+				var	TenderCategory = tenderItem.cat;
+			if(TenderCategory == "TENDER_NATIVE") {
+					cashType = tenderItem.code;
+					break;
+				}
+				else if(TenderCategory == "TENDER_ELECTRONIC_PAYMENT") {
+					cashlessType = tenderItem.code;
+					break;
+				}
+			}
+			API.dbg("DEBUG: PosRefundByOrder: TenderCategory:["+TenderCategory+"] cashType:["+cashType+"] cashlessType:["+cashlessType+"]");
+			var options = cashlessType + "|" + cashType  + "|-1";
+
+			check_result = "ErrorPosDoTender";			
+			var refundResult = false;
+			while (!refundResult && check_result == "ErrorPosDoTender") {
+				ok = PosItemSelection("cashless.png|cash.png|cancel.png", options,"MSG_REFUND_TITLE","MSG_REFUND_OPTIONS");		
+				if( ok ) {
+					tenderType = Number(ctx.get("SelectedButtonValue") );			
+					API.dbg("INFO: PosRefundByOrder: tenderType:["+tenderType+"]");
+				}		
+				
+				refundResult = PosEndRefundOrder( tenderType );			
+					
+				check_result = getLastFail("PosEndRefundOrder");								
+			}
+			if (tenderType < 0) {
+				return false;
+			}
+			return refundResult;
+		}		
+		else 
+			PosEndRefundOrder( -1 );			
+	}
+	return false;
+}
+
+/** PosCSOSetAvailableJS
+ *
+ * @brief - Creates the XML UI block / unblock message. This may make the CSO UI unavailable.
+ * Command message sample:
+ *
+ *			<Event type="ASYNC" name="UI_BLOCK"/>
+ *	   			<Parameter name="Code" value="NGK_MSG_GENERIC_USER_ERROR"/>
+ *	  			<Parameter name="Msg" value="This Kiosk is out of service."/>
+ *			</Event>
+ *			- or -
+ *			<Event type="ASYNC" name="UI_UNBLOCK"/>
+ *	   			<Parameter name="Code" value="I18N_CODE_FOR_THE_MESSAGE"/>
+ *	  			<Parameter name="Msg" value="The message"/>
+ *			</Event>
+ *
+ * @param isAvailable Indicates whether the CSO interface should be made available or unavailable.
+ * @param code The Windows Event code that indicates the reason for setting the CSO interface to its new availability state.
+ * @param msg The textual message corresponding to the <c>code</c>.
+ * @since - SQC-5886 - 2014-10-27
+ * @author - Pablo L. R. Santos (psantos)
+ */
+function PosCSOSetAvailableJS(isAvailable, code, msg) {
+	var hlp = new BusinessObjectHelper;
+	var xmlPOS = new XML(hlp.getPOSState());
+	var state = Number(xmlPOS.@state);
+
+	// check if POS is closed
+	if (state == POS_STA_CLOSED) {
+		if (isAvailable == true) {
+			API.SLog("LOGLEVL_DEBUG", "[PosCSOSetAvailableJS] Unlock event was not sent because POS is closed.");
+		} else {
+			API.SLog("LOGLEVL_DEBUG", "[PosCSOSetAvailableJS] Lock event was not sent because POS is closed.");
+		}
+		return;
+	}
+
+	// check if we will unlock POS and there is no unblocked user logged in
+	if (isAvailable == true && state != POS_STA_OPLOGGED) {
+		API.SLog("LOGLEVL_DEBUG", "[PosCSOSetAvailableJS] Unlock event was not sent because POS is not logged in.");
+		return;
+	}
+
+	//Check if the local Kiosk function is available
+	if(typeof(PosCSOSetAvailableLocal) == "function") {
+		PosCSOSetAvailableLocal(isAvailable, code, msg);
+	}
+	else {
+		var xml = new StringBuffer();
+		xml.append(GLOBAL_UTF8_PROLOG_XML);
+
+		if (isAvailable == true){
+			xml.append("<Event type=\"ASYNC\" name=\"UI_UNBLOCK\">\n");
+		} else {
+			xml.append("<Event type=\"ASYNC\" name=\"UI_BLOCK\">\n");
+		}
+		if (code != null) {
+			xml.append("\t<Parameter name=\"Code\"  value=\"" + code  + "\" />\n");
+		}
+		if (msg != null) {
+			xml.append("\t<Parameter name=\"Msg\"  value=\"" + msg  + "\" />\n");
+		}
+		xml.append("</Event>");
+		PosSendUICmd(xml.toString());
+	}
+}
+
+ /**
+ * @brief This function implements the BC,Business Component: <b>PosAddCYTGroupButtons</b>.
+ *
+ * This BC adds to the CYT Grill Screen the buttons relative to the CYT products of some CYT Group
+ * 
+ *
+ * @success Buttons relative to all products are added to the CYT Grill Screen.
+ * @false   
+ * @hook
+ * @remarks
+ * param  : groupName ->  CYT Group Name
+ * param  : firstButton -> number of the first button to be added
+ * param  : lastButton -> number of the last button to be added
+ * @since 1.23
+ */
+function PosAddCYTGroupButtons(groupName, firstButton, lastButton) {
+	var cmd = "PosAddCYTGroupButtons";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+
+	return executeBC(cmd, [groupName, firstButton, lastButton]);
+}
+
+ /**
+ * @brief This function implements the BC,Business Component: <b>PosShowMoreCYTProductsOfGroup</b>.
+ *
+ * This BC is used to show the next buttons relative to the CYT Products of some group in the CYT Grill Screen
+ * 
+ *
+ * @success The next buttons of some group are displayed
+ * @false   
+ * @hook
+ * @remarks
+ * param  : groupName ->  CYT Group Name
+ * @since 1.23
+ */
+function PosShowMoreCYTProductsOfGroup(groupName) {
+	var cmd = "PosShowMoreCYTProductsOfGroup";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+
+	return executeBC(cmd, [groupName]);
+}
+
+ /**
+ * @brief This function implements the BC,Business Component: <b>PosSetCYTGrillOperImage</b>.
+ *
+ * This BC is used to set the grill images representing the grill operations over the components in the CYT Grill Screen
+ * 
+ *
+ * @success The image name is set to the grill operation
+ * @false   
+ * @hook
+ * @remarks
+ * @param Action - string - grill action performed:\n
+ *                          ADD - the product quantity was increased\n
+ *                          NO - the product quantity was decreased to zero\n
+ *                          LIGHT - the product was grilled with LIGTH special modifier\n
+ * @param Image - string - name of the image to be displayed in the CYT Grill Screen over the products to represent the grill operation\n
+ * @since 1.23
+ */
+function PosSetCYTGrillOperImage(Action, Image) {
+	var cmd = "PosSetCYTGrillOperImage";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+
+	return executeBC(cmd, [Action, Image]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosShowDeliveryEarlySmartScreen</b>.
+ *
+ * This BC is used to show the delivery early floating screen
+ * 
+ *
+ * @success The delivery early floating screen is displayed
+ * @false   
+ * @hook
+ * @remarks
+ * @since 1.23
+ */
+function PosShowDeliveryEarlySmartScreen() {
+	var cmd = "PosShowDeliveryEarlySmartScreen";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosRefreshDeliverEarlyFloatingButton</b>.
+ *
+ * This BC is used to update a delivery early button in floating screen
+ * 
+ *
+ * @success The button is refreshed
+ * @false   
+ * @hook
+ * @remarks
+ * @param productCode - string - product code used to identify the button to be refreshed\n
+ * @since 1.23
+ */
+function PosRefreshDeliverEarlyFloatingButton(productCode) {
+	var cmd = "PosRefreshDeliverEarlyFloatingButton";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+
+	return executeBC(cmd, [productCode]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosRefreshDeliverEarlyFloatingButtons</b>.
+ *
+ * This BC is used to update all delivery early buttons in floating screen
+ * 
+ *
+ * @success The buttons are refreshed
+ * @false   
+ * @hook
+ * @remarks
+ * @param productCode - string - product code used to identify the button to be refreshed\n
+ * @since 1.23
+ */
+function PosRefreshDeliverEarlyFloatingButtons() {
+	var cmd = "PosRefreshDeliverEarlyFloatingButtons";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosSaveCurrentScreenNumber</b>.
+ *
+ * This BC is used to save the current screen number in a context variable
+ * 
+ *
+ * @success The Current screen number is saved
+ * @false   
+ * @hook
+ * @remarks
+ * @since 1.27
+ */
+function PosSaveCurrentScreenNumber()
+{
+	var hlp = new BusinessObjectHelper;
+	var screenInfo = hlp.getScreenInfo(-1);
+	if(null == screenInfo) return(false);
+	var screenDescr = new XML(screenInfo);
+	if(null == screenDescr)return(false);
+	var ctx = new SessionContext;
+	ctx.set("CurrentScreenNumber", screenDescr.@number);
+	//API.DbgMessageBox(screenDescr.@number);
+	
+	return(true);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosShowSavedScreen</b>.
+ *
+ * This BC is used to show the screen that was saved previously
+ * 
+ *
+ * @success The screen is shown
+ * @false   
+ * @hook
+ * @remarks
+ * @since 1.27
+ */
+function PosShowSavedScreen()
+{
+	var cmd = "PosShowSavedScreen";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosSetNonRequiredCanAddDone</b>.
+ *
+ * This BC is used to set that the button done was already pressed on a Non Required Can Add Smart reminder screen, that way this screen won't
+ * show again for the selected product.
+ * 
+ *
+ * @success The done flag is set
+ * @false   
+ * @hook
+ * @remarks
+ * @since 1.27
+ */
+function PosSetNonRequiredCanAddDone()
+{
+	var cmd = "PosSetNonRequiredCanAddDone";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosShowNonRequiredCanAddSmartReminder</b>.
+ *
+ * This BC is used to show the non required can add smart reminder screen
+ * 
+ *
+ * @success The screen is shown
+ * @false   
+ * @hook
+ * @remarks
+ * @param show_previous - boolean - true will show the screen for the previous product, false will show the screen for the first product.
+ * @since 1.27
+ */
+function PosShowNonRequiredCanAddSmartReminder(show_previous)
+{
+	var cmd = "PosShowNonRequiredCanAddSmartReminder";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd, [show_previous]);
+}
+
+function PosSetMobileOrderButtonStatus(status)
+{
+	var cmd = "PosSetMobileOrderButtonStatus";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, [status]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosShowChoices</b>.
+ *
+ * This BC is used to show the available choices screen
+ * 
+ *
+ * @success The screen is shown
+ * @false   
+ * @hook
+ * @remarks
+ * @param SaveCurrentScreen - boolean - saves the current screen number
+ * @param ScreenNumber - int - screen number to show
+ * @since 1.27
+ */
+function PosShowChoices(SaveCurrentScreen, ScreenNumber)
+{
+	var cmd = "PosShowChoices";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd, [SaveCurrentScreen, ScreenNumber]);
+}
+
+function PosUnloadSmartReminder()
+{
+	var cmd = "PosUnloadSmartReminder";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd, []);
+}
+
+function PosOutageMode(onClick, getManagerAuthorization) {
+	var cmd = "PosOutageMode";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd, [onClick, getManagerAuthorization]);
+}
+/**
+ * END nps
+ */
+/* signed aut version 9-9076
+ * authority id = builder
+ * authority level = 10
+ * authority name = NewPOS release level
+ * group = npi
+ * validity = 2010-04-18
+ * signature type = slash_star
+ * time stamp (GMT) = Fri Jan 26 16:27:04 2018
+ * certificate = 393735312d37393437002ee018d1e7890914559ef2c30571fca9c1c592e95a325ba50db4362a5dc0bd223a1032161684f07e2e6dba19683232fa37240010
+ * =============================================================================================================================
+*/

@@ -1,0 +1,65 @@
+/**
+ * @file CSL_LogTable.nps
+ * @brief This NPS file implements BusinessComponents Related to Logs.
+ * @addtogroup 	CSL
+ * @defgroup 	CSL_LogTable
+ * @ingroup 	CSL
+ *
+ * Copyright (C) 2008 McDonalds Corp. All rights reserved.
+ *
+ * @author Pedro (of Creation)
+ * @since NPS-10606 / date
+ *
+ * @version $Id: CSL_CoreUtilities.nps 776 2009-08-06 13:46:38Z rcaram $
+ * @remarks Include here all remarks related to this file!
+ * @{
+ */
+
+/* Variable used for version control */
+CSL_LOGTABLE_VERSION = "$WCURL$:$WCREV$";
+
+/* Set the variable. */
+SRC_BC_UTIL='CSL_LogTable.nps';
+
+var LogIdsCSLScript = {
+	12001 : {Text: "{1} expected at least {2} parameters and received {3}."}
+}
+
+/**
+ * @brief GetLogTextByID
+ *		Returns Message to be used to log according to the logID, 
+ *		this function accept a variable number of parameter to be used to
+ *		mount the message, first parameter needs to be the log ID
+ *
+ * @since 1.23-
+ */
+function GetLogTextByID(LogID) {
+	if(arguments.length < 1) {
+		return "Invalid Log ID";
+	}
+	
+	var logRecord = LogIdsCSLScript[LogID];
+	var returnString = logRecord.Text;
+	
+	for (var i = 1; i < arguments.length; i++) {
+		var pattern = "{" + String(i) + "}";
+		returnString = returnString.replace(pattern, arguments[i]);
+	}
+
+	return returnString;
+}
+
+/**
+ * END nps
+ */
+/* signed aut version 9-9076
+ * authority id = builder
+ * authority level = 10
+ * authority name = NewPOS release level
+ * group = npi
+ * validity = 2010-04-18
+ * signature type = slash_star
+ * time stamp (GMT) = Fri Jan 26 16:27:04 2018
+ * certificate = 393735312d3739343700f95d26ea463e300e8a5ff4371728353a2b7058cf729ed16ff9d7b2f7fad7920568efa1567759cf48be3887475104e9b71e240010
+ * =============================================================================================================================
+*/

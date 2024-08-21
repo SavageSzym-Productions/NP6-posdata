@@ -1,0 +1,420 @@
+/**
+ * @file CSL_Security.nps
+ * @brief This NPS file implements BusinessComponents Security.
+ * @addtogroup 	CSL
+ * @defgroup 	Security
+ * @ingroup 	CSL
+ *
+ * Copyright (C) 2008 McDonalds Corp. All rights reserved.
+ *
+ * @author Raphael (of Creation)
+ * @since NPS-4831 / 2009/06/22
+ *
+ * @version $Id: CSL_Security.nps 776 2009-08-06 13:46:38Z rcaram $
+ * @remarks Business components related to Security.
+ * @{
+ */
+
+/* Variable used for version control */
+CSL_SECURITY_VERSION = "$WCURL$:$WCREV$";
+
+/* Set the variable. */
+SRC_BC_SECURITY='CSL_Security.nps';
+
+var IsCheckPwdExpirationEnable =true;
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosGetAuthorization</b>.
+ *
+ * Persistence:<b>Persisted</b>\n
+ * This BC asks for manager authorization for a given level.
+ * If the parameter SingleSignOn is received as TRUE and a previous authorization for this level or
+ * higher was granted, this authorization is granted. If not the KeyPad/Calculator or the
+ * magnetic stripe is activated requesting the password.
+ * It is also possible to show a message to the operator, using the parameter "message".
+ * This "message" is used to look for the native language message in the system messages file,
+ * (pos-messages_xx.properties). If the native language message is not found the text is used as it is.
+ *
+ * @param level - string - Authorization level ("manager", "supervisor" or "system": they should be defined in Section AuthorizationLevel of store-db.xml).
+ * @param message - string - optional - message to exhibit. If not received the default message (MSG_PROMPTID) is exhibited.
+ * @param SingleSignOn - string/BOOL - optional - TRUE for single sign on (default:FALSE).
+ * @param action - string - optional - action that required autorization: "ACTION_Tender Change Halo", "ACTION_Tender HALO", "ACTION_Sales HALO", "ACTION_Sales HILO", "ACTION_Discount", "ACTION_Other", etc (default:"ACTION_Other") [1.18]
+ * @success Password ok. Authorization granted successfully.
+ * @failure	<i>Error validating card</i> - The hook onValidateManagerCard() returned false value.\n
+ * @failure <i>Invalid password</i> - Error validating the identifier/password given by the user.
+ * @hook <i>onValidateManagerCard(minLevel,cardData)</i> - called to validade card data.
+ * @hook <i>onEndRequestCard(mode)</i> - called after swipe card activation - should close message window.
+ * @remarks
+ *
+ * Property Messages:\n
+ *	 MSG_PROMPTCARD: Prompt message to get  the manager identification.\n
+ *   MSG_PROMPTID: Prompt message for operator identification.\n
+ *   MSG_PROMPTPSWD: Prompt message for operator password.\n
+ *   MSG_INVPASSWD: Error message for invalid password.\n
+ *
+ * This BC calls PosShowMessage.
+ * @since 1.17-
+ */
+function PosGetAuthorization(level, message, SingleSignOn, action) {
+	var msg = null
+	var isSingleSign = false;
+	var ret = false;
+	var helper = new BusinessObjectHelper();
+	var managerAuth = PosCheckSessionProperty("POD","HOT") == true ? "login" : helper.findParamInSectionWide("managerAuthorization","Security") || "login";
+	var actionKind = "Other";
+	var levelAllowed = false;
+	var showMessage = true;
+	var enableBOManagerPasswordManagement = helper.findParamInSectionWide("enableBOManagerPasswordManagement","Security");
+	var userID = null;
+	var biometricOverride = false;
+	var enableManagerAuthBiometricOverride = helper.findParamInSectionWide("enableManagerAuthBiometricOverride", "Security");
+			
+	// Pedro F.Sales - 01/Mar/2016 - SDO-13351: Init variable
+	var ctx = new SessionContext;
+	var XMLResult = new XML("<Workflow/>");	
+	
+	XMLResult.Command.@name="cPosMSRRead";
+	XMLResult.Command.@fail="";
+	ctx.set("WF_Result",XMLResult,false);
+		
+	if(undefined == level) {
+		API.dbg("[PosGetAuthorization] - undefined 'level' parameter");
+		return false;
+	}
+	var args = Array.prototype.slice.call(arguments);
+	for (var ui = 1; ui < args.length; ui++) {
+		if("true" == String(args[ui])){
+			isSingleSign = true;
+		}
+		else if(String(args[ui]) != "false") {
+			if("ACTION_" == args[ui].toString().substring(0,7)) {
+				actionKind = args[ui].toString().substring(7,args[ui].toString().length);
+				API.dbg("[PosGetAuthorization] - action set to: "+actionKind);
+			}
+			else {
+				if ("SILENT_TRUE" == args[ui])
+				{
+					showMessage = false;
+				}
+				else
+				{
+					msg = args[ui];
+					API.dbg("[PosGetAuthorization] - message set to: "+msg);
+				}
+			}
+		}
+	}
+	CSL_dbglog(7, SRC_BC_SECURITY, "cPosCheckSecurityLevel", "Start");
+	levelAllowed = executeBC("cPosCheckSecurityLevel",[level]);
+	if(isSingleSign && levelAllowed) {
+		return true;
+	}
+	
+	if("login_card_biometrics" == managerAuth) {
+		executeBC("PosLoginCardBiometrics", []);
+		var reason = getLastSuccess("PosLoginCardBiometrics");
+		var iLevel = helper.findParamInSectionWide(level, "AuthorizationLevel");
+		if(iLevel == null) iLevel = 0;
+
+		//ui
+		if(reason == "cancelled") return false;
+		else if(reason == "login") {
+			managerAuth = "login";
+			userID = ctx.get("ManagerID");
+		}
+		//biometrics
+		else if(reason == "invalidBiometrics") {
+			managerAuth = "biometric";
+		} else if(reason == "biometrics") {
+			userID = ctx.get("ManagerID");
+			if(true == helper.validateUser(userID, null, iLevel, "manager")) return true;
+			managerAuth = "biometric";
+		}
+		//card
+		else if(reason == "card") {
+			var cardID = ctx.get("CardID");
+			if(true == onValidateManagerCard(iLevel, cardID)) return true;
+			managerAuth = "card";
+		}
+	}
+	if("card" == managerAuth) {
+		if (null == msg || 0 == msg.length) {
+			msg = "MSG_PROMPTCARD"
+		}
+
+		// NPS-8870 - Fix for "level" parameter passed in the "onValidateManagerCard"
+		var iLevel = helper.findParamInSectionWide(level,"AuthorizationLevel");
+		if(iLevel == null) {
+			CSL_dbglog(7, SRC_BC_SECURITY, "PosGetAuthorization: Section AuthorizationLevel in store-db was not configured, could not read authorization level for [%s]", l);
+			iLevel = 0;
+		}
+
+		// opens dialog
+		if (typeof(onRequestCard) == "function") {
+			if (!onRequestCard(msg)) {
+				API.dbg("[PosGetAuthorization] - onRequestCard returned false");
+				return false;
+			}
+		}
+		
+		var timeout = helper.findParamInSectionWide("timeout","Security");
+		cPosMSRRead(timeout);
+		var result = getResult("cPosMSRRead").toString();
+		
+		if(typeof(onValidateManagerCard) == "function") {
+			if(onValidateManagerCard(iLevel, result)) {
+				CSL_dbglog(7, SRC_BC_SECURITY, "cPosRegisterAuthorization", "Start");
+				executeBC("cPosRegisterAuthorization",[actionKind, true, managerAuth]);
+				if(typeof(onEndRequestCard) == "function") {
+					onEndRequestCard(0);
+				}
+				return true;
+			}
+		}
+		
+		if(typeof(onEndRequestCard) == "function") {
+			if(!onEndRequestCard(1)){
+				API.dbg("[PosGetAuthorization] - onEndRequestCard returned false");
+				return false;
+			}
+		}
+	} else if ("biometric" == managerAuth) {
+		var isOperationalCmd = "AuthIsOperational";
+		if (executeBC(isOperationalCmd)) {
+			if(null == msg || 0 == msg.length) {
+				/*NVS-5851 - msilva - Specific messages for biometric authorization*/
+				if(enableManagerAuthBiometricOverride == "true") {
+					msg = helper.getSysMessage("MSG_PROMPT_MANAGER_AUTH_BIOMETRIC_OVERRIDE");
+				}else{				
+					msg = "MSG_BC_PROMPTBIO"
+				}
+			}
+			if(typeof(onCheckBiometricStatus) == "function"){ //hook created in order to enable localize the decision to override biometric or not
+				 biometricStatus = onCheckBiometricStatus(); // SDO-16259/NVS-6968 onCheckBiometricStatus return true if the biometric can be executed or false if the biometric cannot be executed
+				 biometricOverride = !biometricStatus;
+			}
+			if (!biometricOverride) {
+				var identifyCmd = "AuthIdentify";
+				if (executeBC(identifyCmd, [level, msg, "manager"])) {
+					ret = true;
+				}
+				else {
+					var reason = getLastFail(identifyCmd);
+					if (reason == "MSG_AUTH_TIMEOUT") {
+						PosShowMessage("MSG_BC_AUTH_TIMEOUT");
+					} else if (reason == "MSG_AUTH_CANCELLED") {
+						PosShowMessage("MSG_BC_AUTH_CANCELLED");
+					} else if (reason == "NPREE_AUTH_NOT_BIOMETRIC_ID") {
+						biometricOverride = true;
+						var ctx = new SessionContext;
+						userID = ctx.get("ManagerID");
+					} else if (reason == "NPREE_AUTH_MAX_TRIES") {
+						biometricOverride = true;
+						PosShowMessage("MSG_BC_AUTH_MAX_BIOMETRIC_RETRIES_REACHED");
+					} else {
+						PosShowMessage("MSG_BC_INVBIOAUTH");
+					}
+				}
+			}
+			if (biometricOverride == true)
+			{//fall through to login
+				managerAuth = "login";
+				msg = "MSG_PROMPTID"; //"MSG_PROMPTID" is the key for namagerAuth == "login"
+			}
+			else if(ret == false) {
+				return ret;
+			}
+			else
+			{
+				executeBC("cPosRegisterAuthorization",[actionKind, ret, managerAuth]);
+				// adaptor is operational -- don't fall through to login auth 
+				return ret;
+			}
+		} else {
+			// fall through to login
+			managerAuth = "login";
+		}
+	} else if ("token" == managerAuth) {
+		var isOperationalCmd = "AuthIsOperational";
+		if (executeBC(isOperationalCmd)) {
+			if(null == msg || 0 == msg.length) {
+				msg = "MSG_PROMPTID"
+			}
+			
+			var verifyCmd = "AuthVerify";
+			if (executeBC(verifyCmd, [level, msg, "manager"])) {
+				ret = true;
+			}
+			else {
+				var reason = getLastFail(verifyCmd);
+				if (reason == "MSG_AUTH_TIMEOUT") {
+					PosShowMessage("MSG_BC_AUTH_TIMEOUT");
+				} else if (reason == "MSG_AUTH_CANCELLED") {
+					PosShowMessage("MSG_BC_AUTH_CANCELLED");
+				} else {
+					PosShowMessage("MSG_BC_INVTOKENAUTH");
+				}
+			}
+			executeBC("cPosRegisterAuthorization",[actionKind, ret, managerAuth]);
+			// adaptor is operational -- don't fall through to login auth 
+			return ret;
+		} else {
+			// fall through to login
+			managerAuth = "login";
+		}
+	} else if (managerAuth != "login") {
+		var cmd = "AuthDefaultToLogin";
+		executeBC(cmd, ["Invalid authentication method configured", managerAuth]);
+		//PosShowMessage("Invalid manager authorization mode \"" + managerAuth + "\": reverting to legacy authorization."); 
+		managerAuth = "login";
+	}
+	if("login" == managerAuth) {
+		if(null == msg || 0 == msg.length) {
+			msg = "MSG_PROMPTID";
+		}
+		var recalling = PosCheckSessionProperty("onRecallProcess", "true");
+		var mustRetryGetAuthorization = false;
+		do {
+			mustRetryGetAuthorization = false;
+            
+			if(userID == null) {
+                userID = PosPromptAuthorization(msg);
+            }
+			if (userID != "") {
+				var password;
+				
+				var iLevel = helper.findParamInSectionWide(level,"AuthorizationLevel");
+				if(iLevel == null) {
+					CSL_dbglog(7, SRC_BC_SECURITY, "PosGetAuthorization: Section AuthorizationLevel in store-db was not configured, could not read authorization level for [%s]", l);
+					iLevel = 0;
+				}
+				if(helper.validateUser(userID, null, iLevel, "manager")) {
+					var verifyResult = 0
+					
+					if( IsCheckPwdExpirationEnable == true ) {					
+						verifyResult = helper.checkPasswordExpiration(userID);
+					}
+					
+					if(verifyResult == -1) {
+						if (enableBOManagerPasswordManagement == "true" ) {
+							PosShowMessage("MSG_BC_MANAGER_PASSWORD_BO_EXPIRED");
+							return(false);
+						} 
+						var textBkColor = helper.findParamInSectionConfig("ManagerPasswordAlertBackgroundColor","UserInterface");
+						password = PosPromptAuthorization("MSG_BC_PASSWORD_CHANGE_REQUIRED", true, textBkColor);
+						if (password == "" || password == ";") {
+							if (showMessage)
+							{
+								PosShowMessage("MSG_INVPASSWD");
+							}
+							return(false);
+						}
+						if(!helper.validateUser(userID, password, iLevel, "manager")) {
+							if (showMessage)
+							{
+								PosShowMessage("MSG_INVPASSWD");
+							}
+							return(false);
+						}
+						do {
+							// Request new password...
+							var sNewPassword = PosPromptAuthorization("MSG_PROMPTNEWPSWD", true);
+							if (sNewPassword == "" || sNewPassword == ";") {
+								PosShowMessage("MSG_INVPASSWD");
+								return(false);
+							}
+							var numberPreviousNotAllowed = helper.checkPreviousPasswordNotAllowed(userID, sNewPassword);
+							if(numberPreviousNotAllowed > 0){
+								PosShowMessage("MSG_BC_NEW_PASSWORD_ALREADY_USED", numberPreviousNotAllowed);
+								return(false);
+							}
+							// Request to confirm new password...
+							password = PosPromptAuthorization("MSG_PROMPTRENEWPSWD", true);
+							if(password == "" || password == ";") {
+								PosShowMessage("MSG_INVPASSWD");
+								return(false);
+							}
+							if(sNewPassword != password) {
+								PosShowMessage("MSG_INVPASSWDMATCH");
+							}
+						} while (sNewPassword != password);
+						// Change to check the Previous Password Not Allowed
+						if(!(PosChangeUserPassword(userID, password))) {
+							return(false);
+						}
+						else {
+							CSL_dbglog(7, SRC_BC_SECURITY, "cPosRegisterAuthorization", "Start");
+							executeBC("cPosRegisterAuthorization",[actionKind, true, managerAuth, biometricOverride]);						
+							return(true);
+						}
+					}
+					else if(verifyResult > 0) {
+					if (enableBOManagerPasswordManagement == "true") {
+						PosShowMessage("MSG_BC_MANAGER_PASSWORD_CHANGE_BO_REQUIRED", verifyResult);
+					}
+					else { 
+						PosShowMessage("MSG_BC_PASSWORD_EXPIRATION_WARNING", verifyResult);
+					}
+					}
+					else if(verifyResult == -2) {
+						PosShowMessage("MSG_BC_PASSWORD_CHANGE_WAYSTATION_OFFLINE");
+					}
+				}
+				password = PosPromptAuthorization("MSG_PROMPTPSWD", true);
+				if (password != "") {
+					if(helper.validateUser(userID, password, iLevel, "manager")) {
+						ret = true;
+					}
+					else {
+						userID = null;
+						password = null;
+						mustRetryGetAuthorization = recalling;
+						if (showMessage)
+						{
+							PosShowMessage("MSG_INVPASSWD");
+						}
+					}
+					CSL_dbglog(7, SRC_BC_SECURITY, "cPosRegisterAuthorization", "Start");
+					executeBC("cPosRegisterAuthorization",[actionKind, ret, managerAuth, biometricOverride]);
+				}
+			}
+		} while (mustRetryGetAuthorization);
+	}
+	return ret;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosTurnOnOffPasswordExpiration</b>.
+ *
+ * Persistence:<b>Persisted</b>\n
+ * This BC enable/disable the password expiration checking.
+ * If the parameter bEnable is true , the password expiration is checked, otherwise, the password expiration is not checked until the pos is restarted. 
+ * 
+ */
+function PosTurnOnOffCheckPwdExpiration(bOnOff){
+	IsCheckPwdExpirationEnable = bOnOff;
+}
+
+function PosPromptAuthorization(message, password, textBkColor) {
+	var helper = new BusinessObjectHelper();
+    var keyboardType = String(helper.findParamInSectionWide("managerAuthKeyboardType","Security"));
+    if (keyboardType.toLowerCase() == "alphanumeric")
+        return PosShowLoginKeyboard(message, password == true ? "1" : "0", "", "", textBkColor);
+    else
+        return PosShowCalculator(message, "", password == true ? "4" : "1", "0", "", "", textBkColor);
+}
+
+/**
+ * END nps
+ */
+/* signed aut version 9-9076
+ * authority id = builder
+ * authority level = 10
+ * authority name = NewPOS release level
+ * group = npi
+ * validity = 2010-04-18
+ * signature type = slash_star
+ * time stamp (GMT) = Fri Jan 26 16:27:04 2018
+ * certificate = 393735312d37393437009f9c3debfeb3b116ddd93d64f4fac557f849b80af695dde24c9e893dae5b065cae38e4a5879dbe0c6e97ef9e0ee4eb599e1b0010
+ * =============================================================================================================================
+*/

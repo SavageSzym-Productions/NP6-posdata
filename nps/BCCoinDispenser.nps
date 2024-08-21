@@ -1,0 +1,110 @@
+/**
+ * BCCoinDispenser.nps
+ * This NPS file implements Coin Dispenser Business Componentes .
+ *
+ * Copyright (c) 2005-2007 - Torex Retail PLC-
+ *
+ * $Source: /NewPOS/SRC/np61cvs/cvs/___Config61/Posdata/US/nps/BCCoinDispenser.nps,v $
+ * $Revision: 1.6 $
+ * $Date: 2008/02/18 14:23:23 $ (of revision)
+  * $Author: myokomizo $ (of revision)
+ */
+
+var CoinDispenserState=true;
+
+/** PosCoinDispenserControlJS
+ * @brief - This function implements the BC,Business Component: <b>PosCoinDispenserControlJS</b>\n
+ * This BC changes the coin dispenser state!\n
+ * In a workflow sequence it is called:<b>PosCoinDispenserControlJS</b>\n
+ * In java script it should be called:<b>PosCoinDispenserControlJS</b>\n
+ * Return - rval - True
+ */
+function PosCoinDispenserControlJS(change)
+{
+	if(!PosCheckParameter("TCLExtension","telequipt","true")) {
+		return(true);
+	}
+	if(CoinDispenserState) {
+		if(!PosShowConfirmationMessage("MSG_BC_DISABLE_COIN_CHANGER","MSG_YES","MSG_NO")) {
+			return(true);
+		}
+		CoinDispenserState=false;
+	} else {
+		if(!PosShowConfirmationMessage("MSG_BC_ENABLE_COIN_CHANGER","MSG_YES","MSG_NO")) {
+			return(true);
+		}
+		CoinDispenserState=true;
+	}
+	EnableTelequipt(CoinDispenserState);
+	return(true);
+}
+
+/** PosDispenseChangeJS
+ *
+ * This function dispense coins
+ * Return - rval - True if possible
+ */
+function PosDispenseChangeJS(current)
+{
+	if(!PosCheckParameter("TCLExtension","telequipt","true")) {
+		return(false);
+	}
+
+	var lastView;
+	if(current != undefined && current) {
+		lastView = rootHlp.getCurrentView();
+	} else {
+		lastView = rootHlp.getLastSaleView();
+		if(lastView == null) {
+			lastView = rootHlp.getCurrentView();
+		}
+	}
+	var view = new XML(lastView);
+	var tenders	= view.ItemTenderView;
+	if(view.@transactionKind != ACC_OT_REFUND) {
+		if(tenders.length() != 0) {
+			var change=tenders.(kind == "4"); // TK_CHANGE
+			if(change.length() != 0) {
+				var value=change[0].value.substr(change[0].value.length-2);
+				if(Number(value) != 0) {
+					if(Number(PosDispenseCoins(value)) != Number(value)) {
+						PosShowMessage("MSG_BC_COIN_DISP_ERROR");
+						API.dbg("Coin dispenser is not responding...");
+					}
+				}
+			}
+		}
+	} else {
+		var electronicPayment = tenders.(cat == "TENDER_ELECTRONIC_PAYMENT");
+		if(electronicPayment.length() == 0) {
+			var value=view.@grossAmount;
+			value=value.substr(value.length-2)
+			if(Number(PosDispenseCoins(value)) != Number(value)) {
+				PosShowMessage("MSG_BC_COIN_DISP_ERROR");
+				API.dbg("Coin dispenser is not responding...");
+			}
+		}
+	}
+	return(false);
+}
+
+/** PosIsCoinDispenseLoadedJS
+ *
+ * This function checks if coin dispenser is loaded
+ * Return - rval - True if loaded
+ */
+function PosIsCoinDispenseLoadedJS()
+{
+	return(PosCheckParameter("TCLExtension","telequipt","true"));
+}
+/* signed aut version 9-9076
+ * authority id = coe
+ * authority level = 40
+ * authority name = NewPOS COE developer
+ * group = npi
+ * validity = 2010-04-18
+ * signature type = slash_star
+ * time stamp (GMT) = Wed Jan 31 01:28:44 2018
+ * certificate = 393735312d3739343700cae378db4659c2c935ed8109a6e0ae80d7d3128d0f0af249554384c03888dfe0e6455d87b380200eb41f9a158a2aa9834b090010
+ * =================================================================================================================================
+*/

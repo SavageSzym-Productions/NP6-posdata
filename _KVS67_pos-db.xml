@@ -1,0 +1,164 @@
+<?xml version="1.0"?>
+<PosDB xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="/usr/local/jboss-3.2.2/server/default/deploy/webrfmNP61_14.war/rfmdata/pos-db.xsd" version="1.0" name="NewKVS67">
+  <StoreDB imports="all" />
+  <ColorDB imports="default" />
+  <Configuration imports="Store.wide">
+    <Section name="Messaging">
+      <Parameter name="networkAdaptorBaseIp" value="127.0.0.1" />
+      <Parameter name="fixedResource" value="5494" />
+      <Parameter name="serverPort" value="" />
+    </Section>
+    <Section name="OperationMode">
+      <Parameter name="DTStoreMode" value="REGULAR" />
+      <Parameter name="applyUpdateOperationMode" value="1" />
+      <Parameter name="dualPointDoubleBumpActive" value="true" />
+         <Parameter name="enableDualBump" value="true"/>
+         <Parameter name="enableManagerSetDualBump" value="true"/>
+         <Parameter name="dualBumpDayPart" value="DAYPART_BREAKFAST_MENU|DAYPART_DAY_MENU|DAYPART_BREAKFAST_DAY_MENU"/>
+    </Section>
+    <Section name="SmartRouting">
+      <Parameter name="podBlackList" value="DT" />
+      </Section>
+      <Section name="BVS">
+         <Parameter name="isEnabled" value="true"/>
+         <Parameter name="routeToBvsByOrderType" value="CURBSIDE|TABLE_MOBILE|TABLE_EI|DELIVERY"/>
+      </Section>
+      <Section name="NPScripts"/>
+    <Section name="OutOfSequencePresent">
+         <Parameter name="enable" value="ParkingStallAndForwardPresent"/>
+      <Parameter name="stallQuantity" value="2" />
+         <Parameter name="forwardPresentQuantity" value="1"/>
+      <Parameter name="enableParkingLocationMessage" value="true" />
+      <Parameter name="parkingLocationMessageDisplayTime" value="5" />
+    </Section>
+   </Configuration>
+   <Configuration imports="POS">
+      <Section name="Report"/>
+  </Configuration>
+  <Services>
+    <Service type="STO" startonload="true" quitOnFail="true" classname="npUpdtRcv.dll" name="6704">
+      <Configuration imports="STO">
+        <Section name="main">
+          <Parameter name="DaysToKeepBackup" value="1" />
+          <Parameter name="NodeType" value="KVS" />
+          <Parameter name="ShowConsoleWindow" value="false" />
+          <Parameter name="WayNode" value="300" />
+          <Parameter name="STOBound" value="6704" />
+        </Section>
+      </Configuration>
+    </Service>
+      <Service type="GPR" startonload="true" quitOnFail="false" classname="npRPR.dll" name="6706">
+         <Adaptors>
+            <Adaptor startonload="true" name="npAdpRpr" imports="npAdpRpr">
+               <Section name="main">
+	            <Parameter name="drivername" value="virtualPrinter.dll" />
+	            <Parameter name="escSeq" value="ZebraKR403printerControlChar.properties" />
+	            <Parameter name="portname" value="..\RPR_1__KVS67_pos-db.xml.txt" />
+	            <Parameter name="AutoCutter" value="true" />
+	            <Parameter name="fileAppend" value="true" />
+	            <Parameter name="flush" value="false" />
+	            <Parameter name="overwrite" value="false" />
+	       </Section>
+            </Adaptor>
+         </Adaptors>
+      </Service>
+    <Service type="KVS" startonload="true" quitOnFail="true" classname="npKVS.dll" name="6710">
+      <Configuration imports="KVSRedesign">
+        <Section name="Beep">
+          <Parameter name="enabled" value="true" />
+               <Parameter name="beepBeforeAlert" value=""/>
+               <Parameter name="beepOnNewOrder" value="ALWAYS"/>
+               <Parameter name="command" value="HOTG_Bell.wav"/>
+        </Section>
+        <Section name="UserInterface">
+          <Parameter name="horizontalPos" value="0" />
+  		<Parameter name="rows" value="2"/>
+               <Parameter name="columns" value="4"/>
+               <Parameter name="rows1" value="1"/>
+               <Parameter name="rows2" value="2"/>
+               <Parameter name="rows3" value="2"/>
+               <Parameter name="columns1" value="2"/>
+               <Parameter name="columns2" value="2"/>
+               <Parameter name="columns3" value="3"/>
+               <Parameter name="cellHeaderFont" value="Arial-BOLD-11"/>
+               <Parameter name="cellFooterFont" value="Arial-BOLD-12"/>
+               <Parameter name="orderItemFont" value="Arial-BOLD-15"/>
+               <Parameter name="orderItemVoidedFont" value="Arial-REGULAR-15"/>
+               <Parameter name="grillItemFont" value="Arial-BOLD-13"/>
+               <Parameter name="grillItemVoidedFont" value="Arial-REGULAR-13"/>
+               <Parameter name="cellHeaderFont1" value="Arial-BOLD-16"/>
+               <Parameter name="cellFooterFont1" value="Arial-BOLD-14"/>
+               <Parameter name="orderItemFont1" value="Arial-BOLD-21"/>
+               <Parameter name="orderItemVoidedFont1" value="Arial-REGULAR-21"/>
+               <Parameter name="grillItemFont1" value="Arial-BOLD-19"/>
+               <Parameter name="grillItemVoidedFont1" value="Arial-REGULAR-19"/>
+               <Parameter name="cellHeaderFont2" value="Arial-BOLD-16"/>
+               <Parameter name="cellFooterFont2" value="Arial-BOLD-14"/>
+               <Parameter name="orderItemFont2" value="Arial-BOLD-21"/>
+               <Parameter name="orderItemVoidedFont2" value="Arial-REGULAR-21"/>
+               <Parameter name="grillItemFont2" value="Arial-BOLD-19"/>
+               <Parameter name="grillItemVoidedFont2" value="Arial-REGULAR-19"/>
+               <Parameter name="cellHeaderFont3" value="Arial-BOLD-14"/>
+               <Parameter name="cellFooterFont3" value="Arial-BOLD-12"/>
+               <Parameter name="orderItemFont3" value="Arial-BOLD-17"/>
+               <Parameter name="orderItemVoidedFont3" value="Arial-REGULAR-17"/>
+               <Parameter name="grillItemFont3" value="Arial-BOLD-15"/>
+               <Parameter name="grillItemVoidedFont3" value="Arial-REGULAR-15"/>
+               <Parameter name="displaySideIndicator" value="multiple"/>
+               <Parameter name="sideIndicatorType" value="text"/>
+               <Parameter name="showTitleBar" value="true"/>
+      <Parameter name="heldCells" value="0"/>
+               <Parameter name="heldCells1" value="0"/>
+               <Parameter name="heldCells2" value="0"/>
+               <Parameter name="heldCells3" value="0"/>
+               <Parameter name="firstThreshold" value="70"/>
+               <Parameter name="secondThreshold" value="80"/>
+               <Parameter name="KVSdisplayMode" value="CHRONONLY"/>
+          <Parameter name="showCursor" value="true" />
+          <Parameter name="showCloseButton" value="true" />
+          <Parameter name="height" value="1024" />
+          <Parameter name="width" value="1280" />
+        </Section>
+        <Section name="WayOfWork"/>
+            <Section name="Touchscreen">
+               <Parameter name="available" value="true"/>
+               <Parameter name="enable" value="true"/>
+               <Parameter name="cell_Click" value="serve"/>
+               <Parameter name="button1_Click" value="serve"/>
+               <Parameter name="button2_Click" value="next"/>
+               <Parameter name="button3_Click" value="recall"/>
+               <Parameter name="button4_Click" value="zoom"/>
+               <Parameter name="button5_Click" value="toggleSideOnOff"/>
+               <Parameter name="buttons" value="5"/>
+            </Section>
+            <Section name="MultipleKitchenSides">
+               <Parameter name="mapToMultipleSide1" value="Side1"/>
+               <Parameter name="mapToMultipleSide2" value="Side2"/>
+               <Parameter name="mapToMultipleSide3" value="Side3"/>
+               <Parameter name="mapToMultipleSide4" value="Side4"/>
+               <Parameter name="sideIndicatorTextFont" value="ARIAL-BOLD-12"/>
+               <Parameter name="sideIndicatorTextColor" value="WHITE"/>
+               <Parameter name="sideIndicatorType" value="text"/>
+            </Section>
+      </Configuration>
+      <Adaptors>
+            <Adaptor name="npAdpKvsSound" imports="npAdpKvsSound" startonload="true"/>
+            <Adaptor name="npAdpKvsComm" imports="npAdpKvsComm" startonload="true"/>
+            <Adaptor name="npAdpKvsUI" imports="npAdpKvsUI" startonload="true"/>
+            <Adaptor startonload="false" name="npAdpBumpBar" imports="npAdpBumpBar">
+               <Section name="main">
+                  <Parameter name="portname" value="COM1"/>
+                  <Parameter name="print" value=""/>
+                  <Parameter name="recall" value="0xd1"/>
+                  <Parameter name="next" value="0xc1|0xc2"/>
+                  <Parameter name="zoom" value="0xb1"/>
+                  <Parameter name="serve" value="0xa1|0xa2"/>
+                  <Parameter name="sideon" value="0xe1"/>
+                  <Parameter name="sideoff" value="0xe2"/>
+                  <Parameter name="logicalname" value="BumpBar SPECIALTY1"/>
+               </Section>
+            </Adaptor>
+      </Adaptors>
+    </Service>
+  </Services>
+</PosDB>

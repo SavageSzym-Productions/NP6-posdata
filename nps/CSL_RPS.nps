@@ -1,0 +1,515 @@
+/**
+ * @file CSL_RPS.nps
+ * @brief This NPS file implements Core BusinessComponents for RPS.
+ *
+ * @addtogroup 	CSL
+ * @defgroup 	RPS
+ * @ingroup 	CSL
+ *
+ * Copyright (C) 2008 McDonalds Corp. All rights reserved.
+ *
+ * @author Adriana Karlstroem (of Creation)
+ * @since NPS-23550 / date
+ *
+ * @version $Id: CSL_RPS.nps 776 2009-08-06 13:46:38Z rcaram $
+ * @remarks Include here all remarks related to this file!
+ * @{
+ */
+
+/* Variable used for version control */
+CSL_RPS_VERSION = "$WCURL$:$WCREV$";
+
+/* Set the variable. */
+GLO_WRITELOG=false;
+SRC_BC_RPS='CSL_RPS.nps';
+
+var rootStoreDB	= null;
+var rootProductDB = null;
+var productDictionary = null;
+
+//logs the version
+API.dbg("***************C S L   V E R S I O N***************");
+API.dbg("FILE                           VERSION");
+API.dbg("CSL_RPS.nps                    " + CSL_RPS_VERSION);
+API.dbg("***************************************************");
+
+executeScript("json.nps",true);
+
+function CSL_dbglog(level, module, command, message) {
+	if(GLO_WRITELOG) {
+		return API.dbg("[" + module + "][" + command + "][" + message + "]");
+	}
+}
+
+/**
+ * @brief Initialize all global data to be used by all nps
+ *
+ * @since 1.30.2 -
+ */
+function RPS_Init() {
+	loadStoreDB();
+	loadProductDB();
+}
+
+/**
+ * @brief This function calls a real Business Object given its' name and parameters.
+ *
+ * Used by internal routines to execute BOs.
+ * @param command the BO name to execute eg. "PosDoQuantum"
+ * @param params (String []) the parameters to pass to BO.
+ * @return the value returned by the BO.
+ * @throws RecoverableException if the BO throws exception
+ * @author Adriana
+ * @since 1.30.2 -
+ */
+function executeBC(command, params) {
+	var cmd = "executeBC";
+	CSL_dbglog(7, SRC_BC_RPS, cmd, "Run " + command);
+	CSL_dbglog(7, SRC_BC_RPS, cmd, "with " + params);
+
+	try{
+		var ret = RPSExecuteBC(command, params);
+	}catch(e){
+		CSL_dbglog(7, SRC_BC_RPS, cmd, e.message + " \n" + e.stack);
+		e.message="stacktrace";
+		throw e;
+	}
+	CSL_dbglog(7, SRC_BC_RPS, cmd, "result " + ret);
+	return ret;
+}
+
+/**
+ * @brief loadStoreDB
+ *
+ * @since 1.17-
+ */
+ function loadStoreDB() {
+	var cmd = "loadStoreDB";
+	CSL_dbglog(7, SRC_BC_RPS, cmd, "Start ");
+	var sRawStoreDB = API.getStoredb().toString();
+	var sStoreDB	= sRawStoreDB;
+	// check for E4X documented bug
+	if (sRawStoreDB.indexOf("<?xml") != -1) {
+		var cutting = sRawStoreDB.indexOf("?>");
+		if (cutting != -1) {
+			sStoreDB = sRawStoreDB.substring(cutting + 2, sRawStoreDB.length);
+		}
+	}
+	rootStoreDB	= new XML(sStoreDB);
+}
+
+/**
+* global function GetRootProductDB() 
+* provides an access/initializes 
+* a global read only variable rootProductDB
+* note:	parameter "iProductDBParseMode"
+ - possible values:
+			0- current behaviour (Default)									(no script changes)
+			1- only Active products	+ populates ProductDictionary			(no script changes)
+			2- do not parses productDb + populates ProductDictionary		(no script changes)
+			3- do not parses productDb + do not populates ProductDictionary	(script changes: FOE, CSO, OUTAGE) (best choice to save memory)
+
+*/
+function GetRootProductDB(iProductDBParseMode) {
+	if ( (rootProductDB == null) || (rootProductDB==undefined) ) {
+		API.dbg("Global variable rootProductDB initialization started...");
+		try {
+			if(iProductDBParseMode == 0) {
+				rootProductDB = new XML(API.getProductdb());
+			}
+			else if(iProductDBParseMode == 1) {
+				rootProductDB = new XML(API.getProductdb("ACTIVE"));
+			}
+						
+			if( (rootProductDB != null) && (rootProductDB != undefined) ) {
+				API.dbg("Global variable rootProductDB initialized successfully...");
+			} else {
+				API.dbg("Global variable rootProductDB failed to initialized successfully...");
+			}
+		} catch( ex ) {
+			API.dbg(" Failed to initialize rootProductDB due to: "+ex.message);
+			rootProductDB = null;
+		}
+	}
+	return rootProductDB;
+}
+
+/**
+ * @brief loadProductDB
+ *
+ * @since 1.19
+ *
+ * note:	parameter "parseProductDB"
+ 
+ - config sample "store-db.xml"
+ 
+ <Configuration type="Store.wide">
+	<Section name="NPScripts">
+		<Parameter name="ProductDBParseMode" value="0"/>
+
+ - possible values:
+			0- current behaviour (Default)									(no script changes)
+			1- only Active products	+ populates ProductDictionary			(no script changes)
+			2- do not parses productDb + populates ProductDictionary		(no script changes)
+			3- do not parses productDb + do not populates ProductDictionary	(script changes: FOE, CSO, OUTAGE) (best choice to save memory)
+
+ */
+ function loadProductDB() {
+	var cmd = "loadProductDB";
+	CSL_dbglog(7, SRC_BC_RPS, cmd, "Start ");
+	API.STTDebugLog("0", "[loadProductDB] - Indexing product-db into productDictionary", SRC_BC_RPS);
+
+	productDictionary = new Array();
+
+	var iProductDBParseMode = 1;	// Default value
+	
+	iProductDBParseMode = API.findParamInSectionWide("ProductDBParseMode", "NPScripts");
+	
+	if(iProductDBParseMode == null || iProductDBParseMode < 0 || iProductDBParseMode > 3) {
+		iProductDBParseMode = 1;
+	}
+	
+	if(iProductDBParseMode == 0 || iProductDBParseMode == 1) {
+		GetRootProductDB(iProductDBParseMode);
+		if(rootProductDB == null) {
+			API.STTErrorLog("0", "[loadProductDB] - Parsing of product-db failed", SRC_BC_RPS);
+			return false;
+		}
+
+		for each (product in rootProductDB.Product) {
+			if(product.@statusCode == "ACTIVE") {
+				productDictionary[product.ProductCode] = product;
+			}
+		}
+	}
+	
+	if(iProductDBParseMode == 2) {
+		var List = API.getProductList();
+		
+		if(List != null) {
+			var ProdList = List.split("|");
+			
+			for(var i=0; i < ProdList.length; i++) {
+				var singleProduct = new XML(API.getProductdbProduct(ProdList[i]));
+				
+				productDictionary[ProdList[i]] = singleProduct;
+			}
+		}
+	}
+	
+	API.STTInfoLog("0", "[loadProductDB] - rootProductDB was successfully loaded and indexed into productDictionary", SRC_BC_RPS);
+	return true;
+}
+
+/**
+ * @brief Helper function to read file, using File Access for NPS scripts
+ *
+ * @param fileName - String - File name for the buffer content.
+ * @param bufferContent - String - Content of the file.
+ * @since 1.17-
+ */
+function readFile(fileName) {
+	CSL_dbglog(7, SRC_BC_RPS, "readFile","Start. Parameter fileName: "+fileName);
+	var file = new File(fileName);
+	file.open("rb");
+	ret = file.read();
+	file.close();
+	CSL_dbglog(7, SRC_BC_RPS, "readFile", "End ");
+	return ret;
+}
+
+/**
+ * @brief Helper function to write in file, using File Access for NPS scripts
+ *
+ * @param fileName - String - File name for the buffer content.
+ * @param bufferContent - String - Content of the file.
+ * @since 1.17-
+ */
+function writeFile(fileName,bufferContent) {
+	CSL_dbglog(7, SRC_BC_RPS, "writeFile with fileName: "+fileName, "Start ");
+	var file = new File(fileName);
+	file.open("wb+");
+	if(!file.write(bufferContent)) {
+			CSL_dbglog(7, SRC_BC_RPS, "writeFile", "Error writing in file: "+fileName);
+	}
+	CSL_dbglog(7, SRC_BC_RPS, "writeFile", "End");
+	file.close();
+
+}
+
+/**
+ * @brief Helper functions to manipulate the Workflow Session Context.
+ *
+ * The Workflow Session Context has the following format:
+ *
+ * <Workflow name="WF_NAME" starttime="YYYYMMDDhhmmss">
+ * 	<Command name="BCName" success"message of success"/>
+ * 	<Command name="BCName" fail="message of fail"/>
+ * </Workflow>
+ *
+ * @since 1.17- - SDO-1670
+ */
+
+/**
+ * @brief This function searches for the first Command element with the BC name given by the parameter
+ * and returns its success/fail message.
+ *
+ * @param name - The BC name to return the fail/success message
+ * @return the fail/success message of the BC. Empty message, if none.
+ * @author Raphael
+ * @since 1.17- - SDO-1670
+ */
+function getResult(name) {
+	var wfXML = new XML(RPSGetWFResult());
+	var command = null;
+	var ret = null;
+	for each (command in wfXML.Command) {
+		if(command.@name == name) {
+			if(command.@success.length() > 0) {
+				ret = command.@success;
+			}
+			if(command.@fail.length() > 0) {
+				ret = command.@fail;
+			}
+		}
+	}
+	return ret;
+}
+
+/**
+ * @brief This function returns the last fail message from the Workflow Session Context
+ *
+ * @param name (optional) - The BC name to search for the fail message
+ * @return The last fail message. Empty if none.
+ * @author Raphael
+ * @since 1.17- - SDO-1670
+ */
+function getLastFail(name) {
+	var wfXML = new XML(RPSGetWFResult());
+
+	var failMessage = null;
+	if (name == null) {
+		for each (command in wfXML.Command) {
+			if(command.@fail.toString().length > 0) {
+				failMessage = command.@fail;
+			}
+		}
+		return failMessage;
+	}
+	else {
+		for each (command in wfXML.Command) {
+			if(command.@name == name) {
+				if(command.@fail.toString().length > 0) {
+					failMessage = command.@fail;
+				}
+			}
+		}
+		return failMessage;
+	}
+}
+
+/** getNPSExtLastFail
+ *
+ * @brief This function returns the last fail message from the Workflow Session Context
+ * @param name (optional) - The BC name to search for the fail message
+ * @return The last fail message. Empty if none.
+ * @author Rafael
+ * @since SDO-5758
+ */
+function getNPSExtLastFail(name) {
+	var wfXML = new XML(RPSGetWFResult());
+
+	var failMessage = null;
+	for each (command in wfXML.Command) {
+		if(command.@name == "RPSNPSExtRequestCmd") {
+			if(command.@description.toString().length > 0) {
+				failMessage = command.@description;
+			}
+		}
+	}
+	return failMessage;
+}
+
+/**
+ * @brief This function returns the last success message from the Workflow Session Context
+ *
+ * @param name (optional) - The BC name to search for the success message
+ * @return The last success message. Empty if none.
+ * @author Raphael
+ * @since 1.17- - SDO-1670
+ */
+function getLastSuccess(name) {
+	var wfXML = new XML(RPSGetWFResult());
+
+	var successMessage = null;
+	if (name == null) {
+		for each (command in wfXML.Command) {
+			if(command.@success.toString().length > 0) {
+				successMessage = command.@success;
+			}
+		}
+		return successMessage;
+	}
+	else {
+		for each (command in wfXML.Command) {
+			if(command.@name == name) {
+				if(command.@success.toString().length > 0) {
+					successMessage = command.@success;
+				}
+			}
+		}
+		return successMessage;
+	}
+}
+
+/**
+ * @brief Constructor of NpSharpService class
+ * @param serviceName - The NpSharp Service name, e.g. "OrdersDb"
+ * @param nodeName - Optional node name, in case more then one plugin implements a service
+ */
+function NpSharpService(serviceName, nodeName) {
+	/**
+	 * @brief Constructor. This will create a NpSharpServiceCsl object
+	 * @param serviceName - The service to be created. This name must match the service implemented by the plugin. E.g.: OrdersDb, StldDb
+	 * @param nodeName - optional parameter. Use this to specify a service in a specific node
+	 * @return a new instance of NpSharpServiceCsl
+	 * @throws InvalidArgument - when the number of parameters is wrong
+	 * @throws InvalidServiceName - the service name specified is not valid
+	 * @throws InvalidOperation - when a given condition for creating the object was not matched. More details on the message attribute of the exception
+	 * @throws ServiceNotFound - when the service was not found in the network
+	 */
+	try
+	{
+		this.npSharpService = new NpSharpServiceCsl(serviceName, nodeName);
+	}
+	catch(ex)
+	{
+		// The object thrown here has two properties: ex.type and ex.message
+		throw new JSON.parse(ex);
+	}
+	/**
+	 * @brief Execute a NpSharp Service operation
+	 * @param operationName - The operation to be executed on the NpSharp Service, e.g. "QuerySales"
+	 * @param param - optional parameter. It must be a JSON object
+	 * @return The response from NpSharp Service. Null if the was an error on the execution
+	 * @throws InvalidOperation - when a given condition for executing the method not matched. More details on the message attribute of the exception
+	 * @throws InvalidArgument - when the number of parameters is wrong
+	 * @throws InvalidMethodName - when the method name is not valid
+	 * @throws ErrorExecutingMethod - when an expected error occurred executing the method. See more details on NpSharp logs
+	 */
+	this.Call = function(operationName, param)
+	{
+		try
+		{
+			if(this.npSharpService.IsHttpGet(operationName))
+			{	
+				var queryString = "";
+				for (var field in param) 
+				{
+					if (param.hasOwnProperty(field))
+					{
+						var value = param[field];
+						queryString += encodeURIComponent(field) + "=" + encodeURIComponent(value);
+						queryString += "&";
+					}
+				}
+				if(queryString.length > 1)
+				{
+					queryString = "?"+queryString.substring(0, queryString.length-1);;
+				}
+				var ret = this.npSharpService.Call(operationName, queryString)
+				return CheckError(ret);
+			}
+			if (!this.npSharpService.IsWrapped(operationName))
+			{
+				var res = "";
+				for (var field in param) 
+				{
+					if (param.hasOwnProperty(field))
+					{
+						res = param[field];
+						param = res;
+						break;
+					}
+				}
+			}
+		}
+		catch(ex)
+		{
+			// The object thrown here has two properties: ex.type and ex.message
+			throw new JSON.parse(ex);
+		}
+		
+		try
+		{
+			var ret = this.npSharpService.Call(operationName, JSON.stringify(param));
+		}
+		catch(ex)
+		{
+			// The object thrown here has two properties: ex.type and ex.message
+			throw new JSON.parse(ex);
+		}
+		return CheckError(ret);
+	}
+	
+	/**
+	 * @brief Checks if the value returned by npSharpService.Call has an error.
+	 * If there was an exception on its execution on NpSharp, it returns null to avoid null reference exception to the caller.
+	 * If the execution was successfull, it returns the expected JSON object.
+	 * @param value - the return value from npSharpService.Call
+	 * @return null if there was an error executing npSharpService.Call or the JSON object if the execution was successfully
+	 */
+	function CheckError(value)
+	{
+		if (value == "" || value == null)
+		{
+			return value;
+		}
+		var jsonObject = JSON.parse(value);
+		if(jsonObject != null && jsonObject != undefined)
+		{	
+			if(jsonObject.ExceptionType != null && jsonObject.ExceptionType != undefined)
+			{
+				API.dbg("CheckError - There was an exception executing npSharpService.Call. ExceptionType: "+jsonObject.ExceptionType+" ExceptionMessage: "+jsonObject.ExceptionMessage);
+				return null;
+			}
+		}
+		return jsonObject;
+	}
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>RPSNPSExtRequestCmd</b>.
+ *
+ * The RPSNPSExtRequestCmd is responsible to execute an external DLL function configured through the NPSExtension adaptor. The command number received must be a valid command in the DLL configured in the NPSExtension adaptor identified by the logical name.
+ * If the logical name is empty , the first configured NPSExtesion adaptor is called.
+ * @param logicalName    The adaptor logical name.
+ * @param command        The command to be executed by the DLL function.
+ * @param ... (Optional) A variable quantity of parameters that will be sent to the DLL function.
+ * @success The command received as parameter is executed with success and the result is stored internally, accessed through getLastSuccess("RPSNPSExtRequestCmd").
+ * @failure <i>Adaptor not available</i> - There is no NPSExtension adaptor configured in this service. The error code 1 is stored internally, accessed through getNPSExtLastFail("RPSNPSExtRequestCmd").
+ * @failure <i>Invalid parameters</i> - The quantity of parameters or its value are invalid (smaller than 2). The error code 2 is stored internally, getNPSExtLastFail("RPSNPSExtRequestCmd").
+ * @failure <i>Internal Error</i> - The error code 3 is stored internally, accessed through getNPSExtLastFail("RPSNPSExtRequestCmd").
+ * @since 1.30.2 -
+ */
+function RPSNPSExtRequestCmd(logicalName, command) {
+	var cmd = "RPSNPSExtRequestCmd";
+	CSL_dbglog(7, SRC_BC_RPS, cmd, "Start");
+	return executeBC(cmd, Array.prototype.slice.call(arguments));
+}
+
+/**
+ * END nps
+ */
+
+/* signed aut version 9-9076
+ * authority id = builder
+ * authority level = 10
+ * authority name = NewPOS release level
+ * group = npi
+ * validity = 2010-04-18
+ * signature type = slash_star
+ * time stamp (GMT) = Fri Jan 26 16:27:04 2018
+ * certificate = 393735312d373934370050e6245c443845344cd2b21ab4a3a2d253dc1737b712918b638f65504d8c29cccd7970e5597a72f43196aa08a2f53f06be570010
+ * =============================================================================================================================
+*/

@@ -1,0 +1,199 @@
+/**
+ * BCTandem.nps
+ * This NPS file implements Tandem Business Componentes .
+ *
+ * Copyright (c) 2005-2007 - Torex Retail PLC-
+ *
+ * $Source: /NewPOS/SRC/np61cvs/cvs/___Config61/Posdata/US/nps/BCTandem.nps,v $
+ * $Revision: 1.6 $
+ * $Date: 2007/11/07 13:25:32 $ (of revision)
+  * $Author: gustavo.ferraz $ (of revision)
+ */
+
+/** PosParallelDtSwitchJS
+ *
+ * @brief - This function implements the BC,Business Component: <b>PosParallelDtSwitchJS</b>\n
+ * This BC switch store mode Parallel to Regular and vice versa!\n
+ * In a workflow sequence it is called:<b>PosParallelDtSwitchJS</b>\n
+ * In java script it should be called:<b>PosParallelDtSwitchJS</b>\n
+ * Return - rval - true if possible
+ */
+function PosParallelDtSwitchJS()
+{
+	if(!PosIsInSaleMode() || !PosNotATransactionInProgress(false)) {
+		return(false);
+	}
+	var ctx=new SessionContext;
+	if(PosCheckSessionProperty("dtStoreMode","PARALLEL")) {
+		PosSetSessionProperty("dtStoreMode","REGULAR","true");
+	}
+	else {
+		PosSetSessionProperty("dtStoreMode","PARALLEL","true");
+	}
+	PosShowScreen(rootCtx.get("baseScreenId"));
+
+	return(true);
+}
+
+/**auxAskWorkMode
+ *
+ * @brief - This auxiliary function ask for working mode if in DT mode
+ * 			(used by PosChangeDtWorkingModeJS and onLoginOperator)
+ * Return - none
+ */
+function auxAskWorkMode(msgSecCashier) {
+
+	var wkModeRet=new Array();
+	wkModeRet[0]=null;
+	wkModeRet[1]=null;
+	var ctx=new SessionContext;
+	var pod=ctx.get("POD");
+	// NVS-57/NVS-183 JC 3/30/2010
+	if (PosCheckParameter("PosType", "IsMOT", "true") == true) {
+		wkModeRet[0] = "orderTaker";
+	} else if(("DT" == pod) || ("WT" == pod)){
+		var askWorkMode=true;
+		if(("DT" == pod) && (rootCtx.get("tandemEnable").toString() == "true") && (Number(rootCtx.get("DTStoreMode")) == TANDEM_FACE)) {
+			// Face-2-Face
+			var hlp=new BusinessObjectHelper;
+			var test=hlp.findParamInSectionConfig("tandemBooth","PosType");
+			if((Number(test) == 1) || (Number(test) == 2)) {			
+				/* NVS-1028 --remove option to login as cashier */
+				//PosItemSelection("icnoperatorcs.png|icnoperatorotcs.png","cashier|both","RES_DT_LOGIN_TITLE","MSG_DT_LOGIN_MESSAGE");				
+				wkModeRet[0]="both";
+				askWorkMode=false;
+			}
+		}
+		if(askWorkMode) {
+			PosItemSelection("icnoperatorot.png|icnoperatorcs.png|icnoperatorotcs.png","orderTaker|cashier|both","RES_DT_LOGIN_TITLE","MSG_DT_LOGIN_MESSAGE");
+			wkModeRet[0]=ctx.get("SelectedButtonValue");
+		}
+	}
+	return(wkModeRet);
+}
+
+/**auxGetTandemNbrJS
+ *
+ * @brief - This auxiliary function gets the tandem booth number
+ * 			(used by onSndRcvStore)
+ * Return - tandem booth
+ */
+function auxGetTandemNbrJS() {
+
+	var pod=rootCtx.get("POD");
+	if(("DT" == pod) && (rootCtx.get("tandemEnable").toString() == "true") && (Number(rootCtx.get("DTStoreMode")) != TANDEM_NONE)) {
+		if(Number(rootCtx.get("DTStoreMode")) == TANDEM_PARALLEL) {
+			return(Number(rootCtx.get("tandemBooth")));
+		}
+		if(Number(rootCtx.get("DTStoreMode")) == TANDEM_FACE) {
+			// Tandem Face-2-Face
+			if(PosCheckSessionProperty("workingMode","cashier|both")) {
+				return(Number(rootCtx.get("tandemBooth")));
+			}
+		}
+		else {
+			if(PosCheckSessionProperty("workingMode","orderTaker|both")) {
+				// Tandem Inline
+				var cod0=rootCtx.get("COD 0");
+				if((cod0 != null) && (cod0.length > 0)) {
+					// This is a dedicated COD
+					var cod1=rootCtx.get("COD 1");
+					if(cod1 == cod0) {
+						// Primary
+						return(1);
+					}
+					var cod2=rootCtx.get("COD 2");
+					if(cod2 == cod0) {
+						// Secondary
+						return(2);
+					}
+				}
+			}
+		}
+	}
+	return(0);
+}
+
+/**PosChangeDtWorkingModeJS
+ *
+ * @brief - This function implements the BC,Business Component PosChangeDtWorkingModeJS\n
+ * Return - rval - True for successful execution or False for failure.
+ */
+function PosChangeDtWorkingModeJS() {
+	if(!((PosCheckSessionProperty("POD","DRIVE_THRU") || PosCheckSessionProperty("POD","WALK_THRU")))) {
+        PosShowMessage("MSG_BC_ERRORNOTDT");   // NVS-1278
+		return(false);
+	}
+	if(!PosIsInSaleMode()) {
+		return(false);
+	}
+	var workingMode=auxAskWorkMode("Changing to Secondary Cashier");
+	if((workingMode != null) && (workingMode[0] != null)) {
+		if(!PosChangeDtWorkingMode(workingMode[0])) {
+			return(false);
+		}
+		if(workingMode[1] != null) {
+			var ctx=new SessionContext;
+			ctx.set("tandemBooth",workingMode[1],true);
+		}
+	}
+	return(true);
+}
+
+/**ToggleTandemModeJS
+ *
+ * @brief - This BC toggles tandem (enabled/disabled)
+ * Return - true if ok
+ */
+function ToggleTandemModeJS()
+{
+    if(PosCheckParameter("OperationMode","DTStoreMode","TANDEM|TANDEM_SPEAKER|PARALLEL") != true) { // NVS-1278
+		PosShowMessage("MSG_BC_ERRORNAOPTION", "Tandem Mode");
+		return(false);
+    }
+	if(!PosNotATransactionInProgress(false)) {
+		//PosShowMessage("MSG_BC_TDOPLOGGED");
+		return(false);
+	}
+	var tandOper=(PosCheckSessionProperty("tandemEnable","true"))?"false":"true";
+	if(!PosEnableTandem(tandOper)) {
+		PosShowMessage("MSG_BC_TXRXPRD");
+	}
+	PosRefreshButtons();
+	return(true);
+}
+/**ToggleWalkLineModeJS
+ *
+ * @brief - This BC toggles walk the line (enabled/disabled)
+ * Return - true if ok
+ */
+function ToggleWalkLineModeJS()
+{
+	var status=(PosCheckSessionProperty("walkLineEnable","true"))?"false":"true";
+	var SetSuccess = PosSetWalkLine(status);
+	//
+	if (SetSuccess == true) {
+		if (status == "false") {
+			PosShowMessage("MSG_BC_WALKLINE_DISABLED");
+		} else {
+			PosShowMessage("MSG_BC_WALKLINE_ENABLED");
+		}
+	} else {
+		PosShowMessage("MSG_BC_WALKLINE_FAIL");
+	}
+	PosRefreshButtons();
+	return(true);
+}
+
+
+/* signed aut version 9-9076
+ * authority id = coe
+ * authority level = 40
+ * authority name = NewPOS COE developer
+ * group = npi
+ * validity = 2010-04-18
+ * signature type = slash_star
+ * time stamp (GMT) = Wed Jan 31 01:28:44 2018
+ * certificate = 393735312d37393437005175fd2c91e1dfa9bee3b6b4d5db5bbd66a296590d5b958e7046a90148edf7115df8a8be1e8949c68c383bf2d73dca74201d0010
+ * =================================================================================================================================
+*/

@@ -1,0 +1,184 @@
+<?xml version="1.0"?>
+<PosDB xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="/usr/local/jboss-3.2.2/server/default/deploy/webrfmNP61_14.war/rfmdata/pos-db.xsd" version="1.0" name="POS02">
+  <StoreDB imports="all">
+    <StoreProfile>
+      <BusinessLimits>
+        <DisableAutomaticTimeOfDayTransition>true</DisableAutomaticTimeOfDayTransition>
+        <DefaultTimeOfDayValue>BREAKFAST_MENU</DefaultTimeOfDayValue>
+      </BusinessLimits>
+    </StoreProfile>
+  </StoreDB>
+  <ColorDB imports="default" />
+  <Configuration imports="Store.wide">
+    <Section name="Messaging">
+      <Parameter name="networkAdaptorBaseIp" value="127.0.0.1" />
+      <Parameter name="serverPort" value="" />
+    </Section>
+    <Section name="OperationMode">
+      <Parameter name="DTStoreMode" value="REGULAR" />
+      <Parameter name="applyUpdateOperationMode" value="1" />
+      <Parameter name="dualPointDoubleBumpActive" value="true" />
+      <Parameter name="enableDualBump" value="true"/>
+      <Parameter name="enableManagerSetDualBump" value="true"/>
+      <Parameter name="dualBumpDayPart" value="DAYPART_BREAKFAST_MENU|DAYPART_DAY_MENU|DAYPART_BREAKFAST_DAY_MENU"/>
+    </Section>
+    <Section name="Security">
+      <Parameter name="enableManagerAuthBiometricOverride" value="true" />
+      <Parameter name="managerAuthorization" value="login" />
+    </Section>
+    <Section name="RMHCDonation">
+      <Parameter name="enableRMHCdonation" value="true" />
+    </Section>
+    <Section name="Promotion">
+      <Parameter name="enableComponentsOnIdentifiedSalesForOffers" value="true" />
+    </Section>
+    <Section name="SmartRouting">
+      <Parameter name="podBlackList" value="DT" />
+    </Section>
+      <Section name="BVS">
+         <Parameter name="isEnabled" value="true"/>
+         <Parameter name="routeToBvsByOrderType" value="CURBSIDE|TABLE_MOBILE|TABLE_EI|DELIVERY"/>
+      </Section>
+    <Section name="CODRouting">
+      <Parameter name="Mapping" value="COD0012=1|COD0014=2" />
+         <Parameter name="Routing" value="POS0012=NCOD0012|POS0013=NCOD0012|POS0014=NCOD0014|POS0001=NCOD0012|POS0002=NCOD0012"/>
+    </Section>
+  </Configuration>
+  <Services>
+      <Service type="RPR" classname="com.ngpos.arch.services.printer.core.PrinterController" startonload="true" quitOnFail="true" name="02">
+         <Adaptors>
+            <Adaptor name="npAdpRpr" imports="npAdpRpr" startonload="true">
+               <Section name="main">
+	            <Parameter name="drivername" value="virtualPrinter.dll" />
+	            <Parameter name="portname" value="..\RPR_1__POS02_pos-db.xml.txt" />
+	            <Parameter name="escSeq" value="printerControlChar.properties" />
+	            <Parameter name="fileAppend" value="true" />
+	            <Parameter name="flush" value="false" />
+	            <Parameter name="overwrite" value="false" />
+               </Section>
+            </Adaptor>
+         </Adaptors>
+      </Service>
+    <Service name="02" type="POS" classname="com.ngpos.pos.NewPOS" startonload="true" quitOnFail="true">
+      <UsedServices>
+            <UsedService serviceType="POS">
+               <Member alias="CSO" name="06"/>
+            </UsedService>
+        <UsedService serviceType="WAY">
+          <Member name="300" alias="" />
+        </UsedService>
+        <UsedService serviceType="PSW">
+          <Member name="300" alias="" />
+        </UsedService>
+        <UsedService serviceType="PST">
+          <Member name="8002" alias="" />
+          <Member name="8013" alias="" />
+        </UsedService>
+        <UsedService serviceType="RPR">
+          <Member alias="" name="01" />
+               <Member alias="CSO" name="02"/>
+               <Member alias="" name="02"/>
+          <Member alias="" name="13" />
+        </UsedService>
+        <UsedService serviceType="KVS">
+               <Member name="3110" alias="MFY 1 Initiator"/>
+               <Member name="3120" alias="MFY 2 Initiator"/>
+               <Member name="3210" alias="MFY Side 1"/>
+               <Member name="3220" alias="MFY Side 2"/>
+          <Member name="3310" alias="Front Counter Expo 1" />
+          <Member name="3320" alias="Drive Thru Expo - HLZ" />
+          <Member name="3410" alias="Drive Thru Expo - Present" />
+               <Member name="3420" alias="CBB"/>
+          <Member name="3510" alias="FC Double Bump 1" />
+               <Member name="3520" alias="Drinks/Coffee"/>
+               <Member name="3610" alias="Fry"/>
+               <Member name="3620" alias="Dessert"/>
+               <Member name="6710" alias="Generic Grill"/>
+               <Member name="3430" alias="BVS"/>
+        </UsedService>
+      </UsedServices>
+      <Configuration imports="POS">
+        <Section name="UserInterface">
+          <Parameter name="frameWidth" value="800" />
+          <Parameter name="frameHeight" value="600" />
+          <Parameter name="imagesResolution" value="1024,768" />
+          <Parameter name="DDTsupport" value="true" />
+          <Parameter name="salePanelFont" value="Arial-BOLD-16" />
+          <Parameter name="showCursor" value="true" />
+          <Parameter name="showCloseButton" value="true" />
+        </Section>
+        <Section name="Cashless3">
+          <Parameter name="Active" value="false" />
+          <!-- 			
+					<Parameter name="PEDip" value="10.2.3.105"/>
+					<Parameter name="laneClosedMessage" value="Reg Closed"/>
+					<Parameter name="ListenerIP" value="10.2.3.105"/>
+					<Parameter name="ListenerPort" value="5155"/>
+					<Parameter name="UpdateStatusCheckInterval" value="10"/>
+					<Parameter name="UpdateMaxWaitTime" value="1800"/>
+					<Parameter name="UpdateLostComMaxTime" value="300"/>
+					<Parameter name="DiagnosticBusyRetries" value="10"/>
+ -->
+        </Section>
+        <Section name="PosType">
+          <Parameter name="stageCmd" value="wscript D:\Scripts\detach.vbs" />
+          <Parameter name="POD" value="FRONT_COUNTER" />
+          <Parameter name="RemPOD" value="FRONT_COUNTER" />
+        </Section>
+        <Section name="OperationMode">
+          <Parameter name="autoRecall" value="false" />
+          <Parameter name="enableMobileOrdering" value="true" />
+          <Parameter name="restartAfterOpen" value="false" />
+        </Section>
+        <Section name="Report">
+          <Parameter name="PrintSurveyCode" value="true" />
+        </Section>
+        <Section name="Account">
+          <Parameter name="SaveXMLFiles" value="true" />
+        </Section>
+      </Configuration>
+      <Adaptors>
+        <Adaptor name="xmlrpccli" imports="xmlrpccli" startonload="true" />
+        <Adaptor name="tlog" imports="tlog" startonload="true" />
+        <Adaptor name="standard.ui" startonload="true">
+          <Section name="main">
+            <Parameter name="drivername" value="npDrvGUI.dll" />
+          </Section>
+        </Adaptor>
+        <Adaptor name="standard.account" imports="standard.account" startonload="true">
+          <Section name="main">
+            <Parameter name="drivername" value="npAccTax.dll" />
+          </Section>
+          <Section name="tax">
+            <Parameter name="drivername" value="npAccTax.dll" />
+          </Section>
+        </Adaptor>
+            <Adaptor name="authentic.device" imports="authentic.device" startonload="false">
+               <Section name="main">
+                  <Parameter name="service" value="npAdpAuthenticDev.dll"/>
+                  <Parameter name="drivername" value="npDrvAuthDPUareU.dll"/>
+               </Section>
+            </Adaptor>	
+            <Adaptor name="DSLDevDrv.linedisplay" imports="DSLDevDrv.linedisplay" startonload="false">
+          <Section name="main">
+                  <Parameter name="LoadDriver" value="LD|RCD"/>
+          </Section>
+        </Adaptor>
+        <Adaptor name="npAdpNG" imports="npAdpNG" startonload="false" />
+        <Adaptor imports="opos.scanner" name="opos.scanner" startonload="false" />
+        <Adaptor name="nps.extension" imports="nps.extension" startonload="false" />
+        <Adaptor name="DSLDevDrv.cash" imports="DSLDevDrv.cash" startonload="false" />
+        <Adaptor name="virtual.cashdrawer" imports="virtual.cashdrawer" startonload="true" />
+        <Adaptor name="virtual.linedisplay" imports="virtual.linedisplay" startonload="true" />
+      </Adaptors>
+    </Service>
+    <Service type="STO" classname="npUpdtRcv.dll" startonload="true" quitOnFail="true" name="02">
+      <Configuration imports="STO">
+        <Section name="main">
+          <Parameter name="NodeType" value="POS" />
+          <Parameter name="WayNode" value="300" />
+        </Section>
+      </Configuration>
+    </Service>
+  </Services>
+</PosDB>

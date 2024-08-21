@@ -1,0 +1,4960 @@
+/**
+ * @file CSL_Sales.nps
+ * @brief This NPS file implements BusinessComponents Sales.
+ * @addtogroup 	CSL
+ * @defgroup 	Sales
+ * @ingroup 	CSL
+ *
+ * Copyright (C) 2008 McDonalds Corp. All rights reserved.
+ *
+ * @author Raphael (of Creation)
+ * @since NPS-4831 / 2009/06/16
+ *
+ * @version $Id: CSL_Sales.nps 776 2009-08-06 13:46:38Z rcaram $
+ * @remarks Business Components related to sales
+ * @{
+ */
+
+/* Variable used for version control */
+CSL_SALES_VERSION = "$WCURL$:$WCREV$";
+
+/* Set the variable. */
+SRC_BC_SALES='CSL_Sales.nps';
+
+const ACC_OT_SALE=0;
+const ACC_OT_REFUND=1;
+const ACC_OT_WASTE=2;
+const ACC_OT_MANAGER=3;
+const ACC_OT_CREW=4;
+const ACC_OT_DISCOUNT=5;
+const ACC_OT_SKIP_CAR=9;
+const ACC_OT_GC_BILLABLE_REFUND=10;
+const ACC_OT_MX_BILLABLE_REFUND=11;
+const ACC_OT_TAB=12;
+const ACC_OT_WAVE=13;
+const ACC_OT_WAVE_ADJUSTMENT=14;
+
+//SDE-2351
+const BREAKFAST_ENTREE=0;
+const REGULAR_ENTREE=2;
+const GIFT_COUPON=9;
+const NON_FOOD_PRODUCT=8;
+const PAPER=1;
+
+const NOT_AUTHORIZED=0;
+const AUTHORIZED=1;
+const BY_PASSED=2;
+
+const VALUE_MEAL					=	3;		//!< Value meal 
+
+// SDO-12645
+// PromoLimitType
+const PLT_QUANTITY = 0;
+const PLT_AMOUNT = 1;
+
+var uniqueCodeConfig = {'init' : false};
+
+// Dictionary that containst all the products indexed by code.
+const CSL_DAYPART_BREAKFAST_MENU = 0;
+const CSL_DAYPART_DAY_MENU = 1;
+const CSL_DAYPART_BREAKFAST_DAY_MENU = 2;
+const CSL_DAYPART_INVALID = 99;
+/**
+ * @brief This function implements the BC,Business Component: <b>PosConvertProductForceAll</b>.
+ *
+ * Persistence:<b>Persisted if convert product performed</b>\n
+ * The PosConvertProductForceAll is responsible for check a sale verifying if a product can be substitute by any substituion products configured.
+ * In java script it should be called:<b>PosConvertProductForceAll()</b>
+ * @success No products for substitution or substitution list is shown.
+ * @failure <i>Cash Drawer Opened</i> - Cash Drawer is opened.
+ * @failure <i>Not in Sale Mode</i> - POS is not in sale mode.
+ * @failure <i>No Sale</i> - There is no sale in progress.
+ * @since 1.17-
+ */
+function PosConvertProductForceAll() {
+	var cmd = "PosConvertProductForceAll";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosEndSmartReminder</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * The PosEndSmartReminder is responsible for hide the smart reminder.
+ * In java script it should be called:<b>PosEndSmartReminder()</b>
+ * @success Always return true.
+ * @since 1.17-
+ */
+function PosEndSmartReminder() {
+	var cmd = "PosEndSmartReminder";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosCheckPromoOrder</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * The PosCheckPromoOrder is responsible for check if the current sale is a promo order.
+ * In java script it should be called:<b>PosCheckPromoOrder()</b>
+ * @success current sale is a promo order.
+ * @failure <i>Not Promo Order</i> - current sale is not a promo order.
+ * @since 1.17-
+ */
+function PosCheckPromoOrder() {
+	var cmd = "PosCheckPromoOrder";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosDoPromoOrder</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * The PosDoPromoOrder is responsible for execute a promo order sale.
+ * In java script it should be called:<b>PosDoPromoOrder()</b>
+ * @success Promo order executed.
+ * @failure <i>Promo Order Failed</i> - Cannot perform the promo order.
+ * @remarks
+ *
+ * This BC calls PosDoDiscount()
+ *
+ * @since 1.17-
+ */
+function PosDoPromoOrder() {
+	var cmd = "PosDoPromoOrder";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosBreakValueMeal</b>.
+ *
+ * Persistence:<b>Persisted if break VM performed</b>\n
+ * This BC is responsible for checking a sale line verifying if it is a VM and then break it into its components.
+ *
+ * @success Value Meal broken successfully.
+ * @failure	<i>Drawer open</i> It is not possible to break a value meal when the drawer is open.\n
+ * @failure <i>Operator not logged or not in an active sale</i> There is no operator logged or there is no active sale.\n
+ * @failure <i>Unable to break the value meal</i> It is not possible to break the value meal. Invalid quantity to sell.\n
+ * @hook <i>onDeniedBreakValueMeal()</i> when it is not possible to break a value meal.
+ * @remarks
+ * Property Messages:\n
+ *	 MSG_BC_DRAWEROPENED: when POS drawer is opened\n
+ * 	 MSG_BC_DESQTY_NOTALLOWED: when it is possible to upgrade\n
+ *
+ * This BC calls PosCheckCashDrawer.
+ * @since 1.17-
+ */
+function PosBreakValueMeal() {
+	if(PosOfferPromotionUndoIfPresentOnSelectedItem() < 0) {
+		return false;
+	}	
+
+	var cmd = "PosBreakValueMeal";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	var ret = executeBC(cmd);
+
+	PosOfferPromotionOnItemSold();
+
+	return ret;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosCancelSpecialTrn</b>.
+ *
+ * Persistence:<b>Persisted</b>\n
+ * This BC cancels a special transaction (only the current one), such as WASTE or REFUND.
+ *
+ * @success Special transaction canceled successfully.
+ * @failure	<i>Current transaction is not waste or refund</i> This BC only handle waste or refund canceling.\n
+ * @failure <i>Operation not confirmed</i> It is necessary to confirm the operation.\n
+ * @remarks
+ * Property Messages:\n
+ *   MSG_BC_REFUNDCANC: Show a prompt message confirming REFUND cancelation.\n
+ *   MSG_BC_WASTECANC: Show a prompt message confirming WASTE cancelation.\n
+ *
+ * @since 1.17-
+ */
+function PosCancelSpecialTrn() {
+	var cmd = "PosCancelSpecialTrn";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosChangeSizeSelection</b>.
+ *
+ * Persistence:<b>Persisted</b>\n
+ * This BC is responsible for changing a product in a sale line by a correspondent according to a recived index.
+ * This replacement is called an "upgrade" as its commonly used to upgrade from a sandwich (say a Big Mac) to a Value Meal Big Mac,
+ * but it is not limited to this, any product with the SizeSelection configured can be upgraded.
+ * Before adding the item to the sale, the BC verifies if the product is salable/upgradable.
+ * Note: 1) The product to be upgraded is the current selected;\n
+ *		 2) This BC is also used to include items in special transactions such as Wastes and Refunds.\n
+ * To do so, a Session Context Variable with the special transaction must have been created before the sale is created.\n
+ *
+ * @param index - number - entry in the product SizeSelection to upgrade to.
+ * @param mode - number - optional - change size selection Mode 0: Default.\n
+																1: Do not force upgrade.\n
+																2: Reuse items - it forces the reuse of other sale items to compound the Value Meal when upgrading from a product to a Value Meal.
+ * @param checkVM - number - optional - 0: Default.\n
+										1: If the product is already a Value Meal don't upgrade the size. [1.20]
+ * @success Size selection changed successfully.
+ * @failure <i>Operator not logged or not in an active sale</i> - There is no operator logged or there is no active sale.\n
+ * @failure	<i>Product not found</i> - The product is not salable because was not found.\n
+ * @failure <i>Product cannot be upgraded</i> - Selected product cannot be upgraded with current upgrade index.\n
+ * @failure <i>Promoted product cannot be upgrated</i> - Quantity of promos associated with the product is the same quantity of products.\n
+ * @failure	<i>MDI or MTI reached</i> -  Max Distinct Items (MDI) or pre-defined Max Total Items (MTI) was reached.\n
+ * @failure	<i>HILO or HALO reached</i> - Pre-defined High Quantity Lock Out (HILO) or pre-defined High Amount Lock Out (HALO) was reached.\n
+ * @hook <i>onBeforeChangeSizeSelection()</i> - when Change Size selection starts. Check if product can be upgraded.
+ * @hook <i>onHILO(qtty,HighQuantitySaleLimit)</i> - when a HILO event is detected.
+ * @hook <i>onGiftCardHILO(qtty,nGiftCardHILO)</i> - when a Gift Card HILO event is detected.
+ * @hook <i>onHALO(TotalAmount,HighAmountSaleLimit)</i> - when a HALO event is detected.
+ * @hook <i>onChangeSizeSelection()</i> - when Change Size selection is done.
+ * @hook <i>onDeniedSizeSelection()</i> - when cannot change the size selection for the item.
+ * @remarks
+ *
+ * Property Messages:
+ *   MSG_BC_DRAWEROPENED: when to POS drawer is opened\n
+ *   MSG_BC_NOTOPENFORSALE: when the POS is closed\n
+ *   MSG_BC_BLOCKOP: when the POS is time blocked with a operator logged-in\n
+ *   MSG_BC_BLOCKED: when the POS is time blocked without a operator logged-in\n
+ *   MSG_BC_NOTSALEMODE: when the POS is opened but without a operator logged-in\n
+ *   MSG_BC_PRODMISS: when the product refered by its dimension (size selection) is not configured\n
+ *   MSG_BC_PRODINV: when the product code was not found in products-db\n
+ *
+ * This BC calls PosCheckCashDrawer.
+ * @since 1.17-
+ */
+function PosChangeSizeSelection(index, mode, checkVM) {
+	
+	if(PosOfferPromotionUndoIfPresentOnSelectedItem() < 0) {
+		return false;
+	}
+	
+	var ret = false;
+	var cmd = "PosChangeSizeSelection";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    if(executeBC(cmd, [index, mode, checkVM])) {
+		if(Number(mode) == 2) {
+			PosSolveLineChoices(true);
+			PosAutoChoice(2);
+		}
+		ret = true;
+	}
+	
+	PosOfferPromotionOnItemSold();
+	
+	return ret;
+}
+
+
+function PosChangeSizeSelectionWithList(upgradeToSizeIndex, possibleSolution) {
+
+	if(PosOfferPromotionUndoIfPresentOnSelectedItem() < 0) {
+		return false;
+	}
+
+	var cmd = "PosChangeSizeSelectionWithList";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    if(executeBC(cmd, [upgradeToSizeIndex, possibleSolution])) {
+		return true;
+	}
+	
+	PosOfferPromotionOnItemSold();
+	
+	return false;
+}
+
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosChangeTaxMode</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC changes tax mode to the sale according to the received parameter.
+ *
+ * @param nMode - string - (numeric value) 1-No Tax 2-Exempt
+ * @success Tax mode set successfully.
+ * @failure	<i>Invalid tender status</i> Tender status is not opened.\n
+ * @hook <i>onChangeTaxMode()</i> - called before BC execution.
+ * @remarks
+ * If nMode is anything other than 1 or 2, the tax mode is set to TM_TAX.\n
+ *
+ * Property Messages:\n
+ *   MSG_BC_INVMODE: Show a message that the tax mode is unkowning.\n
+ *
+ * This BC calls PosDoTender.
+ * @since 1.17-
+ */
+function PosChangeTaxMode(nMode) {
+	var cmd = "PosChangeTaxMode";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, [nMode]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosCheckCash</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * Checks if there is cash in the cash drawer so that a refund is possible.
+ *
+ * @success There is cash in the drawer.
+ * @failure	<i>There is no cash in the drawer</i> It is not possible to do a refund.
+ * @remarks
+ *
+ * Property Messages:\n
+ *   MSG_BC_CHECKREFUND: Check refund.\n
+ * @since 1.17-
+ */
+function PosCheckCash() {
+	var cmd = "PosCheckCash";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosCheckProdComponents</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC checks if the received codes are components of a product, returning TRUE if all codes are components of the product.
+ *
+ * @param prodCode - string - optional - product code to check\n
+ *							  if a null is received, the selected product code is used,\n
+ *							  if no previous product code is selected the current grill product is used.
+ * @param components - string - list with codes for the components to be tested, pipe '|' separeted\n
+ * @param canAdds - string - optional - possible values:\n
+ *										A0: ingridients only;\n
+ *										A1: ingridients+can adds;\n
+ *										A2: ingridients+comments (default option);\n
+ *										A3: ingridients+can adds + comments.
+ * @success Components found in product
+ * @failure	<i>No product selected</i> - There is no product selected and no product on grill.
+ * @failure	<i>No components to test</i> - The parameter with the list of codes for the components to be tested is NULL.
+ * @failure	<i>Components not found</i> - The components specified in components parameter not found in the product.
+ * @sessioncontext <i>"selectedProductWithSize"</i> - Read to get the product selected, when it is not specified by prodCode parameter .
+ * @remarks
+ * @since 1.17-
+ */
+function PosCheckProdComponents(prodCode, components, canAdds) {
+	var cmd = "PosCheckProdComponents";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, [prodCode, components, canAdds]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosCheckRealChoices</b>.
+ *
+ * Persistence:<b>Not persisted</b>\n
+ * This BC is responsible for checking a sale verifying if real choices are open and asks the
+ * user to fullfill these choices or redirects to the specified screen.
+ *
+ * @param cancelBtn - string - bitmap file name of the cancel button for display dialogs.
+ * @param SellClosingChoices - boolean - optional - sell clossing choices.
+ * @success Transaction type is waste or refund.
+ * @success Undefined sale status.
+ * @success There is no choice to be made.
+ * @success Real choices verified successfully.
+ * @failure	<i>Product not salable</i> - The product selected.\n
+ * @failure	<i>Unable to add product</i> - Product cannot be added to current sale presentation.\n
+ * @failure <i>Pending Choices</i> - There is at least one pending choice.\n
+ * @failure	<i>Unable to get product description</i> - Error when getting product (choice) description.\n
+ * @failure	<i>Selected item out of range</i> - The selected choice is not in the range of possible choices.\n
+ * @remarks
+ *
+ * Property Messages:\n
+ *   MSG_BC_MISSITEM: Message displayed when a dialog window is used.\n
+ *   MSG_BC_MISSITEM_TITLE: Message used as title of the dialog window.\n
+ *   MSG_BC_MISSCHOICE: Message used in dialog windown when it will redirect to a product screen.\n
+ *
+ * This BC calls PosDoChoice, PosShowScreen
+ * @since 1.17-
+ */
+function PosCheckRealChoices(cancelBtn) {
+	var cmd = "PosCheckRealChoices";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, [cancelBtn]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosQueryOrderCallback</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * The PosQueryOrderCallback is responsible to retrieve data that is returned to production through QueryOrderCallback.
+ * In java script it should be called:<b>PosQueryOrderCallback(orderKey, source)</b>
+ * @param orderKey - String - Order Key.
+ * @param source - String - Message source, to receive the message.
+ * @success Data retrieved.
+ * @failure <i>Argument Missing</i> - orderKey or source parameter is missing.
+ * @since 1.17-
+ */
+function PosQueryOrderCallback(orderKey, source) {
+	var cmd = "PosQueryOrderCallback";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start - ");
+    return executeBC(cmd, [orderKey, source]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosSetSystemInfoState</b>.
+ *
+ * @todo To be Implemented.
+ * @since 1.17-
+ */
+function PosChangeView(source, showInSalePanel, keepViewInSessionContext, changeViewMode, viewmode) {
+	var cmd = "PosChangeView";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start - ");
+    return executeBC(cmd, [source, showInSalePanel, keepViewInSessionContext, changeViewMode, viewmode]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosDeleteSaleView</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * The PosDeleteSaleView is responsible for delete a created saleView.\n
+ * In java script it should be called:<b>PosDeleteSaleView(arrayLines)</b>
+ * @param arrayLines - Object - Optional parameter, not used.
+ * @success Sale deleted or not.
+ * @failure <i>No Logged Operator</i> - There is no logged in operator.
+ * @since 1.17-
+ */
+function PosDeleteSaleView(arrayLines) {
+	var cmd = "PosDeleteSaleView";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start - ");
+    return executeBC(cmd, [arrayLines]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosIsOrderServed</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * The PosIsOrderServed is responsible for tests if last sale is served, returning TRUE if it is.
+ * In java script it should be called:<b>PosIsOrderServed()</b>
+ * @success Undefined Last Sale.
+ * @success Order found on unserved list but it's already served.
+ * @success Order served.
+ * @failure <i>Not Served</i> - Order not served.
+ * @since 1.17-
+ */
+function PosIsOrderServed() {
+	var cmd = "PosIsOrderServed";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start - ");
+    return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosNewSaleView</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * The PosNewSaleView is responsible for mount a sale view and stores a pointer as the parameter saleView of NPSEC_POSTYPE.\n
+ * It is used internally by the kernel.\n
+ * In java script it should be called:<b>PosNewSaleView(prodCode, mode, nameType)</b>
+ * @param prodCode - String - Optional parameter, if it exists it represents the selected product code.
+ * @param mode - String - Optional parameter, if it exists it represents the sale view mode.
+ * @param nameType - String - Optional parameter, if it exists it represents the used name type (short,long,dt).
+ * @remarks
+ * @deprecated
+ *
+ * Property Messages:\n
+ * 	MSG_SL_MISS_CHOICE: Shown when there is a missing choice.\n
+ * @since 1.17-
+ */
+function PosNewSaleView(prodCode, mode, nameType) {
+	var cmd = "PosNewSaleView";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start - ");
+    return executeBC(cmd, [prodCode, mode, nameType]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosCheckRefund</b>.
+ *
+ * Persistence:<b>Persisted</b>\n
+ * Checks if the refund is possible.
+ * According to the configuration a refund will not be possible if the item was not sold before.
+ * There is a parameter in the store-db.xml file that turns on and off this check;
+ * it is in a section called "SpecialTransactions" in a parameter called "checkRefund",
+ * this parameter is "true" to the check on, or "false" to turn off.
+ *
+ * @param managerAuthorize - string - optional - Manager Authorization ("Authorize" means that the Manager Authorization will be requested if the Refund Order cames from HHOT)
+ * @success Refund is possible.
+ * @failure	<i>Refund is not possible</i>
+ * @remarks
+ *
+ * Property Messages:\n
+ *   MSG_BC_CHECKREFUND: When it is not possible to do Refound
+ * @since 1.17-
+ */
+function PosCheckRefund(managerAuthorize) {
+	var cmd = "PosCheckRefund";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd, [managerAuthorize]);
+}
+
+/**
+ * @brief <b>Deprecated! Use PosNotATransactionInProgress instead </b>This function implements the BC,Business Component: <b>PosCheckSaleOpen</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC is responsible checking if the sale is open (or created). returning TRUE if it is.
+ *
+ * @success Sale is in progress.
+ * @failure	<i>Sale not open</i>  - A sale is not in progress.
+ * @remarks
+ * This BC calls PosNotATransactionInProgress.
+ * @deprecated - Use PosNotATransactionInProgress instead.
+ * @since 1.17-
+ */
+function PosCheckSaleOpen() {
+	var cmd = "PosCheckSaleOpen";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosCheckTransactionKind</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC compares the kind of the current transaction with the received parameter.
+ * This is a way to know whether the POS is a transaction that is a Sale, a Refund or a Waste.
+ *
+ * @param trxKind - number - transaction kind (0-Sale 1-Refund, 2-Waste)
+ * @success The current transaction kind of POS is the one specified by trxKind parameter.
+ * @failure	<i>Transaction does not match</i> - The transaction specified by trxKind parameter is not the current.
+ * @since 1.17-
+ */
+function PosCheckTransactionKind(trxKind) {
+	var cmd = "PosCheckTransactionKind";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, [trxKind]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosCheckTransactionSubKind</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC compares the kind of the current transaction with the received parameter.
+ * This is a way to know whether the POS is a transaction that is a Sale, a Refund or a Waste.
+ *
+ * @param trxSubKind - number - transaction kind (0-Sale 1-Refund, 2-Waste, 13-Wave)
+ * @success The current transaction sub kind of POS is the one specified by trxSubKind parameter.
+ * @failure	<i>Transaction does not match</i> - The transaction specified by trxSubKind parameter is not the current.
+ * @since 1.17-
+ */
+function PosCheckTransactionSubKind(trxSubKind) {
+	var cmd = "PosCheckTransactionSubKind";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, [trxSubKind]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosCheckSaleType</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC compares the type (0 = EAT IN / 1 = TAKE OUT / 2 = OTHER) of the current sale with the received parameter.
+ * This is a way to know whether the sale type is EAT IN, TAKE OUT or OTHER.
+ *
+ * @param type - number - sale type (0-EATIN, 1-TAKEOUT, 2-OTHER)
+ * @success The current sale type is the one specified by type parameter.
+ * @failure	<i>sale type does not match</i> - The sale type specified by type parameter is not the current.
+ * @since 1.17-
+ */
+function PosCheckSaleType(type) {
+	var cmd = "PosCheckSaleType";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+  
+  if (type == rootHlp.getSaleType()) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosConvertProduct</b>.
+ *
+ * Persistence:<b>Persisted if convert product performed</b>\n
+ * This BC is responsible for checking a sale verifying if a product can be substitute by any substituion products configured.
+ *
+ * @param productCode - string - optional - substitution product code to check\n
+ *							  if a null is received, all available substitutions will be checked for all sale lines;\n
+ *							  if not null is received, only the selected sale line will be checked.
+ * @success Product converted successfully.
+ * @failure <i>Open drawer</i> - The current status of drawer is open. This operation cannot be performed with open drawer.\n
+ * @failure <i>Operator not logged or not in an active sale</i> - There is no operator logged or there is no active sale.\n
+ * @failure	<i>Product not found</i> - The product was not found.\n
+ * @failure <i>Product cannot be converted</i> - The product does not have substitution.\n
+ * @failure <i>All products promoted</i> - Promoted products cannot be upgraded.\n
+ * @failure <i>Unable to convert value meal</i> - Unable to convert a value meal using the substitution product.\n
+ * @remarks
+ *
+ * This BC calls PosCheckCashDrawer.
+ *
+ * Property Messages:\n
+ * 	 MSG_BC_DRAWEROPENED: when the drawer is open.
+ * 	 MSG_BC_DESQTY_NOTALLOWED: when it is possible to upgrade\n
+ * @since 1.17-
+ */
+function PosConvertProduct(productCode) {
+	var cmd = "PosConvertProduct";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	var ret = executeBC(cmd, [productCode]);
+	if(ret) {
+		cmd = "PosOffersOnItemSold";
+		CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+		executeBC(cmd, ["true"]);
+
+		cmd = "PosPromotionOnItemSold";
+		CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+		executeBC(cmd);
+	}
+	return ret;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosDisplayMultiOrderStatus</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC can be used to update the multiorder button image (On/Off) according to the multiorder status.
+ * It should receive the number of the correspondent button (<= 0 meaning current button) and
+ * the name of the images to use case the multiorder status be on or off.
+ * If the destination POD is FC the button is hidden.
+ *
+ * @param btnNumber - string - Number that identifies the button (<= 0 uses the button number correspondent to the button itself).
+ * @param imgOn - strings - image name correspondent to on.
+ * @param imgOff - strings - image name correspondent to off.
+ * @success Destination POD is FC. Multiorder button hidden successfully.
+ * @success Multiorder button image updated successfully.
+ * @remarks
+ *
+ * This BC aways returns true.
+ * @since 1.17-
+ */
+function PosDisplayMultiOrderStatus(btnNumber, imgOn, imgOff) {
+	var cmd = "PosDisplayMultiOrderStatus";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, [btnNumber, imgOn, imgOff]);
+}
+
+function PosDisplayMobileOrderStatus(btnNumber, imgOn, imgOff) {
+	var cmd = "PosDisplayMobileOrderStatus";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, [btnNumber, imgOn, imgOff]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosDoEndOfSale</b>.
+ *
+ * Persistence:<b>Persisted</b>\n
+ * This BC finalizes the current transaction.
+ * It executes all routines associated with the finalization of a transaction.
+ * Should be called by the workflow sequence when the tender totalization was enough to liquidate the bill.
+ * After a successfull execution the system enters in a not a transaction in progress state.
+ *
+ * @param saveReport - string -optional - if present and TRUE, saves receipt report\n
+ * @success Transaction successfully finalized.
+ * @failure	<i>Failed execution for EndOfSale</i> Error on POS HOOK: End Of Sale Exit.
+ * @hook <i>onSndRcvStore()</i> - called before BC execution.
+ * @hook <i>onEndOfSale(TandemEnabled,TandemMode,nTandemBooth,szCurOrderId)</i> - called before BC execution.
+ * @hook <i>onEndOfSaleExit(rc)</i> - called after BC execution.
+ *
+ * Property Messages:\n
+ *   MSG_BC_STOREID/MSG_BC_STORECSO: Small window with stored message.\n
+ *
+ * The saveReport parameter is not being validated or used.
+ * @since 1.17-
+ */
+function PosDoEndOfSale(saveReport) {
+
+// POS HOOK: onSndRcvStore -> Actually gets back TandemBooth
+	var nTandemBooth = onSndRcvStore();
+
+	var nTandemEnable = false;
+
+	if((rootCtx.get("tandemEnable").toString() == "true")) {
+		nTandemEnable = true;
+	}
+	var nTandemMode = Number(rootCtx.get("DTStoreMode"));
+	var nTandemBooth = Number(rootCtx.get("tandemBooth"));
+
+	var view=new XML(rootHlp.getCurrentView());
+	var nOrderNumber = view.@orderKey;
+	var nMinor = view.@minor;
+	var rval = onEndOfSale(nTandemEnable, nTandemMode, nTandemBooth, nOrderNumber, nMinor);
+	if(rval != true) {
+		return(JS_TRUE);
+	}
+	
+	// Gets coupon data on promotion engine (np#) and sets it on sale
+	PosGenerateCheckoutCoupon();
+	
+	// Send sale information to np#
+	var cmd = "PosDoRegisterSale";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "PosDoRegisterSale");
+    executeBC(cmd);
+
+	// Cash Drawer
+	cmd = "PosEndOfSaleOpenCashDrawer";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Cash Drawer");
+    executeBC(cmd, [saveReport]);
+
+	// End of Sale
+	cmd = "PosDoEndOfSale";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "End of Sale");
+    var ret = executeBC(cmd, [saveReport]);
+
+	if(ret) {
+		PosRedeemCheckoutCouponOnServer();
+		
+		cmd = "PosOffersSetOnOff";
+		CSL_dbglog(7, SRC_BC_SALES, cmd, "Set offers off");
+		executeBC(cmd, ["off"]);
+	}
+	
+	return ret;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosDoEndOfSaleNoDrawer</b>.
+ *
+ * Persistence:<b>Persisted</b>\n
+ * This BC finalizes the current transaction.
+ * It executes all routines associated with the finalization of a transaction.
+ * Should be called by the workflow sequence when the tender totalization was enough to liquidate the bill.
+ * After a successfull execution the system enters in a not a transaction in progress state.
+ *
+ * @param saveReport - string -optional - if present and TRUE, saves receipt report\n
+ * @success Transaction successfully finalized.
+ * @failure	<i>Failed execution for EndOfSale</i> Error on POS HOOK: End Of Sale Exit.
+ * @hook <i>onSndRcvStore()</i> - called before BC execution.
+ * @hook <i>onEndOfSale(TandemEnabled,TandemMode,nTandemBooth,szCurOrderId)</i> - called before BC execution.
+ * @hook <i>onEndOfSaleExit(rc)</i> - called after BC execution.
+ *
+ * Property Messages:\n
+ *   MSG_BC_STOREID/MSG_BC_STORECSO: Small window with stored message.\n
+ *
+ * The saveReport parameter is not being validated or used.
+ * @since 1.17-
+ */
+function PosDoEndOfSaleNoDrawer(saveReport) {
+
+// POS HOOK: onSndRcvStore -> Actually gets back TandemBooth
+	var nTandemBooth = onSndRcvStore();
+
+	var nTandemEnable = false;
+
+	if((rootCtx.get("tandemEnable").toString() == "true")) {
+		nTandemEnable = true;
+	}
+	var nTandemMode = Number(rootCtx.get("DTStoreMode"));
+	var nTandemBooth = Number(rootCtx.get("tandemBooth"));
+
+	var view=new XML(rootHlp.getCurrentView());
+	var nOrderNumber = view.@orderKey;
+	var nMinor = view.@minor;
+	var rval = onEndOfSale(nTandemEnable, nTandemMode, nTandemBooth, nOrderNumber, nMinor);
+	if(rval != true) {
+		return(JS_TRUE);
+	}
+
+	// End of Sale
+	cmd = "PosDoEndOfSale";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "End of Sale");
+    return executeBC(cmd, [saveReport]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosEndOfSaleOpenCashDrawer</b>.
+ *
+ * Persistence:<b>Persisted</b>\n
+ * This BC execute the Cash Drawer Open during the End Of Sale process according to the Tender.
+ * It executes all routines associated with the finalization of a transaction.
+ * Should be called after the "PosDoEndOfSaleNoDrawer" when the Drawer must be open after the End of Sale process.
+ * After a successfull execution the system enters in a not a transaction in progress state.
+ *
+ * @success The Cash Drawer was opened successfully
+ * @failure	<i>Failed execution for EndOfSale</i> Error on POS HOOK: End Of Sale Exit.
+ * @since 1.17-
+ */
+function PosEndOfSaleOpenCashDrawer()
+{
+	// Cash Drawer
+	var cmd = "PosEndOfSaleOpenCashDrawer";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Cash Drawer");
+    return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosDoPromoItem</b>.
+ *
+ * Persistence:<b>Persisted</b>\n
+ * This BC promos (do not charge) the item currently selected in a sales list.
+ * It can be used to promo a single item or the whole sale, according to the received parameters.
+ * A promo can be further qualified, e.g. a share holder as used in Japan can have a special promo qualifier.
+ * If no parameter is received, only the currently selected line will receive the promo (without further qualification).
+ * If a value >= 0 is received the value is considered the promo qualifier.
+ * If the value received as first parameter is less then zero (< 0) the whole sale receives the promo.
+ * To qualify the promo in this case, a second parameter should be passed.
+ * If the promo operation fails, a message is exhibited to the operator.
+ *
+ * @param param1 - string - optinonal - if it exists and is >= 0, it represents the type of promo item; if < 0 it represents all sale items.
+ * @param param2 - string - optinonal - if param 1 exists and is < 0 (all sale items), param2 represents the type of promo sale.
+ * @success Item or sale promoted successfully.
+ * @failure	<i>Unable to promote item</i> - Error on hook: onPromoItem(type).\n
+ * @failure	<i>No item selected</i> - No item selected and no parameter received.\n
+ * @failure	<i>Unable to promote order</i>  - Error on hook: onPromoOrder(type).\n
+ * @failure	<i>Error serializing when promoting item</i> - Error processing event log when promoting item.\n
+ * @hook <i>onPromoItem(type)</i> - called before BC execution, if promoting an item.
+ * @hook <i>onPromoOrder(type)</i> - called before BC execution, if promoting an order.
+ * @remarks
+ *
+ * Property Messages:\n
+ *   MSG_BC_INVPROMO: When the promo is not possible.
+ * @since 1.17-
+ */
+function PosDoPromoItem(param1, param2) {
+	
+	if(PosOfferPromotionUndoIfPresentOnSelectedItem() < 0) {
+		return false;
+	}
+	
+	var cmd = "PosDoPromoItem";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    var ret = executeBC(cmd, [param1, param2]);
+		
+	PosOfferPromotionOnItemSold();
+
+	return ret;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosDoQuantum</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This Business Component updates the quantity to sell based on a received parameter 'numericKey'.
+ * The current quantity value is multiplied by 10 and the value correspondent to the 'numericKey' is added to it.
+ * It also sets the flag that indicates the sale parameter should be kept among BCs.
+ *
+ * @param numericKey - string - key pressed.
+ * @success Quantity to sell updated successfully.
+ * @failure	<i>Invalid POS status</i> - The POS must be opened with a logged operator in order to get current numeric quantity.
+ * @remarks
+ *
+ * Property Messages:\n
+ *   MSG_BC_NOTOPENFORSALE: when the POS is closed\n
+ *   MSG_BC_BLOCKOP: when the POS is time blocked with a operator logged-in\n
+ *   MSG_BC_BLOCKED: when the POS is time blocked without a operator logged-in\n
+ *   MSG_BC_NOTSALEMODE: when to POS is opened but without a operator logged-in\n
+ * @since 1.17-
+ */
+function PosDoQuantum(numericKey) {
+	var cmd = "PosDoQuantum";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, [numericKey]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosDoRemoveCustomInfo</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * The PosDoRemoveCustomInfo is responsible for remove a custom information from the sale.
+ * In java script it should be called:<b>PosDoRemoveCustomInfo(CustomInfo)</b>
+ * @param CustomInfo - String - Custom Information to be removed from sale.
+ * @success Custom information was successfully removed from sale.
+ * @failure <i>Argument Missing</i> - CustomInfo parameter is missing.
+ * @failure <i>Remove Error</i> - Error removing Custom Information from sale
+ * @since 1.17-
+ */
+function PosDoRemoveCustomInfo(CustomInfo) {
+	var cmd = "PosDoRemoveCustomInfo";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, [CustomInfo]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosDoSale</b>.
+ *
+ * Persistence:<b>Persisted</b>\n
+ * This BC is responsible for selling a product item, such as a BigMac, a Coke, etc.
+ * If there is a sale already opened the received item is included in the sale,
+ * if not, a new sale is created with the item as its initial product.
+ * The received product can be modified if there is a previous quantity selected with PosDoQuantum,
+ * in which case the quantity defines the final quantity of items that should be in the sale.
+ * The dimension set with PosSizeSelection also affects the product being sold, as its code can be "upgraded"
+ * or "downgraded" to another product code.
+ * Before the execution, this BC tests whether the drawer is closed, if not a message is exhibited and it fails.
+ * If the sale was not already opened, it checks if the POS is in sale mode (Operator logged in and POS not Time blocked),
+ * and if it is, a new sale is created.
+ * Before adding the item to the sale, the BC verifies if the product is salable, if it is,
+ * it first tryies to fill in any open choices. The remaining quantity (if any at all) will be included in the sale.
+ * Note: This BC is also used to include items in special transactions such as Wastes and Refunds.
+ * To do so, a Session Context Variable with the special transaction must have been created before the sale is created.
+
+ * @param prodcode - string - code of product to sell.
+ * @param forced - boolean - optional - whether actions such as validate MDI/MTI, HILO/HALO, check drawer status, etc will be executed or not.
+ * @param floatPriceInput - bool - optional - whether or not a float price will be entered for product code. default = false.
+ * @success Product included successfully in the sale.
+ * @failure	<i>No product code</i> - Missing product code parameter.\n
+ * @failure	<i>Not salable product</i>  - Fail when checking if it is possible to sell a product.\n
+ * @failure	<i>Float price not allowed</i> - Product configuration does not allow float price.\n
+ * @failure	<i>Mix food items and float price not allowed</i> - The configuration does not allow an order to have mix food items and float price items.\n
+ * @hook <i>onDeniedSale(prodCode,err)</i> - called when item could not be sold.
+ * @hook <i>onHILO(qtty,HighQuantitySaleLimit)</i> - when a HILO event is detected.
+ * @hook <i>onGiftCardHILO(qtty,nGiftCardHILO)</i> - when a Gift Card HILO event is detected.
+ * @hook <i>onHALO(TotalAmount,HighAmountSaleLimit)</i> - when a HALO event is detected.
+ * @hook <i>onEachReduction(nQuantity,szAmount)</i> - when a reduction occurs and configured to generate event on each reduction.
+ * @hook <i>onReductionHILOAfterTotal(nItemsAfterTotal,TRedAfterTotalQuantity)</i> - when a reduction occurs and also a HILO after total and configured to generate event on limits.
+ * @hook <i>onReductionHALOAfterTotal(nSaleType,TRedAfterTotalAmount)</i> - when a reduction occurs and also a HALO after total and configured to generate event on limits.
+ * @hook <i>onReductionHILOBeforeTotal(nItemsBeforeTotal,TRedBeforeTotal)</i> - when a reduction occurs and also a HILO before total and configured to generate event on limits.
+ * @hook <i>onCreatedSale(nTransactionType,0)</i> - when a sale is created.
+ * @hook <i>onItemNotSold(reason)</i> - when a sale item was not sold.
+ * @hook <i>onItemSell(prodCode,incQtty)</i> - when the sale item will be sold successfully.
+ * @remarks
+ *
+ * Property Messages:\n
+ *   MSG_BC_DRAWEROPENED: when to POS drawer is opened\n
+ *   MSG_BC_FPNOTALLOWEDWFOOD: when the configuration does not allow an order to have mix food items and float price items.
+ *   MSG_BC_NOTOPENFORSALE: when the POS is closed\n
+ *   MSG_BC_BLOCKOP: when the POS is time blocked with a operator logged-in\n
+ *   MSG_BC_BLOCKED: when the POS is time blocked without a operator logged-in\n
+ *   MSG_BC_NOTSALEMODE: when the POS is opened but without a operator logged-in\n
+ *   MSG_BC_PRODMISS: when the product refered by its dimension (size selection) is not configured\n
+ *   MSG_BC_PRODINV: when the product code was not found in products-db\n
+ *	 MSG_BC_CANNOTREDUCETO0: when a requested reduction voids the sale\n
+ *	 MSG_BC_CANNOTREDUCPROMO: when a requested reduction is bigger than promo quantity\n
+ *   MSG_BC_PROMO_LAST_ITEM: when a requested reduction makes the order a promo order\n
+ * @since 1.17-
+ */
+function PosDoSale(prodcode, autoRefund, floatPriceInput, partialPromotionId, partialPromotionCounter, partialStepNumber, partialOfferId)
+{
+	var hlp = new BusinessObjectHelper;
+	var emptyCustomInfoCyt = (hlp.GetAllowCustomInfo() ? hlp.GetEmptyCustomInfoCytFromProductTicket(hlp.GetSelectedProductTicket()) : -1);
+	var cmd = "cPosDoStartSaleItem";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+
+	if(!executeBC(cmd, [prodcode, autoRefund, floatPriceInput, partialPromotionId, partialPromotionCounter, partialStepNumber, partialOfferId])) {
+		return false;
+	}
+
+	var undoSale = (!PosDoValidateLimits(autoRefund, true));
+
+	// NVS-806 - Fix REFUND initialization
+	if(undoSale && PosCheckTransactionKind(ACC_OT_REFUND)) {
+		PosDoQuantum(-1);
+			
+		cmd = "cPosDoEndSaleItem";
+		CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+		executeBC(cmd, [prodcode, undoSale, partialPromotionId, partialPromotionCounter, partialStepNumber, partialOfferId]);
+			
+		PosSetTransactionKind(ACC_OT_REFUND);
+		return PosDisplayText("MSG_BC_REFUNDREG", 3);
+	}
+
+	cmd = "cPosDoEndSaleItem";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+
+	var ret = executeBC(cmd, [prodcode, undoSale, partialPromotionId, partialPromotionCounter, partialStepNumber, partialOfferId]);
+	if(!ret) {
+		return false;
+	}
+
+	cmd = "PosOffersOnItemSold";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	executeBC(cmd, ["true"]);
+
+	cmd = "PosPromotionOnItemSold";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	executeBC(cmd);
+	
+	//Testing cyt custom info
+	if(typeof(PosCheckCytCustomInfoJS) == "function")
+	{
+		PosCheckCytCustomInfoJS(CRM_PRODUCT_BY_TICKET, emptyCustomInfoCyt);
+	}
+	
+	return ret;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosCreateSideSale</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * PosCreateSideSale is responsible for creating a side sale, given a list of indexes
+ * referring to items in the main sale.
+ *
+ * @param indexes - String - string of pipe-delimited indexes.
+ * @success
+ * @failure	<i></i>
+ * @since 1.30-
+ */
+function PosCreateSideSale(indexes) {
+	var cmd = "PosCreateSideSale";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd, [indexes]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosVoidSideSale</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * PosVoidSideSale is responsible for voiding a side sale.
+ *
+ * @success
+ * @failure	<i></i>
+ * @since 1.30-
+ */
+function PosVoidSideSale() {
+	var cmd = "PosVoidSideSale";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosMergeSideSale</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * PosMergeSideSale is responsible for merging a side sale back into the main sale. Any Offer applied to the
+ * side sale is copied over and re-applied on the main sale. Any Promotions applied to the side sale and its
+ * items are cleared and re-applied on the main sale.
+ *
+ * @success
+ * @failure	<i></i>
+ * @since 1.30-
+ */
+function PosMergeSideSale() {
+	var cmd = "PosMergeSideSale";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosDoSaveRestoreTransaction</b>.
+ *
+ * Persistence:<b>Persisted if SaveTransaction is TRUE</b>\n
+ * The PosDoSaveRestoreTransaction is responsible for save the actual WorkSale and Sale from global context.
+ * In java script it should be called:<b>PosDoSaveRestoreTransaction(SaveTransaction)</b>
+ * @param SaveTransaction - String - TRUE for Save the work sale, FALSE just updates the published working sale address.
+ * @success Sale and WorkSale from global context were saved and published working sale address updated.
+ * @since 1.17-
+ */
+function PosDoSaveRestoreTransaction(SaveTransaction) {
+	var cmd = "PosDoSaveRestoreTransaction";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    executeBC(cmd, [SaveTransaction]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosDoSelIndex</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC sets the selected index in a sales list.
+ * In POS mode, if the current list is a grill list, this BC checks if there is actually a grill
+ * in progress. If negative, it mounts a new screen with grill components.
+ *
+ * @param index - string - selected index.
+ * @success Index successfully set in the sale list.
+ * @success POS hook onSelInex failed. Roll back to previous index successfully.
+ * @success
+ * @failure	<i></i>
+ * @hook <i>onSelIndex()</i>
+ * @hook <i>onGrillStart()</i> - when the grill starts.
+ * @hook <i>onSelectedItem</i> - when grill is open by Float screen.
+ * @remarks
+ *
+ * Property Messages:\m
+ *	 MSG_BC_GRILLINVCSO: when POD type is CSO (Custumer Self Ordering) in a grill operation\n
+ *	 MSG_BC_GRILLINV: when POD type is invalid in a grill operation\n
+ *
+ * This BC calls PosDoSelGrillIndex, PosDoTryGrillEnd, PosRefreshButtons.
+ * @since 1.17-
+ */
+function PosDoSelIndex(index, force_float) {
+	var cmd = "PosDoSelIndex";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, [index, force_float]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosGetCustomInfo</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * The PosDoSetCustomInfo is responsible for retrieving a Custom Information in the sale.
+ * In java script it should be called:<b>PosGetCustomInfo(name)</b>
+ * @param name - String - Custom Information name.
+ * @success Custom Information Successfully retrieved from the sale.
+ * @failure <i>Argument Missing</i> - name or value parameter is missing.
+ * @failure <i>Store Error</i> - Error trying to store Custom Information.
+ * @since 1.25-
+ */
+function PosGetCustomInfo(name) {
+	var cmd = "PosGetCustomInfo";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, [name]);
+}
+/**
+ * @brief This function implements the BC,Business Component: <b>PosSaveTELOG</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * The PosSaveTELOG is responsible for insert a Custom Information in the TELOG.
+ * In java script it should be called:<b>PosSaveTELOG(name, value)</b>
+ * @param name - String - Custom Information name (between 0 and 9999).
+ * @param value - String - Custom Information value (until 4096 bytes).
+ * @success Custom Information Successfully added to the TELOG.
+ * @failure <i>Argument Missing</i> - name or value parameter is missing.
+ * @since 1.19
+ */
+function PosSaveTELOG(name, value) {
+	var cmd = "PosSaveTELOG";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, [name, value]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosDoSkipCar</b>.
+ *
+ * Persistence:<b>Persisted</b>\n
+ * This BC is used to inform the production that a car will be skiped in the line.
+ * If there is a transaction in progress or the remote POD is not DT, the operation fails with a message to the operator.
+ * if comunication with production fails the operator is prompted whether to continue or not.
+
+ * @return rval - True if sent to production, FALSE if an error ocurred and the operator gave up.
+ * @success Car skiped in the line successfully.
+ * @failure	<i>The POD is Front Counter</i> - If the POD is not Drive Through, it is not possible to skip car.\n
+ * @failure	<i>Open sale</i> - It is not possible to skip car if the sale is open.\n
+ * @remarks
+ *
+ * Property Messages:\n
+ *   MSG_BC_INVOPER: Shows message that the operation is invalid (not DT).\n
+ *   MSG_BC_SALEPROG: Transaction in progress.\n
+ *   MSG_BC_STORE: Small window with store message.\n
+ *   MSG_BC_TXRXERR: Prompts operator whether to continue, in case of error.\n
+ *
+ * This BC calls PosDoEndOfSale, PosDoStore.
+ * @since 1.17-
+ */
+function PosDoSkipCar() {
+	var cmd = "PosDoSkipCar";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosDoVoidLine</b>.
+ *
+ * Persistence:<b>Persisted</b>\n
+ * This BC is responsible for voiding a sale line (cancels a product order) according to the current selected line.
+ * In the case of only one item left in the sale this BC fails showing an error message,unless the POD is a Kiosk.
+ *
+ * @param nbrItems - string - optional - number of items to delete (<= 0 or not provided -> voids the line).
+ * @success Sale line voided successfully.
+ * @failure	<i>Unable to reduce promo</i> - requested reduction is bigger than promo quantity.\n
+ * @failure	<i>Unable to void last item</i> - requested reduction makes the order a promo order.\n
+ * @hook <i>onDeniedVoidLine(reason)</i> - called when void line is denied.
+ * @hook <i>onEachReduction(nQuantity,szAmount)</i> - when a reduction occurs and configured to generate event on each reduction.
+ * @hook <i>onReductionHILOAfterTotal(nItemsAfterTotal,TRedAfterTotalQuantity)</i> - when a reduction occurs and also a HILO after total and configured to generate event on limits.
+ * @hook <i>onReductionHALOAfterTotal(nSaleType,TRedAfterTotalAmount)</i> - when a reduction occurs and also a HALO after total and configured to generate event on limits.
+ * @hook <i>onReductionHILOBeforeTotal(nItemsBeforeTotal,TRedBeforeTotal)</i> - when a reduction occurs and also a HILO before total and configured to generate event on limits.
+ * @hook <i>onItemVoided(prodCodes,incQtty)</i> - called when the item is removed from the successfully. prodCodes: can be a list of product codes if the voided item is a VALUE_MEAL.
+ * @remarks
+ *
+ * Property Messages:\n
+ *   MSG_BC_ITEMVOIDED: for the voided line.\n
+ *   MSG_BC_INVCANCEL: when not possible to void an item.\n
+ * @since 1.17-
+ */
+function PosDoVoidLine(nbrItems) {
+	var hlp = new BusinessObjectHelper;
+	var itemSelectedHasCYT = PosCheckIfSelectedItemHasCYT();
+	var isRefund = PosCheckTransactionKind(1);
+	var isWaste = PosCheckTransactionKind(2);
+    var shouldRecreateCYTOrder = PosCheckCYTOrderShouldBeRecreated();
+	
+	if((itemSelectedHasCYT == true) && 
+		(hlp.GetTrackSaleStatus() & 2) && 
+         (!isRefund && !isWaste) &&
+		 shouldRecreateCYTOrder == true)
+	{
+		if(!PosYesNoMessage("MSG_BC_CANCEL_CYT_AFTER_TOTAL"))
+		{
+			return(false);
+		}
+	}
+    
+	var productCode;
+	switch(PosOfferPromotionUndoIfPresentOnSelectedItem())
+	{
+		case -1:	//Operator do not wish to void an item applied by offer/promotion
+		case -2:	//Internal error happened
+			return false;
+		case 1:		//There is an offer/a promotion
+			var item = hlp.getSaleItem(-1, 0);
+			if (item != null ) {
+				var itemXML = new XML(item);
+				productCode = itemXML.@id;
+			}
+		case 0:		//Neither offer nor promotion on selected item
+			break;
+	}
+	
+	var cmd = "PosDoVoidLine";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	var ret = executeBC(cmd, [nbrItems]);
+	
+	if((ret == true) && (itemSelectedHasCYT == true) && (!isWaste && !isRefund && shouldRecreateCYTOrder == true))
+	{
+		PosCYTCancelOrderAndCreateNew();
+	}
+
+	PosOfferPromotionOnItemSold(productCode);
+	
+	return ret;
+}
+
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosDoVoidSale</b>.
+ *
+ * Persistence:<b>Persisted</b>\n
+ * This BC is responsible for voiding a sale, current sale when it isn't tendered and the last sale when it's tendered.
+ *
+ * @param KeepOrder - boolean - optional - if it's TRUE this function keeps the order in the sale panel.
+ * @param ReplacePayment - boolean - optional - if it's a overring.
+ * @param automatic - boolean - optional - if it's automatic
+ * @param logId - int - optional - optional log message id
+ * @param logArgument - string - optional - argument for the log message above
+ * @success Order voided successfully.
+ * @failure	<i>Undefined sale status</i> - To void a sale the sale status must not be undefined.
+ * @failure <i>Unable to void the sale</i>
+ * @hook <i>onVoidSale(KeepOrder,ReplacePayment)</i> - called before BC execution\n
+ * @remarks
+ *
+ * Property Messages:\n
+ * 	 MSG_BC_NO_ORDER : OVERRING without having a ORDER for this CASHIER\n
+ * 	 MSG_BC_OVERRUNG_ORDER : OVERRINGING an already OVERRUNG Order\n
+ * 	 MSG_BC_VOID_CASHLESS : Void a cashless transaction is not allowed.\n
+ *
+ * @since 1.17-
+ */
+function PosDoVoidSale(KeepOrder, ReplacePayment, automatic, logId, logArgument) {
+	var cmd = "PosDoVoidSale";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    var ret = executeBC(cmd, [KeepOrder, ReplacePayment, automatic, logId, logArgument]);
+	if(ret && ReplacePayment) {
+		PosCancelCheckoutCoupon();
+	}
+	return ret;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosForceSetSaleType</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC defines a sale type to be send to production.\n
+ *
+ * @param nForceDisplay - int - not optional - flag indicating if should display sale type (false=regular exhibition true=force exhibition).
+ * @success Sale type display sent successfully to production.
+ * @todo Review return value. It aways returns true.
+ * @since 1.17-
+ */
+function PosForceSetSaleType(nForceDisplay) {
+	var cmd = "PosForceSetSaleType";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, [nForceDisplay]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosIsInSaleMode</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC tests if POS is in sale mode (operator logged in and POS not time blocked), returning TRUE if affirmative.
+ *
+ * @param ShowMsg - BOOL - optional - if it's TRUE or not received and this function is not in sale mode this BC shows an error message.
+ * @success POS is in sale mode (operator logged in and POS not time blocked).
+ * @failure	<i>POS not in sale mode</i>  - The POS is not in sale mode. The operator is not logged in.
+ * @remarks
+ *
+ * Property Messages:\n
+ *   MSG_BC_NOTOPENFORSALE: when the POS is closed\n
+ *   MSG_BC_BLOCKOP: when the POS is time blocked with a operator logged-in\n
+ *   MSG_BC_BLOCKED: when the POS is time blocked without a operator logged-in\n
+ *   MSG_BC_NOTSALEMODE: when to POS is opened but without a operator logged-in\n
+ *
+ * @since 1.17-
+ */
+function PosIsInSaleMode(ShowMsg) {
+	var cmd = "PosIsInSaleMode";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, [ShowMsg]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosLockSales</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC locks/unlocks a sale, according to OpType parameter. It sets the variable bGoForwardApplyUpdateClient with true or false value, according to OpType and also shows a message
+ *
+ * @param OpType - boolean - TRUE - lock sales / FALSE - unlock sales.
+ * @param Msg - string - optional - Message to be exhibited in store dialog window.
+ * @param TimeoutMsg/ManifestDate - string - optional - if OpType is TRUE, the parameter is TimeOut; otherwise it is ManifestDate.
+ * @param LockType - number - optional - only when OpType is TRUE. Possible values: 0 - REGULAR
+																					10 - ROLLBACK
+																					20 - GO FORWARD
+ * @success
+ * @failure	<i>Fail in TLOG adaptor</i> - Fail requesting service of TLOG adaptor, in service of Set lock sales status.
+ * @failure	<i></i>
+ * @sessioncontext <i>"bGoForwardApplyUpdateClient"</i> - this variable is set according to OpType. True value to lock, false otherwise.
+ * @remarks
+ *
+ * TimeoutMsg/ManifestDate parameter is used only for TLOG purposes.
+ * @since 1.17-
+ */
+function PosLockSales(opType, Msg, TimeoutManifest, LockType) {
+	var cmd = "PosLockSales";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, [opType, Msg, TimeoutManifest, LockType]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosMultiOrder</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC defines if multiorder is on or off.
+ * If no parmeter is passed to this BC it toggles the multiorder mode (from on to off and vice-versa).
+ *
+ * @param mode - string - optional - "on" or "true" to activate multiorder, "off" to deactivate.\n
+ * @success
+ * @failure	<i>Unable to change multiorder</i> - It is not possible to change multiorder mode if there is a transaction in progress.\n
+ * @failure	<i>Unable to activate multiorder</i> - It is not possible to activate multiorder if the destination POS is FC.\n
+ * @remarks
+ *
+ * Property Messages:\n
+ *   MSG_BC_SALEPROG: There is a sale in progress.\n
+ *   MSG_BC_INVMULTORD: Impossible to set multiorder.\n
+ *
+ * This BC calls PosRefreshSalePanel.
+ * @since 1.17-
+ */
+function PosMultiOrder(mode) {
+	var cmd = "PosMultiOrder";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, [mode]);
+}
+
+function PosDoQueryPaymentStatus(OrderKey, TenderXML, PaymentStatus) {
+	var cmd = "PosDoQueryPaymentStatus";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, [OrderKey, TenderXML, PaymentStatus]);
+}
+
+function PosDoAcceptMobileOrder(bUpdateCOD,bAcceptCODDisable,bForceMobileOrder) {
+	var cmd = "PosDoAcceptMobileOrder";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, [bUpdateCOD,bAcceptCODDisable,bForceMobileOrder]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosNotATransactionInProgress</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC is responsible for checking if no transaction is in progress (sale/waste/refund/...).
+ *
+ * @param notShowMsg - string - optional - 'TRUE' to not show a message to the user,
+ *        by default a message is shown to the operator if a transaction is in progress.
+ * @success There is no transaction in progress.
+ * @failure	<i>Sale in progress</i> - There is a transaction in progress.
+ * @remarks
+ * Property Messages:\n
+ *   MSG_BC_SALEPROG: When there is a transaction in progress and notShowMsg is not TRUE.\n
+ * @since 1.17-
+ */
+function PosNotATransactionInProgress(notShowMsg) {
+	var cmd = "PosNotATransactionInProgress";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, [notShowMsg]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosProtectQuantity</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC informs the system that the selected quantity should not be cleaned in the next action.
+ * Usually after execution of a workflow the indicator for quantity and dimension are reset,
+ * this BC prevents the kernel from reseting these values after the execution of the workflow it is in.
+ *
+ * @success Quantity protected successfully.
+ * @remarks
+ * This BC aways returns true.
+ * @since 1.17-
+ */
+function PosProtectQuantity() {
+	var cmd = "PosProtectQuantity";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosSaveRestoreTransaction</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC is responsible for saving/restoring the current transaction (sale).
+ *
+ * @param action - string - 'SAVE' or 'RESTORE'
+ * @success Current transaction saved or restored successfully (acording to action parameter).
+ * @remarks
+ * This BC aways returns true.
+ * @todo This BC only verifies if the action is 'SAVE'. Anything else in this parameter (not only 'RESTORE') will restore the transaction.
+ * @since 1.17-
+ */
+function PosSaveRestoreTransaction(action) {
+	var cmd = "PosSaveRestoreTransaction";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, [action]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosSearchInSale</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC is searchs a sale looking for products in a pipe (|) separeted list.
+ *
+ * @param prodList - string - list of pipe (|) separeted products.
+ * @param selected - string - optional - if TRUE searchs only current/selected sale line (default:FALSE).
+ * @success At least one of the products from the list given by prodList is in the sale.
+ * @failure	<i>No product found</i> None of the products given by prodList is in the sale.\n
+ * @since 1.17-
+ */
+function PosSearchInSale(prodList, selected) {
+	var cmd = "PosSearchInSale";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, [prodList, selected]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosSelectProduct</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC saves a product code to be used when we have dimension selection later.
+ * It is kind of a pre-sale, instead of adding a product to a sale,
+ * this BC keeps the code and quantity until a size selection is performed.
+ *
+ * @param productCode - string - product Code.
+ * @success Product code saved and quantity kept.
+ * @sessioncontext <i>"selectedProductWithSize"</i> - Stores a product that has a dimension (small, medium, large, etc), so the size can be defined later
+ * @remarks
+ *
+ * Property Messages:\n
+ *   MSG_BC_SIZEMISPRD: Informs operator that the size (dimension) is missing.\n
+ *
+ * This BC aways returns true
+ * @since 1.17-
+ */
+function PosSelectProduct(productCode) {
+	var cmd = "PosSelectProduct";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, [productCode]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosSetPauseMessage</b>.
+ *
+ * Persistence:<b>Persisted</b>\n
+ * This BC sets the message to Line Display persisted or not.
+ *
+ * @param Message - string - message
+ * @param Persisted - string - persist message
+ * @success Message set successfully.
+ * @remarks
+ * This BC aways returns true.
+ * @since 1.17-
+ */
+function PosSetPauseMessage(Message, Persisted) {
+	var cmd = "PosSetPauseMessage";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, [Message, Persisted]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosSetSaleType</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC defines if a sale is for eat-in, take out or other.
+ * It consists the received parameter that can be 0 for eat in, 1 for take out and 2 for other.
+ * If the POS/HOT is operating in DT mode eat in is not allowed, trying to set this option will show an error message.
+ *
+ * @param saleType - string - optional - type of sale (0=EAT IN;1=TAKE OUT;2=OTHER)\n
+ * @param forceDisplay - string - optional - flag indicating if should display sale type (FALSE=regular exhibition TRUE=force exhibition)\n
+ * @success Sale type set successfully.
+ * @failure	<i>Invalid type of sale</i> - The value of saleType is not a valid type of sale.\n
+ * @failure <i>Invalid type of sale for DT mode</i> - It is not possible to set saleType as EATIN if the POS is operating in DT mode.
+ * @remarks
+ *
+ * If no parameter is suplied it toggles between eat-in and take out.\n
+ * Property Messages:\n
+ *   MSG_BC_INVOPER - When trying to set saleType as eat-in and operating in DT mode.\n
+ *
+ * @since 1.17-
+ */
+function PosSetSaleType(saleType, forceDisplay) {
+	var cmd = "PosSetSaleType";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, [saleType, forceDisplay]);
+}
+
+function PosAssociateTableServiceZone(BtnNbr) {
+	var cmd = "PosAssociateTableServiceZone";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, Array.prototype.slice.call(arguments));
+}
+
+function PosDismissTableServiceZone() {
+	var cmd = "PosDismissTableServiceZone";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, Array.prototype.slice.call(arguments));
+}
+
+function PosClearTableServiceZone() {
+	var cmd = "PosClearTableServiceZone";
+	CSL_dbglog(7, SRC_BC_SCREEN, cmd, "Start");
+	return executeBC(cmd, Array.prototype.slice.call(arguments));
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosDismissTableServiceArea</b>.
+ * Persistence:<b>Not Persisted</b>\n
+ * @success Table Service Area of current sale set to 0 and Table Service Mode set to "disable".
+ *
+ * @since 1.31
+ */
+function PosDismissTableServiceArea() {
+	var cmd = "PosDismissTableServiceArea";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosSetTableServiceArea</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This function implements the BC,Business Component: <b>PosSetTableServiceArea</b>
+ *
+ * @param tableServiceArea - int - required - id of Table Service Area\n
+ * @success Table Service Area of current sale set successfully.
+ *
+ * @since 1.19
+ */
+function PosSetTableServiceArea(tableServiceArea) {
+	var cmd = "PosSetTableServiceArea";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, [tableServiceArea]);
+}
+
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosSetTransactionKind</b>.
+ *
+ * Persistence:<b>Persisted</b>\n
+ * This BC sets the kind of the current transaction with the given parameter. This kind is set on session contex "transactionSaleType".
+ * There is also the option to set the session context "transactionSaleSubType", with the optional parameter nTrxSubType.
+ * If this parameter is not used, "transactionSaleSubType" will be the same as "transactionSaleType".
+ * After setting successfully the context variables, the sale panel is cleaned.
+ *
+ * @param trxKind - number - transaction kind.
+ * @param trxSubType - number - optional - transaction subtype.
+ * @success Context variables set successfully. Sale panel cleaned.
+ * @failure	<i>Invalid operation type</i> - The trxKind value is not a valid operation type.\n
+ * @sessioncontext <i>"transactionSaleType"</i> - Transaction sale type. Set with the value of trxKind parameter.
+ * @sessioncontext <i>"transactionSaleSubType"</i> - Transaction sale subtype. Set with trxSubType value, if used. Otherwise set with trxKind value.
+ * @remarks
+ *
+ * @todo The trxSubType parameter is not validated.
+ * @since 1.17-
+ */
+function PosSetTransactionKind(trxKind) {
+	var cmd = "PosSetTransactionKind";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, [trxKind]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosShowSubstList</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC is responsible for loading the Float Screen Dynamic buttons with possible substitution for the Sale selected product.
+ *
+ * @param ScreenNumber - string - Number of the float screen to show.
+ * @success List of possible substitution shown successfully.
+ * @failure	<i>Open drawer</i> - It is not possible to execute this BC when the drawer is open.\n
+ * @failure <i>Operator not logged or not in an active sale</i> - There is no operator logged or there is no active sale.\n
+ * @failure	<i>POS is not logged</i> - The POS must be open and with logged operator.\n
+ * @failure	<i>Not in a sale</i> - This BC must be called when a sale is in progress.\n
+ * @failure <i>Unable to load the dynamic buttons</i> - Unable to hide/show float screen (this BC calls PosHideFloatScreen and PosShowFloatScreen)\n
+ * @hook <i>onSideChoiceSubstFail()</i> - When a error occurs.
+ * @remarks
+ *
+ * Property Messages:\n
+ *   MSG_SL_SIDE_CHOICE: when the it is not possible to change side choice.\n
+ *	 MSG_BC_DRAWEROPENED: when cashdrawer is opened.\n
+ *
+ * This BC calls PosCheckCashDrawer, PosHideFloatScreen and PosShowFloatScreen.
+ * @since 1.17-
+ */
+function PosShowSubstList(ScreenNumber) {
+	var cmd = "PosShowSubstList";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, [ScreenNumber]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosSizeSelection</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * When the Dimension property is set (a number from 1 to 32), the base product code
+ * is redefined (based on that property).
+ *
+ * @param dimension - string - dimension to define (1 to 32).
+ * @param persist - string - flag indicating if selected dimension should be kept between sales (FALSE=No TRUE=Yes)
+ * @success Dimension defined successfully.
+ * @failure	<i>POS is not logged</i> - The POS must be open and with logged operator.\n
+ * @remarks
+ *
+ * Property Messages:\n
+ *   MSG_BC_NOTOPENFORSALE: when the POS is closed\n
+ *   MSG_BC_BLOCKOP: when the POS is time blocked with a operator logged-in\n
+ *   MSG_BC_BLOCKED: when the POS is time blocked without a operator logged-in\n
+ *   MSG_BC_NOTSALEMODE: when to POS is opened but without a operator logged-in\n
+ *   MSG_DIMENSION_%d: dimension used, %d is the dimension (1-32)\n
+ *
+ * @todo This BC does not verify if the dimension is in the range 1-32.
+ * @since 1.17-
+ */
+function PosSizeSelection(dimension, persist) {
+	var cmd = "PosSizeSelection";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, [dimension, persist]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosSWLockSales</b>.
+ *
+ * Persistence:<b>Not Persisted</b>
+ * This BC asks the Way Station to lock/unlock sales on all POS.
+ *
+ * @param opType - number - UNLOCK_SALES (0) unlock / LOCK_SALES (1) lock
+ * @success Sales on all POS locked/unlocked successfully.
+ * @failure	<i>Unable to lock/unlock sales on all POS</i>
+ * @sessioncontext <i>"lockSalesStatus"</i> - when trying to lock the sales unsuccessfully this variable is set with lock sale status.
+ * @since 1.17-
+ */
+function PosSWLockSales(opType) {
+	var cmd = "PosSWLockSales";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, [opType]);
+}
+
+/**
+ * @brief This BC ends the sale in a tendering process
+ *
+ * @param reportFunction the function responsible to format the picklist receipt (function@npsfile.nps). Default value: reportPickList@reports.nps  since 6.1.20
+ * @return rval - true if should stop execution
+ * @since 1.17-
+ */
+function PosDoEndOfSale_CSL(noAutoRecall, flags, kioskDup, reportFunction) {
+	var cmd = "PosDoEndOfSale_CSL";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+
+	// To keep compatibility, the default value must be "reportPickList@reports.nps"
+	if (reportFunction === undefined) {
+		reportFunction = "reportPickList@reports.nps";
+	}
+
+	// force clear offers area on end of sale
+	PosOffersEndOfSale();
+
+	if(!PosDoEndOfSale(true)) {
+		return false;
+	}
+
+	var lastView = rootHlp.getLastSaleView();
+	if(lastView == null) {
+		lastView = rootHlp.getCurrentView();
+	}
+	var view = new XML(lastView);
+//	if(PosIsCashlessLoadedJS()) {
+//		PosCashlessEndOfSale();
+//	}
+	// BusinessComponentsCSOLocal.nps loaded means that coins dispenser will be called by the bill acceptor
+//	if(typeof(PosBillAcceptorEvt) != 'function') {
+//		// PosDispenseChangeJS function might not exist in a local configuration!
+//		if(typeof(PosDispenseChangeJS) == 'function') {
+//			PosDispenseChangeJS();
+//		}
+//	}
+	if(view.@transactionKind != ACC_OT_SKIP_CAR) {
+		if(kioskDup == null) {
+			kioskDup=false;
+		}
+//		PosCreateReceiptJS(kioskDup,"VIEW","receipt@reports.nps",flags);
+	}
+
+	if(PosCheckSessionProperty("pickListAutomaticPrint","on") && (PosCheckOpenTabEnabled() == false) ) {
+		var showCanceledItems = rootHlp.findParamInSectionConfig("showCanceledItems","UserInterface");
+		if(PosCheckSessionProperty("workingMode","cashier")) {
+			showCanceledItems =	showCanceledItems+":1"
+		}
+		PosCreateReport("FULLCONSVIEW", reportFunction, flags, showCanceledItems);
+	}
+//	PosGCActivationJS(flags);
+	PosSetSessionProperty("activatedCOD","0","true")
+//	if(noAutoRecall || !PosDoAutoRecallJS()) {
+	if(noAutoRecall) {
+		PosShowScreen(rootCtx.get("baseScreenId"));
+		// Either no auto recall was received, or the drawer is opened or failed auto recall
+		PosDoSkimWarning();
+	}
+	// Correct end, returns true to stpo further execution
+	return(true);
+}
+
+/**
+ * @brief Voids the current order
+ *
+ * @param reportFunction function responsible to format the referred report (function@npsfile.nps). Default value: receipt@reports.nps  since 6.1.20 
+ * @return true on success
+ * @since 1.17-
+ */
+function PosDoVoidSale_CSL(reportFunction) {
+	var cmd = "PosDoVoidSale_CSL";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+
+	// To keep compatibility, the default value must be "receipt@reports.nps"
+	if (reportFunction === undefined){
+		reportFunction = "receipt@reports.nps";
+	}
+    // Confirm and approve
+    if (!PosShowConfirmationMessage("Are you sure you want to overring?", "Yes", "No")) {
+        return false;
+    }
+
+	// Sanity checks
+	if (!PosCanVoidSale_CSL()) {
+		return false;
+	}
+
+    if (!PosGetAuthorization("manager", false)) {
+        return false;
+    }
+
+    // Void current sale
+    var retVal = PosDoVoidSale(true);
+    if (retVal) {
+        PosCreateReport("VIEW", reportFunction, "NOPREVIEW|SAVE");
+    }
+
+    return(retVal);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosCanVoidSaleJS</b>
+ *
+ * This BC checks if it's possible to void a sale!\n
+ * In a workflow sequence it is called:<b>PosCanVoidSaleJS</b>\n
+ * In java script it should be called:<b>PosCanVoidSaleJS()</b>\n
+ * This BC does not require parameters.\n
+ * @return rval - True if possible
+ * @since 1.17-
+ */
+function PosCanVoidSale_CSL() {
+	var cmd = "PosCanVoidSale_CSL";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+
+	var currentView = rootHlp.getCurrentView();
+	if(currentView == null) {
+		PosShowMessage("MSG_BC_NO_ORDER_TO_VOID");
+		return false;
+	}
+
+	var view = new XML(currentView);
+	if((view.@transactionKind == ACC_OT_MANAGER) || (view.@transactionKind == ACC_OT_CREW)) {
+		PosShowMessage("MSG_BC_VOID_CREW_MEAL");
+		return false;
+	}
+	if((view.@transactionKind == ACC_OT_TAB) && (view.@trxSubKind == ACC_OT_WAVE)) {
+		PosShowMessage("MSG_BC_TSS_CANNOT_VOID_WAVE");
+		return false;
+	}
+	if((view.@transactionKind == ACC_OT_TAB) && (view.@trxSubKind == ACC_OT_WAVE_ADJUSTMENT)) {
+		PosShowMessage("MSG_BC_TSS_CANNOT_VOID_ADJ");
+		return false;
+	}
+	if((view.@transactionKind == ACC_OT_TAB) && (view.@trxSubKind == ACC_OT_SALE)) {
+		PosShowMessage("MSG_BC_TSS_CANNOT_VOID_TAB");
+		return false;
+	}
+	if((view.@transactionKind != ACC_OT_SALE) && (view.@transactionKind != ACC_OT_DISCOUNT)) {
+		PosShowMessage("MSG_BC_VOID_LAST_SALE");
+		return false;
+	}
+
+	if((view.@saleStatus == SALE_STATUS_CURRENT_VOIDED) || (view.@saleStatus == SALE_STATUS_LAST_VOIDED)) {
+		PosShowMessage("MSG_BC_OVERRUNG_ORDER");
+		return false;
+	}
+
+	var allowed = true;
+
+	var items = view.ItemView;
+	if(items.length() != 0) {
+		var giftCard = items.((quantity > 0) && (familyGroup == GIFT_COUPON) && ((productType == NON_FOOD_PRODUCT) || (productType == COUPONS)) && (category == PAPER));
+		allowed=(giftCard.length() == 0);
+		if(!allowed) {
+			PosShowMessage("MSG_BC_OVERRING_GC");
+		}
+	}
+	var tenders	= view.ItemTenderView;
+	if((allowed) && (tenders.length() != 0)) {
+		var electronicPayment = tenders.(cat == "TENDER_ELECTRONIC_PAYMENT");
+		allowed=(electronicPayment.length() == 0);
+		if(!allowed) {
+			PosShowMessage("MSG_BC_OVERRING_CASHLESS");
+		}
+	}
+	return allowed;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosApplyFee_CSL</b>
+ *
+ * This BC checks if it's possible to void a sale!\n
+ * In a workflow sequence it is called:<b>PosApplyFee_CSL $id</b>\n
+ * In java script it should be called:<b>PosApplyFee_CSL(id)</b>\n
+ *
+ * @param id - number - Fee identification.
+ * @return rval - True
+ * @since 1.18
+ */
+function PosApplyFee_CSL(id) {
+	var cmd = "PosApplyFee_CSL";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+
+	cmd = "PosApplyFee";
+	return executeBC(cmd, [id]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosClearFees_CSL</b>
+ *
+ * This BC clear all Fee entries in the Sale!\n
+ * In a workflow sequence it is called:<b>PosClearFees_CSL</b>\n
+ * In java script it should be called:<b>PosClearFees_CSL()</b>\n
+ * This BC does not require parameters.\n
+ * @return rval - True
+ * @since 1.18
+ */
+function PosClearFees_CSL(id) {
+	var cmd = "PosClearFees_CSL";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+
+	cmd = "PosClearFees";
+	return executeBC(cmd, [id]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>cPosGetSaleLineChoiceSolutions</b>.
+ *
+ * Persistence <b>Persisted</b>\n
+ * This BC is responsible for retrieve the list of possible solutions for a choice.
+ *
+ * @success List retrieved successfully.
+ * @failure	<i>No item selected in the current sale</i>  - In order to retrieve a list of possible choice solutions an item must be selected in the current sale.
+ * @failure	<i>Invalid selected item</i>  - In order to retrieve a list of possible choice solutions a valid item must be selected in the current sale.
+ * @failure	<i>Selected Item has no open choices</i> - Selected Item must have open choices, in order to check if the selected item has open choices one should call the PosSaleLineHasOpenChoices first.
+ * @sessioncontext <i>KEY_POSGETSALELINECHOICESOLUTIONS_FAIL</i> - Indicates the failure string with the number of the error ocurred.
+ * @sessioncontext <i>KEY_POSGETSALELINECHOICESOLUTIONS_RESULT></i> - Indicates the result string - a list of product codes separated by comma.
+ * @remarks
+ * @since 1.19
+ */
+function cPosGetSaleLineChoiceSolutions() {
+	var cmd = "cPosGetSaleLineChoiceSolutions";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>cPosGetSaleLineOpenChoices</b>.
+ *
+ * Persistence <b>Persisted</b>\n
+ * This BC is responsible for retrieve the list of choice of the current selected product.
+ *
+ * @success List retrieved successfully.
+ * @failure	<i>No item selected in the current sale</i>  - In order to retrieve a list of possible choice solutions an item must be selected in the current sale.
+ * @failure	<i>Invalid selected item</i>  - In order to retrieve a list of possible choice solutions a valid item must be selected in the current sale.
+ * @failure	<i>Selected Item has no open choices</i> - Selected Item must have open choices, in order to check if the selected item has open choices one should call the PosSaleLineHasOpenChoices first.
+ * @sessioncontext <i>KEY_CPOSGETSALELINEOPENCHOICES_FAIL</i> - Indicates the failure string with the number of the error ocurred.
+ * @sessioncontext <i>KEY_CPOSGETSALELINEOPENCHOICES_RESULT></i> - Indicates the result string - a list of product codes separated by comma.
+ * @remarks
+ * @since 1.19 - SDO-2753
+ */
+function cPosGetSaleLineOpenChoices() {
+	var cmd = "cPosGetSaleLineOpenChoices";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>cPosGetProductChoiceSolutions</b>.
+ *
+ * Persistence <b>Persisted</b>\n
+ * This BC is responsible for retrieve the list of possible solutions for a choice.
+ *
+ * @param choiceProductCode - product code.
+ * @success List retrieved successfully.
+ * @failure	<i>Invalid parameters</i>  - In order to retrieve a list of possible choice solutions a valid product code must be provided.
+ * @failure	<i>Invalid product code</i>  - In order to retrieve a list of possible choice solutions a valid product code must be provided.
+ * @failure	<i>Product is not a choice</i>  - In order to retrieve a list of possible choice solutions a valid choice product code must be provided.
+ * @failure	<i>Product has no components</i> - Selected product must have components in order to solve the choice.
+ * @sessioncontext <i>KEY_POSGETPRODUCTCHOICESOLUTIONS_FAIL</i> - Indicates the failure string with the number of the error ocurred.
+ * @sessioncontext <i>KEY_POSGETPRODUCTCHOICESOLUTIONS_RESULT></i> - Indicates the result string - a list of product codes separated by comma.
+ * @remarks
+ * @since 1.19 - SDO-2763
+ */
+function cPosGetProductChoiceSolutions(choiceProductCode) {
+	var cmd = "cPosGetProductChoiceSolutions";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd, [choiceProductCode]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>cPosGetProductSizes</b>.
+ *
+ * Persistence <b>Persisted</b>\n
+ * This BC is responsible for retrieve the list of sizes of a given product.
+ *
+ * @param choiceProductCode - product code.
+ * @success List retrieved successfully.
+ * @failure	<i>Invalid parameters</i>  - In order to retrieve a list of sizes a valid product code must be provided.
+ * @failure	<i>Invalid product code</i>  - In order to retrieve a list of sizes a valid product code must be provided.
+ * @failure	<i>Product has no size information</i> - Selected product must have size information.
+ * @sessioncontext <i>KEY_POSGETPRODUCTSIZES_FAIL</i> - Indicates the failure string with the number of the error ocurred.
+ * @sessioncontext <i>KEY_POSGETPRODUCTSIZES_RESULT></i> - Indicates the result string - a list of size|product codes separated by comma.
+ * @remarks
+ * @since 1.19 - SDO-2765
+ */
+function cPosGetProductSizes(choiceProductCode) {
+	var cmd = "cPosGetProductSizes";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd, [choiceProductCode]);
+}
+
+/**
+ * @brief
+ *
+ * @since 1.19
+*/
+function PosFillOrderRoutingInfo_CSL() {
+	var cmd = "PosFillOrderRoutingInfo";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosCheckSalesType_CSL</b>.
+ *
+ * Persistence <b>Not Persisted</b>\n
+ * This BC is responsible for to verify if all items can be sold for a determinated sale type.
+ *
+ * @success The sale can be done.
+ * @failure	<i>The sale can not be done</i>  - There are at least one product who does not match de sale type.
+ * @sessioncontext <i>KEY_CHECK_SALES_TYPE_LIST</i> - On failure, contains the list of products that can not be sold for that sale type.
+ * @remarks
+ * @since 1.19 - NPS-6548
+ */
+function PosCheckSalesType_CSL(saleType) {
+	var SALETYPE = {}
+	SALETYPE["0"] = "EAT-IN";
+	SALETYPE["1"] = "TAKE-OUT";
+	SALETYPE["2"] = "OTHERS";
+
+	var ret = false;
+	var cmd = "PosCheckSalesType";
+
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	ret = executeBC(cmd, [saleType]);
+
+	if(ret == false) {
+		var msg = rootCtx.get("checkSalesTypeList");
+		var sConfMsg=rootHlp.getSysMessage("MSG_BC_CHECK_SALES_TYPE", SALETYPE[saleType], msg);
+		PosPrintPreview(sConfMsg);
+	}
+
+    return ret;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosChangeChoice</b>.
+ *
+ * Persistence <b>Not Persisted</b>\n
+ * This BC is responsible for change the choices of the selected line.
+ *
+ * @param quantity - Quantity of products will be changed.
+ * @param originProdCode - product code.
+ * @param destProdCode - product code.
+ * @failure	<i>MSG_CHANGE_CHOICE_ORDERS_PROGRESS</i>  - Indicate that there is no order in progress
+ * @failure	<i>MSG_BC_PRODINVSALELINE</i>  - Indicate that the selected line is a invalid sale line
+ * @failure	<i>MSG_CHANGE_CHOICE_SOURCE_NOT_FOUND</i> - Source product code not found.
+ * @failure	<i>MSG_CHANGE_CHOICE_INVALID_QUANTITY</i> - The quantity received is greater than the max quantity allowed.
+ * @failure	<i>MSG_CHANGE_CHOICE_DEST_NOT_FOUND</i> - Destination product code is not a choice resolution to this item.
+ * @remarks
+ * @since 1.19
+ */
+function PosChangeChoice(quantity, originProdCode, destProdCode) {
+	var cmd = "PosChangeChoice";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd,[quantity, originProdCode, destProdCode, null]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosChangeChoiceWithChoiceCode</b>.
+ *
+ * Persistence <b>Not Persisted</b>\n
+ * This BC is responsible for change the choices of the selected line.
+ *
+ * @param quantity - Quantity of products will be changed.
+ * @param originProdCode - product code.
+ * @param destProdCode - product code.
+ * @param choiceCode - choice code. 
+ * @failure	<i>MSG_CHANGE_CHOICE_ORDERS_PROGRESS</i>  - Indicate that there is no order in progress
+ * @failure	<i>MSG_BC_PRODINVSALELINE</i>  - Indicate that the selected line is a invalid sale line
+ * @failure	<i>MSG_CHANGE_CHOICE_SOURCE_NOT_FOUND</i> - Source product code not found.
+ * @failure	<i>MSG_CHANGE_CHOICE_INVALID_QUANTITY</i> - The quantity received is greater than the max quantity allowed.
+ * @failure	<i>MSG_CHANGE_CHOICE_DEST_NOT_FOUND</i> - Destination product code is not a choice resolution to this item.
+ * @remarks
+ * @since 1.19
+ */
+function PosChangeChoiceWithChoiceCode(quantity, originProdCode, destProdCode, choiceCode) {
+	var cmd = "PosChangeChoice";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd,[quantity, originProdCode, destProdCode, choiceCode]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosDoValidateLimits</b>.
+ *
+ * Persistence <b>Not Persisted</b>\n
+ * This BC is responsible for validate all limits.
+ *
+ * @param forced - don't validate HILO, HALO, Gift Card HILO, MDI and MTI
+ * @param selling - true: called when selling (PromoItem will not be validated)
+ * @failure	<i>not authorized</i>  - Indicate that the limit was not authorized
+ * @remarks
+ * @since 1.19
+ */
+function PosDoValidateLimits(forced, selling) {
+	CSL_dbglog(7, SRC_BC_SALES, "PosDoValidateLimits", "Start");
+
+	var ret;
+	if(!PosValidateEachReductionBeforeTotal()) {
+			return false;
+		}
+
+	if(!PosValidateEachReductionAfterTotal()) {
+			return false;
+		}
+
+	if(!PosValidateReductionQuantityAfterTotal()) {
+			return false;
+		}
+
+	if(!PosValidateReductionAmountAfterTotal()) {
+			return false;
+		}
+
+	if(!PosValidateReductionBeforeTotal()) {
+			return false;
+		}
+
+	if (!PosValidateReductionAmountBeforeTotal()) 
+	{
+		return false;
+	}
+
+	if (!PosValidateCrewDailyReductions())
+	{
+		return false;
+	}
+
+	if (selling != true) {
+		if (!PosValidateCrewDailyPromos())
+		{
+			return false;
+		}
+
+		if (!PosValidatePromoItemQty()) 
+		{
+			return false;
+		}
+	}
+
+	if(!forced) {
+			if(!PosValidatedMTI()) {
+					return false;
+				}
+
+			if(!PosValidatedMDI()) {
+					return false;
+				}
+
+			if(!PosValidatedHILO()) {
+					return false;
+				}
+
+			if(!PosValidateGiftCardHILO()) {
+					return false;
+				}
+
+			if(!PosValidateHALO()) {
+					return false;
+				}
+				
+			if(PosCheckTransactionKind(ACC_OT_TAB) && PosCheckTransactionSubKind(ACC_OT_WAVE)) {
+					if(!PosValidateTabLimit()) {
+							return false;
+						}
+				}
+		}
+
+	return true;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosValidatePromoOrder</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * The PosValidatePromoOrder is responsible authorize a promo order.
+ * In java script it should be called:<b>PosValidatePromoOrder()</b>
+ * @hook <i>onPromoOrderAuthorization (level,sigleSignOn)</i> Get authorization.
+ * @success promo order is authorized.
+ * @failure <i>Promo Order not authorized</i> -
+ * @since 1.19
+ */
+function PosValidatePromoOrder(level, sigleSignOn) {
+
+	if(!PosCheckSessionProperty("getAuthForForPromoOrder","false")) {
+		if(PosCheckSessionProperty("saleRecalled","true") && PosCheckSessionProperty("onRecallProcess","true")) {
+			var cmd = "cPosCheckSaleByPassManagerAuthorization";
+			if(!executeBC(cmd)) {
+				return true;
+			}
+			cmd = "cPosCheckPromotedOrder";
+			if(executeBC(cmd)) {
+				if(!onPromoOrderAuthorization(level,sigleSignOn)) {
+					// Not Authorized
+					return(false);
+				}
+				cmd = "cPosSetAuthorizedLimits";
+				executeBC(cmd,[AUTHORIZED]);
+			}
+		}
+		else {
+			// already authorized
+			if(PosCheckSessionProperty("discountForPromoOrder", "true")) {
+				return true;
+			}
+			
+			PosSetSessionProperty("discountForPromoOrder","true","false");
+			
+			var bypass=rootHlp.findParamInSectionConfig("enableByPassManagerApproval","OperationMode");
+			if((bypass != null) && (bypass.toUpperCase() === "TRUE")) {
+				cmd = "cPosSetAuthorizedLimits";
+				executeBC(cmd,[BY_PASSED]);
+				return true;
+			}
+			
+			if(!onPromoOrderAuthorization(level,sigleSignOn)) {
+				PosSetSessionProperty("discountForPromoOrder","false","false");
+				// Not Authorized
+				return(false);
+			}
+			cmd = "cPosSetAuthorizedLimits";
+			executeBC(cmd,[AUTHORIZED]);
+		}		
+	}
+
+	return true;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosValidatePromoItem</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * The PosValidatePromoItem is responsible authorize a promo item.
+ * In java script it should be called:<b>PosValidatePromoItem()</b>
+ * @hook <i>onPromoItemAuthorization(type,message)</i> Get authorization.
+ * @success promo item is authorized.
+ * @failure <i>Promo item not authorized</i> -
+ * @since 1.19
+ */
+function PosValidatePromoItem(onHHOTTender) {
+	var ctx = new SessionContext;
+	ctx.set("overridePromoAddons", "false");
+	
+	if((PosCheckSessionProperty("saleRecalled","false")) && ((onHHOTTender == null) || (onHHOTTender != "1"))) {
+		var bypass=rootHlp.findParamInSectionConfig("enableByPassManagerApproval","OperationMode");
+		if((bypass != null) && (bypass.toUpperCase() === "TRUE")) {
+			cmd = "cPosSetAuthorizedLimits";
+			executeBC(cmd,[BY_PASSED]);
+			return true;
+		}
+	}
+	else {
+		var cmd = "cPosCheckSaleByPassManagerAuthorization";
+		if((!executeBC(cmd)) && (PosCheckSessionProperty("onRecallProcess","true"))) {
+			return true;
+		}
+	}
+
+	var curView = rootHlp.getCurrentView();
+	if(curView == null) {
+		return(false);
+	}
+	
+	var view = new XML(curView);
+	if(null == view) {
+		return(false);
+	}
+	var items=view.ItemView.(level == 0 && quantity > 0);
+	if(null == items) {
+		return(false);
+	}
+	
+	var quantum = rootHlp.getQuantity();
+	for (iIndex = 0; iIndex < view.ItemView.length(); iIndex++) {
+		var item = view.ItemView[iIndex];
+		
+		if (item.currentSelected == "true") {			
+			if (quantum >= 0 && quantum <= item.quantityPromo) {
+				return true;
+			}
+		}
+	}
+
+	var authLimits=rootHlp.getBusinessLimitsParam("PromoItemAuthorityLimits");
+	// SDO-12645
+	var promoValidMode = rootHlp.getBusinessLimitsParam("PromoValidationMode");
+	var promoValidModeEnabled = !PosCheckSessionProperty("POD","HOT") && !PosCheckSessionProperty("POD","CSO") && (promoValidMode.toUpperCase() == "EachPromoAfterLimit".toUpperCase() || promoValidMode.toUpperCase() == "Limits".toUpperCase());
+
+	if("enable"==authLimits || promoValidModeEnabled) {
+		// NPS-5766 - enable this only for debug
+		//API.SLog("LOGLEVL_DEBUG", "[onPromoItem] view ["+curView+"]");
+
+		// NPS-5766
+		var bReqAuthorization=false;
+		var authorizationMsg="";
+		var authLevel=rootHlp.getBusinessLimitsParam("PromoItemAuthorityLevel");
+		var bAcceptNegativeQty=false;
+		var paramValue=rootHlp.findParamInSectionConfig("AcceptNegativeQty","Account");	// TODO: should get this from TLOG
+		// SDO-12645
+		var promoLimitType="";
+		var isAuthorized=false;
+
+		API.SLog("LOGLEVL_DEBUG", "[onPromoItem] AcceptNegativeQty ["+paramValue+"]");
+		API.SLog("LOGLEVL_DEBUG", "[onPromoItem] PromoItemAuthorityLevel ["+authLevel+"]");
+
+		if(("true"==paramValue)||("TRUE"==paramValue)) {
+			bAcceptNegativeQty=true;
+		}
+
+		if("crew"==authLevel || "manager"==authLevel || promoValidModeEnabled) {
+			var promoQty=0;
+			var promoAmount=new BigDecimal(0);
+			var fatherQty=0;
+			var fatherPromoQty=0;
+			var fatherSelected=false;
+			var lastFather=0;
+			var iIndex;
+			
+			var enableCanAddChargeWhenPromo = rootHlp.findParamInSectionWide("enableCanAddChargeWhenPromo", "OperationMode") == "true";
+			var enableExtraChargeWhenPromo = rootHlp.findParamInSectionWide("enableExtraChargeWhenPromo", "OperationMode") == "true";
+			var enableChargeForUpchargeWhenPromo = rootHlp.findParamInSectionWide("enableChargeForUpchargeWhenPromo", "OperationMode") == "true";
+			var enableNonCostInclusiveChoiceChargeWhenPromo = rootHlp.findParamInSectionWide("enableNonCostInclusiveChoiceChargeWhenPromo", "OperationMode") == "true";
+			
+			var needOverrideCanAdd = false;
+			var needOverrideExtra = false;
+			var needOverrideUpcharge = false;
+			
+			for (iIndex=0; iIndex<view.ItemView.length(); iIndex++) {
+				var item = view.ItemView[iIndex];
+				//SDO-16568 + NVS-7078 - Enhanced Promo Authority required Promotions and Offers to not count toward manual Promo limits.
+				var isPromotionApplied = item.PromotionApplied.length() > 0;
+
+				if(item.quantity!=0 && !isPromotionApplied) {
+					var meanUnitPrice=new BigDecimal(0);
+					var totalPrice=new BigDecimal(item.totalPrice);
+					var totalPriceBeforePromo=new BigDecimal(item.BPTotalPrice);
+					var zeroBD=new BigDecimal(0);
+					var itemQtty=new BigDecimal(lGetProductMultiplicity(view, iIndex, lastFather, true));
+					if(itemQtty != 0){
+						if(0!=totalPriceBeforePromo.compareTo(zeroBD)) {
+							// BPTotalPrice has the original total price
+							meanUnitPrice=totalPriceBeforePromo.divide(itemQtty,6);
+						}
+						else{
+							meanUnitPrice=totalPrice.divide(itemQtty,6);
+						}
+					}
+					if(0==Number(item.level)) {
+						lastFather=iIndex;
+						if(meanUnitPrice.compareTo(new BigDecimal(0))!=0) {		// can the meanUnitPrice be negative ?
+							if(item.currentSelected != "true") {
+								promoQty=promoQty+Number(item.quantityPromo);
+								fatherSelected=false;
+							}
+							else {
+								fatherSelected=true;
+								if(quantum<0) {
+									var itemQtyPromo=Number(item.quantityPromo);
+									promoQty=promoQty+itemQtyPromo+1;
+									if(itemQtyPromo>0) {
+										promoAmount=promoAmount.add(new BigDecimal(item.BPTotalPrice));
+										promoAmount=promoAmount.subtract(new BigDecimal(item.totalPrice));
+									}
+									// test if one more promo is possible
+									if(itemQtyPromo>=Number(item.quantity)) {
+										// more promos than items sold
+										PosShowMessage("MSG_BC_INVPROMO");
+										return(false);
+									}
+								}
+								else {
+									promoQty=promoQty+quantum;
+									meanUnitPrice=meanUnitPrice.multiply(new BigDecimal(quantum));
+									// test if the the promo can be applied
+									if(quantum>Number(item.quantity)) {
+										// more promos than items sold
+										PosShowMessage("MSG_BC_INVPROMO");
+										return(false);
+									}
+								}
+
+								promoAmount=promoAmount.add(meanUnitPrice);
+							}
+						}
+						fatherQty=Number(item.quantity);
+						fatherPromoQty=Number(item.quantityPromo);
+					}
+					else {
+						if(true==fatherSelected) {
+							var totalPrice=new BigDecimal(item.totalPrice);
+							var totalPriceBeforePromo=new BigDecimal(item.BPTotalPrice);
+							var zeroBD=new BigDecimal(0);
+							var isPriceGTZ=totalPrice.compareTo(zeroBD);
+							var isPriceGTZBP=totalPriceBeforePromo.compareTo(zeroBD);
+							
+							var isCanAdd = item.quantity > 0 && item.componentDefaultQtd == 0 && item.isGrillLine == "true";
+							var isExtra = item.quantity > 0 && item.componentDefaultQtd >= 1 && item.isGrillLine == "true";
+							var isChoice = item.referencePrice != undefined;
+							var isUpcharge = isChoice && (Number(item.unitPrice) > Number(item.referencePrice));
+
+							if((item.quantity<0)&&(false==bAcceptNegativeQty)) {
+								// do not accept negative qty
+								isPriceGTZ=0;
+								isPriceGTZBP=0;
+							}
+							
+							if ((0!=isPriceGTZ)||(0!=isPriceGTZBP)) {
+								// ignore canAdds if enableExtraChargeWhenPromo
+								// ignore extras if enableCanAddChargeWhenPromo
+								// ignore upcharges if enableChargeForUpchargeWhenPromo
+								if( !(isCanAdd && enableCanAddChargeWhenPromo) &&
+									!(isExtra && enableExtraChargeWhenPromo) &&
+									!(isUpcharge && enableChargeForUpchargeWhenPromo) &&
+									!(isChoice && enableNonCostInclusiveChoiceChargeWhenPromo) ) {
+									
+									var multiplicity=lGetProductMultiplicity(view, iIndex, lastFather, false);
+									if(quantum<0) {
+										multiplicity*=(fatherPromoQty+1);
+									}
+									else {
+										multiplicity*=quantum;
+									}
+									meanUnitPrice=meanUnitPrice.multiply(new BigDecimal(multiplicity));
+									promoAmount=promoAmount.add(meanUnitPrice);
+								}
+								else {
+									needOverrideCanAdd |= isCanAdd && enableCanAddChargeWhenPromo;
+									needOverrideExtra |= isExtra && enableExtraChargeWhenPromo;
+									needOverrideUpcharge |= isUpcharge && enableChargeForUpchargeWhenPromo;
+								}
+							}
+						}
+					}
+
+					var totalPrice=new BigDecimal(item.totalPrice);
+					var totalPriceBeforePromo=new BigDecimal(item.BPTotalPrice);
+					if((fatherPromoQty > 0) && (false == fatherSelected) && totalPriceBeforePromo.compareTo(totalPrice) >= 0) {
+						promoAmount=promoAmount.add(new BigDecimal(item.BPTotalPrice));
+						promoAmount=promoAmount.subtract(new BigDecimal(item.totalPrice));
+					}
+				}
+			}
+
+			// NPS-5766
+			API.SLog("LOGLEVL_DEBUG", "[onPromoItem] total promo qtty ["+promoQty+"]");
+			API.SLog("LOGLEVL_DEBUG", "[onPromoItem] total promo amount["+promoAmount.toString()+"]");
+			
+			if (needOverrideCanAdd || needOverrideExtra || needOverrideUpcharge)
+			{
+				var msgCanadds = rootHlp.getSysMessage("MSG_ADD_ON_PROMO_CAN_ADD");
+				var msgExtras = rootHlp.getSysMessage("MSG_ADD_ON_PROMO_EXTRA");
+				var msgUpcharges = rootHlp.getSysMessage("MSG_ADD_ON_PROMO_UPCHARGE");
+				var msgAnd = rootHlp.getSysMessage("MSG_AND");
+				
+				var msgOk = rootHlp.getSysMessage("MSG_OK");
+				var msgOverride = rootHlp.getSysMessage("MSG_BC_OVERRIDE");
+				
+				var msgContent = "";
+				if (needOverrideCanAdd) {
+					msgContent += msgCanadds;
+				}
+				
+				if (needOverrideExtra) {
+					if (msgContent.length != 0)
+						msgContent += " " + msgAnd + " ";
+					msgContent += msgExtras;
+				}
+				
+				if (needOverrideUpcharge) {
+					if (msgContent.length != 0)
+						msgContent += " " + msgAnd + " ";
+					msgContent += msgUpcharges;
+				}
+				
+				var msgAmountLimitReached = rootHlp.getSysMessage("MSG_ADD_ON_PROMO_AMOUNT_LIMIT_REACHED", msgContent);
+				msgAmountLimitReached.replace("{0}", msgContent);
+				if (!PosYesNoMessage(msgAmountLimitReached, msgOk, msgOverride))
+				{
+					if(PosGetAuthorization("manager", "ACTION_Promo add-ons exceed limit")) {
+						ctx.set("overridePromoAddons", "true");
+						return(true);
+					}
+				}
+			}
+
+			var promoQtyLimit=rootHlp.getBusinessLimitsParam("PromoItemQuantityLimit");
+			var promoAmtLimit=rootHlp.getBusinessLimitsParam("PromoItemAmountLimit");
+			if(""==promoQtyLimit) {
+				promoQtyLimit="1";
+			}
+			if(""==promoAmtLimit) {
+				promoAmtLimit="0.01";
+			}
+			
+			if(!promoValidModeEnabled)
+			{
+				if("manager"==authLevel) {
+					promoQtyLimit="1";
+				}
+				if("manager"==authLevel) {
+					promoAmtLimit="0.01";
+				}
+			}
+			API.SLog("LOGLEVL_DEBUG", "[onPromoItem] PromoItemQuantityLimit ["+promoQtyLimit+"]");
+			API.SLog("LOGLEVL_DEBUG", "[onPromoItem] PromoItemAmountLimit ["+promoAmtLimit+"]");
+
+			if(promoValidModeEnabled && (promoValidMode.toUpperCase() == "Limits".toUpperCase()))
+			{
+				if(promoQty>Number(promoQtyLimit))
+				{
+					promoLimitType = PLT_QUANTITY;
+					executeBC("cPosIsPromoExceededLimitAuthorized",[promoLimitType]);
+					isAuthorized = getResult("cPosIsPromoExceededLimitAuthorized");
+						
+					if(isAuthorized == "false")
+					{
+						// request manager authorization
+						bReqAuthorization=true;
+					}
+				}
+				if(!bReqAuthorization && promoAmount.compareTo(new BigDecimal(promoAmtLimit))>=0)
+				{
+					promoLimitType = PLT_AMOUNT;
+					executeBC("cPosIsPromoExceededLimitAuthorized",[promoLimitType]);
+					isAuthorized = getResult("cPosIsPromoExceededLimitAuthorized");
+					
+					if(isAuthorized == "false")
+					{
+						// request manager authorization
+						bReqAuthorization=true;
+					}
+				}
+			}
+			else
+			{
+				if(promoQty>Number(promoQtyLimit)) {
+
+					// request manager authorization
+					authorizationMsg="MSG_PROMPTPROMOQTYAUTH";
+					
+					//NVS-5851 - msilva
+					var operatorLoginMethod = rootHlp.findParamInSectionWide("managerAuthorization","Security");
+					if (operatorLoginMethod == "biometric") {
+						authorizationMsg = "MSG_PROMPTPROMOQTYAUTHBIO";
+					}
+					
+					bReqAuthorization=true;
+				}
+				else {
+					if(promoAmount.compareTo(new BigDecimal(promoAmtLimit))>=0) {
+						// request manager authorization
+						authorizationMsg="MSG_PROMPTPROMOAMTAUTH";
+						
+						//NVS-5851 - msilva
+						var operatorLoginMethod = rootHlp.findParamInSectionWide("managerAuthorization","Security");
+						if (operatorLoginMethod == "biometric") {
+							authorizationMsg = "MSG_PROMPTPROMOAMTAUTHBIO";
+						}
+						
+						bReqAuthorization=true;
+					}
+				}
+			}
+		}
+		if(bReqAuthorization) {
+			if(promoValidModeEnabled && (promoValidMode.toUpperCase() == "Limits".toUpperCase()))
+			{
+				if(!executeBC("cPosAuthorizePromoExceededLimit",[promoLimitType]))
+				{
+					return (false);
+				}
+			}
+			else
+			{
+				if(!onPromoItemAuthorization("manager", authorizationMsg)) {
+					return(false);
+				}
+			}
+			cmd = "cPosSetAuthorizedLimits";
+			executeBC(cmd,[AUTHORIZED]);
+		}
+	}
+
+	return(true);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosValidateHALO</b>.
+ *
+ * Persistence <b>Not Persisted</b>\n
+ * This BC is responsible for verify if the HALO limit was reached and get authorization if necessary.
+ *
+ * @success Limit not reached or amount authorized.
+ * @failure	<i>HALO not authorized</i>  - Indicate that the amount is not authorized
+ * @hook <i>onHALO(currentValue,HighAmountSaleLimit)</i> Get authorization.
+ * @remarks
+ * @since 1.19
+ */
+function PosValidateHALO() {
+	var cmd = "cPosValidateHALO";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	if(!executeBC(cmd)) {
+		var message = getLastFail();
+		var info = message.split("|");
+
+		if(onHALO(info[0], info[1])) {
+			cmd = "cPosAuthorizeHALO";
+			executeBC(cmd);
+			return true;
+		}
+		else {
+			return false;
+		}
+	}
+	return true;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosValidateGiftCardHILO</b>.
+ *
+ * Persistence <b>Not Persisted</b>\n
+ * This BC is responsible for verify if the Gift Card HILO limit was reached and get authorization if necessary.
+ *
+ * @success Limit not reached or quantity authorized.
+ * @failure	<i>Gift Card HILO not authorized</i>  - Indicate that the quantity is not authorized
+ * @hook <i>onGiftCardHILO(qtty,nGiftCardHILO)</i> Get authorization.
+ * @remarks
+ * @since 1.19
+ */
+function PosValidateGiftCardHILO() {
+	var cmd = "cPosValidateGiftCardHILO";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	if(!executeBC(cmd)) {
+		var message = getLastFail();
+		var info = message.split("|");
+
+		if(onGiftCardHILO(info[0], info[1])) {
+			cmd = "cPosAuthorizeGiftCardHILO";
+			executeBC(cmd);
+			return true;
+		}
+		else {
+			return false;
+		}
+	}
+	return true;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosValidatedHILO</b>.
+ *
+ * Persistence <b>Not Persisted</b>\n
+ * This BC is responsible for verify if the HILO limit was reached and get authorization if necessary.
+ *
+ * @success Limit not reached or quantity authorized.
+ * @failure	<i>HILO not authorized</i>  - Indicate that the quantity is not authorized
+ * @hook <i>onHILO(nQtty,nHighQuantitySaleLimit)</i> Get authorization.
+ * @remarks
+ * @since 1.19
+ */
+function PosValidatedHILO() {
+	var cmd = "cPosValidateHILO";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	if(!executeBC(cmd)) {
+		var message = getLastFail();
+		var info = message.split("|");
+
+		if(onHILO(info[0], info[1])) {
+			cmd = "cPosAuthorizeHILO";
+			executeBC(cmd);
+			return true;
+		}
+		else {
+			return false;
+		}
+	}
+	return true;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosValidatedMDI</b>.
+ *
+ * Persistence <b>Not Persisted</b>\n
+ * This BC is responsible for verify if the MDI limit was reached and get authorization if necessary.
+ *
+ * @success Limit not reached or quantity authorized.
+ * @failure	<i>MDI not authorized</i>  - Indicate that the quantity is not authorized
+ * @hook <i>onMDI(nQtty,nHighQuantitySaleLimit)</i> Get authorization.
+ * @remarks
+ * @since 1.19
+ */
+function PosValidatedMDI() {
+	var cmd = "cPosValidateMDI";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	if(!executeBC(cmd)) {
+		var message = getLastFail();
+		var info = message.split("|");
+
+		if(onMDI(info[0], info[1])) {
+			return true;
+		}
+		else {
+			return false;
+		}
+	}
+	return true;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosValidatedMTI</b>.
+ *
+ * Persistence <b>Not Persisted</b>\n
+ * This BC is responsible for verify if the MTI limit was reached and get authorization if necessary.
+ *
+ * @success Limit not reached or quantity authorized.
+ * @failure	<i>MTI not authorized</i>  - Indicate that the quantity is not authorized
+ * @hook <i>onMTI(nQtty,nHighQuantitySaleLimit)</i> Get authorization.
+ * @remarks
+ * @since 1.19
+ */
+function PosValidatedMTI() {
+	var cmd = "cPosValidateMTI";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	if(!executeBC(cmd)) {
+		var message = getLastFail();
+		var info = message.split("|");
+
+		if(onMTI(info[0], info[1])) {
+			return true;
+		}
+		else {
+			return false;
+		}
+	}
+	return true;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosValidateReductionBeforeTotal</b>.
+ *
+ * Persistence <b>Not Persisted</b>\n
+ * This BC is responsible for verify if the HILO reductions before total limit was reached and get authorization if necessary.
+ *
+ * @success Limit not reached or quantity authorized.
+ * @failure	<i>reduction not authorized</i>  - Indicate that the quantity is not authorized
+ * @hook <i>onReductionHILOBeforeTotal(nItemsBeforeTotal,TRedBeforeTotal)</i> Get authorization.
+ * @remarks
+ * @since 1.19
+ */
+function PosValidateReductionBeforeTotal() {
+	var cmd = "cPosValidateReductionBeforeTotal";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	if(!executeBC(cmd)) {
+		var message = getLastFail();
+		var info = message.split("|");
+
+		if(onReductionHILOBeforeTotal(info[0], info[1])) {
+			cmd = "cPosAuthReductionBeforeTotal";
+			executeBC(cmd);
+				return true;
+			}
+			else {
+				return false;
+		}
+	}
+	return true;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosValidateReductionAmountBeforeTotal</b>.
+ *
+ * Persistence <b>Not Persisted</b>\n
+ * This BC is responsible for verify if the amount reductions after total limit was reached and get authorization if necessary.
+ *
+ * @success Limit not reached or quantity authorized.
+ * @failure	<i>reduction not authorized</i>  - Indicate that the amount is not authorized
+ * @hook <i>onReductionHALOAfterTotal(amount,TRedAfterTotalAmount)</i> Get authorization.
+ * @remarks
+ * @since 1.19
+ */
+function PosValidateReductionAmountBeforeTotal() {
+	var cmd = "cPosValidateReductionAmountBeforeTotal";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	if(!executeBC(cmd)) {
+		var message = getLastFail();
+		var info = message.split("|");
+
+		if(onReductionHALOBeforeTotal(info[0], info[1])) {
+			cmd = "cPosAuthReductionAmountBeforeTotal";
+			executeBC(cmd);
+			return true;
+		}
+		else {
+			return false;
+		}
+	}
+	return true;
+}
+
+function PosValidatePromoItemQty() 
+{
+	var cmd = "cPosValidatePromoItemQty";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	
+	if(!executeBC(cmd)) 
+	{
+		return false;
+	}
+	
+	return true;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosValidateReductionAmountAfterTotal</b>.
+ *
+ * Persistence <b>Not Persisted</b>\n
+ * This BC is responsible for verify if the amount reductions after total limit was reached and get authorization if necessary.
+ *
+ * @success Limit not reached or quantity authorized.
+ * @failure	<i>reduction not authorized</i>  - Indicate that the amount is not authorized
+ * @hook <i>onReductionHALOAfterTotal(amount,TRedAfterTotalAmount)</i> Get authorization.
+ * @remarks
+ * @since 1.19
+ */
+function PosValidateReductionAmountAfterTotal() {
+	var cmd = "cPosValidateReductionAmountAfterTotal";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	if(!executeBC(cmd)) {
+		var message = getLastFail();
+		var info = message.split("|");
+
+		if(onReductionHALOAfterTotal(info[0], info[1])) {
+			cmd = "cPosAuthReductionAmountAfterTotal";
+			executeBC(cmd);
+			return true;
+		}
+		else {
+			return false;
+		}
+	}
+	return true;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosValidateReductionQuantityAfterTotal</b>.
+ *
+ * Persistence <b>Not Persisted</b>\n
+ * This BC is responsible for verify if the HILO reductions after total limit was reached and get authorization if necessary.
+ *
+ * @success Limit not reached or quantity authorized.
+ * @failure	<i>reduction not authorized</i>  - Indicate that the quantity is not authorized
+ * @hook <i>onReductionHILOAfterTotal(nItemsAfterTotal,TRedAfterTotalQuantity)</i> Get authorization.
+ * @remarks
+ * @since 1.19
+ */
+function PosValidateReductionQuantityAfterTotal() {
+	var cmd = "cPosValidateReductionQuantityAfterTotal";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	if(!executeBC(cmd)) {
+		var message = getLastFail();
+		var info = message.split("|");
+
+		if(onReductionHILOAfterTotal(info[0], info[1])) {
+			cmd = "cPosAuthReductionQuantityAfterTotal";
+			executeBC(cmd);
+			return true;
+		}
+		else {
+			return false;
+		}
+	}
+	return true;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosValidateEachReductionAfterTotal</b>.
+ *
+ * Persistence <b>Not Persisted</b>\n
+ * This BC is responsible for verify there is a reduction after total and get authorization if necessary.
+ *
+ * @success There isn't a reduction or quantity authorized.
+ * @failure	<i>reduction not authorized</i>  - Indicate that the quantity is not authorized
+ * @hook <i>onEachReduction(nQuantity,szAmount)</i> Get authorization.
+ * @remarks
+ * @since 1.19
+ */
+function PosValidateEachReductionAfterTotal() {
+	var cmd = "cPosValidateEachReductionAfterTotal";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	if(!executeBC(cmd)) {
+		var message = getLastFail();
+		var info = message.split("|");
+
+		if(onEachReduction(info[0], info[1])) {
+			return true;
+		}
+		else {
+			return false;
+			}
+		}
+		return true;
+	}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosValidateEachReductionBeforeTotal</b>.
+ *
+ * Persistence <b>Not Persisted</b>\n
+ * This BC is responsible for verify there is a reduction before total and get authorization if necessary.
+ *
+ * @success There isn't a reduction or quantity authorized.
+ * @failure	<i>reduction not authorized</i>  - Indicate that the quantity is not authorized
+ * @hook <i>onEachReduction(nQuantity,szAmount)</i> Get authorization.
+ * @remarks
+ * @since 1.19
+ */
+function PosValidateEachReductionBeforeTotal() {
+	var cmd = "cPosValidateEachReductionBeforeTotal";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	if(!executeBC(cmd)) {
+		var message = getLastFail();
+		var info = message.split("|");
+
+		if(onEachReduction(info[0], info[1])) {
+			return true;
+		}
+		else {
+			return false;
+		}
+	}
+	return true;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosValidateCrewDailyReductions</b>.
+ *
+ * Persistence <b>Not Persisted</b>\n
+ * This BC is responsible for verify if crew daily reduction limit was reached and get authorization if necessary.
+ *
+ * @success Limit not reached or quantity authorized.
+ * @failure	<i>reduction not authorized</i>  - Indicate that the quantity is not authorized
+ * @remarks
+ * @since 1.28
+ */
+function PosValidateCrewDailyReductions() {
+	var cmd = "cPosValidateCrewDailyReductions";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosValidateCrewDailyPromos</b>.
+ *
+ * Persistence <b>Not Persisted</b>\n
+ * This BC is responsible for verify if crew daily promo limit was exceeded and get authorization if necessary.
+ *
+ * @success Limit not exceeded or quantity authorized.
+ * @failure	<i>reduction not authorized</i>  - Indicate that the quantity is not authorized
+ * @remarks
+ * @since 1.28
+ */
+function PosValidateCrewDailyPromos() {
+	var cmd = "cPosValidateCrewDailyPromos";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosGetPromotionsForOrder</b>
+ *
+ * Persistence:<b>Not persisted</b>\n
+ * This BC returns the products that are eligible for being promoted. The sale
+ * is analyzed against all the active promotions. When one or more promotions
+ * are eligible, the following information is returned in the success message,
+ * where promotions will be in listed according to their priority.
+ *
+ *  <QualifiedPromotions>
+ *   <Promotion code="1111" name="Promo A">
+ *    <Product code="9999" name="Product Z"/>
+ *    <Product code="8888" name="Product Y"/>
+ *   </Promotion>
+ *  </QualifiedPromotions>
+ *
+ * This BC does not require parameters.\n
+ * @success Promotion validation proccess executed successfuly.
+ * @failure <i>Promotion barcode receipt generation not enabled.</i>
+ * @failure <i>Promotion priority not defined.</i>
+ * @since 1.19
+ */
+function PosGetPromotionsForOrder() {
+	var cmd = "PosGetPromotionsForOrder";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosGetUniqueCodeQuantity</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * The PosGetUniqueCodeQuantity is responsible for calculate the number of unique codes will be generated to the current sale.
+ * In java script it should be called:<b>PosGetUniqueCodeQuantity()</b>
+ * @success Quantity of unique codes to generate.
+ * @failure <i>UC_ERR_01_USR_MSG</i> - Unique code is disabled.
+ * @failure <i>UC_ERR_02_USR_MSG</i> - Order invalid state.
+ * @failure <i>UC_ERR_03_USR_MSG</i> - There is no valid day part.
+ * @failure <i>UC_ERR_04_USR_MSG</i> - There is no valid POD type.
+ * @failure <i>UC_ERR_05_USR_MSG</i> - Minimum amount is greater than maximum amount.
+ * @failure <i>UC_ERR_06_USR_MSG</i> - Could not retrieve current view.
+ * @since 1.20
+ */
+function PosGetUniqueCodeQuantity() {
+	var cmd = "PosGetUniqueCodeQuantity";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd);
+}
+/**
+ * @brief This function implements the BC,Business Component: <b>PosCreateBarcode</b>
+ *
+ * Persistence:<b>Not persisted</b>\n
+ * This Business Component will generate a barcode given the Promotion ID and the product selected.
+ * The barcode string has the following format:
+ *
+ *  [country code:3][store id:8][pos id:4][receipt id:6][product code:8][receipt year:2][receipt days:3}][start:3][end:3][checksum:2] - 42 characters
+ *
+ * The barcode string is scrambled before returning to the caller, according to a built in scrambling rule.
+ * The response sent in the success messagte is composed of the scrambled barcode, its maximum redemptions,
+ * valid dates, promotion name, product name and valid restaurant:
+ *
+ *   <Barcode>
+ *     <Data>135426987013542698701354269870135426987084</Data>
+ *     <Redemptions>-1</Redemnptions>
+ *     <StartDate>20101001</StartDate>
+ *     <EndDate>20101002</EndDate>
+ *     <PromotionName>TEST PROMO</PromotionName>
+ *     <ProductName>TEST PRODUCT FREE</ProductName>
+ *     <Restaurant>ALL</Restaurant>
+ *   </Barcode>
+ *
+ * @param promotionId - string - the promodion ID (product code)
+ * @param productCode - string - the selected product code\n
+ * @success <i>barcode created successfuly.</i>
+ * @failure <i>missing parameters.</i>
+ * @failure <i>invalid country code.</i>
+ * @failure <i>promotion definition not found.</i>
+ * @failure <i>No sale in progress.</i>
+ * @failure <i>Receipt ID overflow.</i>
+ * @failure <iError updating Receipt ID.</i>
+ * @failure <i>invalid barcode length.</i>
+ * @since 1.19
+ */
+function PosCreateBarcode(promotionId, productCode) {
+	var cmd = "PosCreateBarcode";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd, [promotionId, productCode]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosInsertRedeemableProductIntoOrder</b>
+ *
+ * Persistence:<b>Persisted</b>\n
+ * This Business Component inserts/updates a redeemable product in the order, given its product
+ * code and quantity. It updates the sale view with the new inserted redeemable product making
+ * substitution when a there is a product that can be substituted by the redeemable product and
+ * keeping the grilling instructions.
+ *
+ * @param productCode - string - the product code of the redeeemable product.
+ * @param barcode - string - the barcode that contains the redeemable product.
+ * @success <i>redeemable product inserted successfuly.</i>
+ * @failure <i>barcode redemption not enabled.</i>
+ * @failure <i>redeemable product not available.</i>
+ * @failure <i>order maximum number of redemptions reached.</i>
+ * @failure <i>limited barcode redemption has reached the maximum.</i>
+ * @failure <i>barcode available redemptions could not be checked at the waystation (offline).</i>
+ * @failure <i>unlimited barcode already present in the order.</i>
+ * @since 1.19
+ */
+function PosInsertRedeemableProductIntoOrder(product, barcode) {
+	var cmd = "PosInsertRedeemableProductIntoOrder";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd, [product, barcode]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosSaleIncrementItem</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * The PosSaleIncrementItem is responsible for incrementing the quantity of the selected item in a sale.
+ * In java script it should be called:<b>PosSaleIncrementItem(quantity)</b>
+ * @param quantity - int - quantity to increment.
+ * @success The quantity was succesfully incremented.
+ * @failure <i>Argument Missing</i> - quantity parameter is missing.
+ * @failure <i>Remove Error</i> - Error incrementing item quantity
+ * @since 1.19
+ */
+function PosSaleIncrementItem(quantity) {
+	if(PosOfferPromotionUndoIfPresentOnSelectedItem() < 0) {
+		return false;
+	}
+
+	var cmd = "cPosSaleIncrementItem";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    var ret = executeBC(cmd, [quantity]);
+
+	PosOfferPromotionOnItemSold();
+	return ret;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosRefundByAmount</b>.
+ *
+ * This BC is responsible for show a dialog with all orders taken by this POS and
+ return the orderID of the selected order.
+ *
+ * @success The order was selected and the SUCCESS context variable is filled with the orderId
+ * @failure The operator pressed cancel
+ * @param amount BigDecimal - amount to be refunded
+ * @param bPersist boolean - true persist in TLOG / false don't
+ * @param refundReason string - refund reason
+ * @hook
+ * @remarks
+ * It is possible to pass as parameter the text instead of the i18nKey.
+ * @since 1.20
+ */
+function PosRefundByAmount(amount, bPersist, refundReason) {
+	var cmd = "cPosRefundByAmount";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd, [amount, bPersist, refundReason]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosRefundByCash</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * The PosRefundByCash is responsible for doing refund by cash for refund from previous day.
+ * The parameter amount will be always in the tender native currency. The only allowed
+ * payment type is by cash, the cashless option is not available for this kind of refund.
+ * If the refund amount exceeds the HALO limit, a manager authorization dialogue will be shown.
+ * The refund by cash receipt will not have the order items and will present the Tax amount as zero.
+ * In java script it should be called:<b>PosRefundByCash(quantity)</b>
+ * @param amount - int - amount to be refunded.
+ * @param refundReason - string - refund reason.
+ * @success The quantity was successfully incremented.
+ * @failure <i>Argument Missing</i> - quantity parameter is missing.
+ * @failure <i>Remove Error</i> - Error incrementing item quantity
+ * @since 1.20
+ */
+function PosRefundByCash(refundReason) {
+
+	var cmd = "cPosRefundByCash";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	var retMsg="";
+	var XMLResult = new XML("<Workflow/>");
+	var retCode=false;
+
+	XMLResult.Command.@name="PosRefundByCash";
+
+	if(!PosCheckCashDrawer()) {
+		PosShowMessage("MSG_BC_DRAWEROPENED");
+		return(false);
+	}
+
+	// Should be in Sale mode (operator logged and not alreday performing a transaction
+	if(!PosIsInSaleMode() || !PosNotATransactionInProgress(false)) {
+		XMLResult.Command.@fail="";
+		rootCtx.set("WF_Result",XMLResult,false);
+		API.SLog("LOGLEVL_DEBUG", "[PosRefundByCash] Not in sale mode OR transaction in progress.");
+		return(false);
+	}
+	switch(Number(rootCtx.get("transactionSaleType"))) {
+	case 1:
+		XMLResult.Command.@fail="MSG_BC_REFUND_IN_PROGRESS";
+		API.SLog("LOGLEVL_DEBUG", "[PosRefundByCash] Refund already in progress.");
+		break;
+	case 2:
+		XMLResult.Command.@fail="MSG_BC_WASTE_IN_PROGRESS";
+		API.SLog("LOGLEVL_DEBUG", "[PosRefundByCash] Waste in progress.");
+		break;
+	default:
+		var drawerAmount=0;
+		var allowExcessTransfer=rootHlp.findParamInSectionWide("allowExcessTransfer","Cash");
+		// check amount in cash
+		if(PosGetCashInDrawer(allowExcessTransfer)) {
+			drawerAmount=getLastSuccess("PosGetCashInDrawer");
+		}
+		if(Number(drawerAmount)<=0) {
+			if(Number(drawerAmount)==0) {
+				API.SLog("LOGLEVL_DEBUG", "[PosRefundByCash] No cash to refund.");
+			}
+			else {
+				API.SLog("LOGLEVL_DEBUG", "[PosRefundByCash] PosGetCashInDrawer failed.");
+			}
+			XMLResult.Command.@fail="MSG_BC_ERROR_REFUND_BY_AMOUNT_NOT_ENOUGH_CASH";
+			rootCtx.set("WF_Result",XMLResult,false);
+			// error - cant continue
+			return(false);
+		}
+
+		// if > HALO limit
+		var sHALOLimit = new BigDecimal (rootStoreDB.StoreDB.StoreProfile.BusinessLimits.HighAmountSaleLimit);
+		var currencySymbol = rootStoreDB.StoreDB.StoreProfile.Localization.CurrencySymbol;
+		var message = rootHlp.getSysMessage("MSG_BC_REFUND_AMOUNT_MSG");
+		var sCalc = PosShowCalculator(message,currencySymbol,0,2,drawerAmount);
+		if(sCalc.length == 0) {
+			return(false);
+		}
+		if((";"==sCalc)||(0==Number(sCalc))) {
+			XMLResult.Command.@fail="MSG_BC_ERROR_REFUND_BY_AMOUNT_INVALID_AMOUNT";
+			rootCtx.set("WF_Result",XMLResult,false);
+			API.SLog("LOGLEVL_DEBUG", "[PosRefundByCash] Zero amount refund not permited.");
+			return(false);
+		}
+		var tdDrawer = new BigDecimal(drawerAmount);
+		var tdAmount = new BigDecimal(sCalc/100);
+		tdAmount=npreTDSetScale(tdAmount, rootStoreDB.StoreDB.StoreProfile.Localization.CurrencyDecimals, 6);	// 6 == round half even
+		if(tdAmount.compareTo(tdDrawer)>0) {
+			XMLResult.Command.@fail="MSG_BC_ERROR_REFUND_BY_AMOUNT_NOT_ENOUGH_CASH";
+			rootCtx.set("WF_Result",XMLResult,false);
+			API.SLog("LOGLEVL_DEBUG", "[PosRefundByCash] Not enough cash to refund.");
+			return(false);
+		}
+
+		if(sHALOLimit.compareTo(tdAmount)<0) {
+			if(!PosGetAuthorization("manager","false")) {
+				XMLResult.Command.@fail="MSG_BC_ERROR_REFUND_BY_AMOUNT_NOT_AUTHORIZED";
+				rootCtx.set("WF_Result",XMLResult,false);
+				API.SLog("LOGLEVL_DEBUG", "[PosRefundByCash] Not auhorized by manager.");
+				return(false);
+			}
+		}
+		if(!PosRefundByAmount(tdAmount, 0, refundReason)) {
+			retMsg=getLastFail("PosRefundByAmount");
+			XMLResult.Command.@fail=retMsg;
+			API.SLog("LOGLEVL_DEBUG", "[PosRefundByCash] PosRefundByAmount failed.");
+		}
+		else {
+			PosOpenCashDrawer(false);
+			retMsg=getLastSuccess("PosRefundByAmount");
+			XMLResult.Command.@success=retMsg;
+			retCode=true;
+		}
+	}
+	rootCtx.set("WF_Result",XMLResult,false);
+	return(retCode);
+}
+
+		
+	
+	
+	
+	
+	
+	
+	
+				
+	
+		
+		
+				
+		
+		
+		
+		
+		
+		
+
+		
+			
+		
+	
+	
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosGenerateUniqueCode</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * The PosGenerateUniqueCode is responsible for generate a unique code associated to the current sale.
+ * This code will be printed in the receipt.
+ * In java script it should be called:<b>PosGenerateUniqueCode(QttyCodes)</b>
+ * @param QttyCodes - int - Quantity of unique codes to generate.
+ * @success Codes generated.
+ * @since 1.20
+ */
+function PosGenerateUniqueCode(QttyCodes) {
+	var cmd = "PosGenerateUniqueCode";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd,[QttyCodes]);
+}
+
+/** PosDoSetCustomInfo
+ *
+ * @brief This function implements the BC,Business Component: <b>PosDoSetCustomInfo</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * The PosDoSetCustomInfo is responsible for insert a Custom Information in the sale.
+ * In java script it should be called:<b>PosDoSetCustomInfo(name, value)</b>
+ * @param name - String - Custom Information name.
+ * @param value - String - Custom Information value.
+ * @success Custom Information Successfully added to the sale.
+ * @failure <i>Argument Missing</i> - name or value parameter is missing.
+ * @failure <i>Store Error</i> - Error trying to store Custom Information.
+ */
+function PosDoSetCustomInfo(name, value) {
+	var cmd = "PosDoSetCustomInfo";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd, [name, value]);
+}
+
+/** PosDoRemoveCustomInfo
+ *
+ * @brief This function implements the BC,Business Component: <b>PosDoRemoveCustomInfo</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * The PosDoRemoveCustomInfo is responsible for removing a Custom Information from the sale.
+ * In java script it should be called:<b>PosDoRemoveCustomInfo(name)</b>
+ * @param name - String - Custom Information name.
+ * @success Custom Information Successfully removed from the sale.
+ * @failure <i>Argument Missing</i> - name or value parameter is missing.
+ * @failure <i>Store Error</i> - Error trying to store Custom Information.
+ */
+function PosDoRemoveCustomInfo(name) {
+	var cmd = "PosDoRemoveCustomInfo";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd, [name]);
+}
+
+/** PosSetOrderSrc
+ *
+ * @brief - This function implements the BC,Business Component: <b>PosSetOrderSrc</b>\n
+ *
+ * Persistence:<b>Not Persisted</b>
+ * This BC sets the value of the orderSrc attribute in the current sale view.
+ * In a workflow sequence it is called:<b>PosSetOrderSrc</b>
+ * In java script it should be called:<b>PosSetOrderSrc(orderSrc)</b>
+ * @param - orderSrc -  Should be an integer that is equal or greater than 0 that represents where a sale view
+ * was originated..
+ * @param: - rval - Set to true if the report creation succeed, otherwise false.
+ * @return - Always true
+ * @since - 1.20
+ */
+function PosSetOrderSrc(orderSrc) {
+	var cmd = "PosSetOrderSrc";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd, [orderSrc]);
+}
+
+/** PosGetSuggestiveSellingItem
+*
+* @brief - This function implements the BC,Business Component: <b>PosGetSuggestiveSellingItem</b>\n
+* Persistence:<b>Not persisted</b>\n
+* This BC is used to get an item to be suggest to the customer\n
+* In a workflow sequence it is called:<b>PosGetSuggestiveSellingItem(saleView, params)</b>\n
+* In java script it should be called:<b>PosGetSuggestiveSellingItem(saleView, params)</b>\n
+* @param saleView - string - xml view of current sale.
+* @param params - string - xml with params in format: <Params isLunch="true" salesType="eatin"></Params>
+*		where isLunch - set to "true" when is in lunch time or "false" otherwise (breakfast).
+*		salesType - set to "eatin" or "takeout" or "other"
+* Property Messages: none\n
+* Hooks: none\n
+* @Return - rval - string with product code to suggest. If empty no product code to sugggest
+*/
+function PosGetSuggestiveSellingItem(saleView, params) {
+	var cmd = "PosGetSuggestiveSellingItem";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, [saleView, params]);
+}
+
+/**
+* PosSuggestiveSellingShow
+*
+* @brief Show message on Total screen
+* Persistence:<b>Not persisted</b>\n
+* This BC is used to Show message on Total screen\n
+* In a workflow sequence it is called:<b>PosSuggestiveSellingShow(productToSuggest)</b>\n
+* In java script it should be called:<b>PosSuggestiveSellingShow(productToSuggest)</b>\n
+* @param product - string - product code to suggest. Use output from PosGetSuggestiveSellingItem
+* Property Messages: MSG_BC_SUGGESTIVE_ITEM_PRICE\n
+* Hooks: none\n
+* @return true if success.
+*/
+function PosSuggestiveSellingShow(product) {
+	var cmd = "PosSuggestiveSellingShow";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, [product]);
+}
+
+function PosRMHCdonationShow() {
+	var cmd = "PosRMHCdonationShow";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd);
+}
+function PosShowRMHCdonationSmartScreen(screen) {
+	var cmd = "PosShowRMHCdonationSmartScreen";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, [screen]);
+}
+
+/**
+* PosDoSaleSuggestiveItem
+*
+* @brief Sale a suggested item
+* Persistence:<b>Not persisted</b>\n
+* This BC is used to sale a suggested item\n
+* In a workflow sequence it is called:<b>PosDoSaleSuggestiveItem(prodcode, forced)</b>\n
+* In java script it should be called:<b>PosDoSaleSuggestiveItem(prodcode, forced)</b>\n
+* @param prodcode - string - product code to sale
+* @param forced - boolean - optional - whether actions such as validate MDI/MTI, HILO/HALO, check drawer status, etc will be executed or not.
+* Property Messages: none\n
+* Hooks: none\n
+* @return true if success.
+*/
+function PosDoSaleSuggestiveItem(prodcode, forced) {
+	var cmd = "cPosCanAcceptSuggestedItem";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	if (!executeBC(cmd, [prodcode, forced])) {
+		return false;
+	}
+
+	PosDoBackFromTotal();
+	cmd = "cPosDoAcceptSuggestedItem";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	if(executeBC(cmd, [prodcode])){
+		PosDoTotal();
+		return true;
+	}
+	return false;
+}
+function PosDoSaleRMHCdonationItem(prodcode,price,type) {
+	cmd = "cPosDoAcceptRMHCdonationItem";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd, [prodcode,price,type]);
+}
+
+function PosRMHCdonationItemNotAccepted(prodcode, reason) {
+	var cmd = "PosRMHCdonationItemNotAccepted";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, [prodcode, reason]);
+}
+
+function PosCanAcceptRMHCdonationItem(prodcode,forced){
+	var cmd = "cPosCanAcceptRMHCdonationItem";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return(executeBC(cmd, [prodcode, forced])) 
+}
+
+function PosCanSuggestDonation(){
+	var cmd = "cPosCanSuggestDonation";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd);
+}
+/**
+* PosSuggestiveSellingItemNotAccepted
+*
+* @brief report a item rejected
+* Persistence:<b>Not persisted</b>\n
+* This BC is used to report that an suggestive item was rejected\n
+* In a workflow sequence it is called:<b>PosSuggestiveSellingItemNotAccepted(prodcode, reason)</b>\n
+* In java script it should be called:<b>PosSuggestiveSellingItemNotAccepted(prodcode, reason)</b>\n
+* @param prodcode - string - rejected product code
+* @param reason - string - why item was rejected
+* Property Messages: none\n
+* Hooks: none\n
+* @return true if success.
+*/
+function PosSuggestiveSellingItemNotAccepted(prodcode, reason) {
+	var cmd = "PosSuggestiveSellingItemNotAccepted";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, [prodcode, reason]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosGetByPassChoice</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * The PosGetByPassChoice is responsible for return the boolean value of bypass choice in a sale
+ * This code will be printed in the receipt.
+ * In java script it should be called:<b>PosGetByPassChoice()</b>
+ * @success boolean value of bypass choice.
+ * @since 1.20
+ */
+
+function PosGetByPassChoice() {
+	var cmd = "PosGetByPassChoice";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosHasPromotionSaleItem</b>.
+ *
+ * This BC verifies if the selected item has a promotion. If so, it returns on the session context the id and counter, separated by "|"
+ * @return true if the item has promotion.
+ */
+function PosHasPromotionSaleItem() {
+	var cmd = "PosHasPromotionSaleItem";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd);
+}
+
+/** onFoeValidateOutageDTOrder
+ *
+ * @brief - This function validates a DT outage Time Base FOE Order
+ * @param - view - string ->the FOE View string representation
+ * @param - storeDaypart - int  - The current day part code of the Store
+ * @return - rval - string representing the Invalid Products View XML
+ */
+function onFoeValidateOutageDTOrder(view, storeDaypart, multipleMenuType, validateDayPart) {
+
+	var xmlView;
+	var xmlInvItemsXML;
+	var xmlValidItemsXML;
+	var xmlCategory;
+	var productNode;
+	var validationCode = 0;
+	var result = 0;
+	var indexDel = 0;
+	var orderKeyVal = 0;
+	var retPromotionId = 0;
+	var promoIdCounter = "";
+	var valuePromoIdCounter = "";
+	var lastItemValidationCode = 0;
+
+	try	{
+
+		API.STTInfoLog("0", "[onFoeValidateOutageDTOrder] - Initiating function - " + view.length, SRC_BC_SALES);
+
+		xmlView = new XML(view);
+		xmlInvItemsXML = new XMLList();
+		xmlValidItemsXML = new XMLList();
+		xmlValueMealItemsXML = new XMLList();
+		xmlCategory = new XML();
+
+		var i = 0;
+		var newValueMeal = false;
+		var valueMealHasInvalid = false;
+		var valueMealValidationCode = 0;
+		orderKeyVal = xmlView.@orderKey;
+ 		xmlCategory = xmlView.CategoryHours;
+		for each (var item in xmlView.ItemView) {
+			i++;
+			validationCode = 0;
+			// level 0 resets VM
+			if(item.level == 0) {
+				foeOutageDTSetValueMealItens();
+				xmlValueMealItemsXML = new XMLList();
+				newValueMeal = false;
+				valueMealHasInvalid = false;
+				valueMealValidationCode = 0;
+				lastItemValidationCode = 0;
+			}
+			// product is a new Value Meal
+			if (item.productType == '3' && newValueMeal == false) { 
+				var fatherItem = item;
+				newValueMeal = true;
+			}
+			// Retrieves the corresponding product node from the product-db.xml	
+			var productXml = API.getProductdbProduct(item.productCode, "ACTIVE");
+			if(productXml === null || productXml.toString() === "") {
+				productXml = API.getProductdbProduct(item.productCode, "INACTIVE")
+				if(productXml === null || productXml.toString() === "") {
+					API.STTInfoLog("0", "[onFoeValidateOutageDTOrder] - Product not found: " + item.productCode + " Item:" + item.itemCode.toString(), SRC_BC_SALES);
+					validationCode = 41;
+					foeOutageDTSetInvalidItems(item, validationCode);
+					retPromotionId = foeVerifyItemPromotion(newValueMeal?fatherItem:item);
+					if (retPromotionId > 0) {
+						promoIdCounter = foeInvalidatePromotion(retPromotionId, "InvalidItems");
+						if ("" != promoIdCounter) {
+							valuePromoIdCounter = promoIdCounter + ":" + valuePromoIdCounter;
+						}
+					}
+					continue;
+				}
+
+				API.STTInfoLog("0", "[onFoeValidateOutageDTOrder] - Product inactive: " + item.productCode + " Item:" + item.itemCode.toString(), SRC_BC_SALES);
+				validationCode = 43;
+				foeOutageDTSetInvalidItems(item, validationCode);
+				retPromotionId = foeVerifyItemPromotion(newValueMeal?fatherItem:item);
+				if (retPromotionId > 0) {
+					promoIdCounter = foeInvalidatePromotion(retPromotionId, "InvalidItems");
+					if ("" != promoIdCounter) {
+						valuePromoIdCounter = promoIdCounter + ":" + valuePromoIdCounter;
+					}
+				}
+				continue;
+			}
+			productNode = new XML(productXml);
+			if (productNode.@salable == "false" && item.level == 0)
+			{
+				// not salable
+				API.STTInfoLog("0", "[onFoeValidateOutageDTOrder] - Product not salable: " + item.productCode + " Item:" + item.itemCode.toString(), SRC_BC_SALES);
+				validationCode = 42;
+				foeOutageDTSetInvalidItems(item, validationCode);
+				retPromotionId = foeVerifyItemPromotion(newValueMeal?fatherItem:item);
+				if (retPromotionId > 0) {
+					promoIdCounter = foeInvalidatePromotion(retPromotionId, "InvalidItems");
+					if ("" != promoIdCounter) {
+						valuePromoIdCounter = promoIdCounter + ":" + valuePromoIdCounter;
+					}
+				}
+				continue;
+			}
+			if (foeIsInProductOutage(item.productCode)) {
+				// product outage
+				API.STTInfoLog("0", "[onFoeValidateOutageDTOrder] - Product outage: " + item.productCode + " Item:" + item.itemCode.toString(), SRC_BC_SALES);
+				validationCode = 44;
+				foeOutageDTSetInvalidItems(item, validationCode);
+				retPromotionId = foeVerifyItemPromotion(newValueMeal?fatherItem:item);
+				if (retPromotionId > 0) {
+					promoIdCounter = foeInvalidatePromotion(retPromotionId, "InvalidItems");
+					if ("" != promoIdCounter) {
+						valuePromoIdCounter = promoIdCounter + ":" + valuePromoIdCounter;
+					}
+				}
+				continue;
+			}
+			
+			if (multipleMenuType) {
+				if (xmlCategory == undefined || xmlCategory == null) {
+					if (foeCheckTimeRestrictions(productNode.TimeRestrictions) == false) {
+						if (validateDayPart && !foeCheckCategoriesDayPart(productNode.Categories, rootStoreDB.StoreDB.Categories, storeDaypart, rootStoreDB.StoreDB.DayParts)) {
+							// product category for day part
+							API.STTInfoLog("0", "[onFoeValidateOutageDTOrder] - Product invalid daypart: " + item.productCode + " Item:" + item.itemCode.toString(), SRC_BC_SALES);
+							validationCode = 45;
+							foeOutageDTSetInvalidItems(item, validationCode);
+							retPromotionId = foeVerifyItemPromotion(newValueMeal?fatherItem:item);
+							if (retPromotionId > 0) {
+								promoIdCounter = foeInvalidatePromotion(retPromotionId, "InvalidItems");
+								if ("" != promoIdCounter) {
+									valuePromoIdCounter = promoIdCounter + ":" + valuePromoIdCounter;
+								}
+							}
+							continue;
+						}
+					}
+					else {
+						// product time restricted
+						API.STTInfoLog("0", "[onFoeValidateOutageDTOrder] - Product time restricted: " + item.productCode + " Item:" + item.itemCode.toString(), SRC_BC_SALES);
+						validationCode = 46;
+						foeOutageDTSetInvalidItems(item, validationCode);
+						retPromotionId = foeVerifyItemPromotion(newValueMeal?fatherItem:item);
+						if (retPromotionId > 0) {
+							promoIdCounter = foeInvalidatePromotion(retPromotionId, "InvalidItems");
+							if ("" != promoIdCounter) {
+								valuePromoIdCounter = promoIdCounter + ":" + valuePromoIdCounter;
+							}
+						}
+						continue;
+					}
+				}
+				else {
+					if(!foeCheckProductCategory(productNode)) {
+						API.STTInfoLog("0", "[onFoeValidateOutageDTOrder] - Product category invalid: " + item.productCode + " Item:" + item.itemCode.toString(), SRC_BC_SALES);
+						validationCode = 45;
+						foeOutageDTSetInvalidItems(item, validationCode);
+						retPromotionId = foeVerifyItemPromotion(newValueMeal?fatherItem:item);
+						if (retPromotionId > 0) {
+							promoIdCounter = foeInvalidatePromotion(retPromotionId, "InvalidItems");
+							if ("" != promoIdCounter) {
+								valuePromoIdCounter = promoIdCounter + ":" + valuePromoIdCounter;
+							}
+						}
+						continue;
+					}
+				}
+			}
+			else {
+				if(validateDayPart && !foeIsInDayPart(productNode.DayPartCode, storeDaypart)) {
+					API.STTInfoLog("0", "[onFoeValidateOutageDTOrder] - Standard DayPart invalid; Product: " + item.productCode + " Item:" + item.itemCode.toString(), SRC_BC_SALES);
+					validationCode = 45;
+					foeOutageDTSetInvalidItems(item, validationCode);
+					retPromotionId = foeVerifyItemPromotion(newValueMeal?fatherItem:item);
+					if (retPromotionId > 0) {
+						promoIdCounter = foeInvalidatePromotion(retPromotionId, "InvalidItems");
+						if ("" != promoIdCounter) {
+							valuePromoIdCounter = promoIdCounter + ":" + valuePromoIdCounter;
+						}
+					}
+					continue;
+				}
+			}
+			
+			if (Number(item.level) > 0 && lastItemValidationCode != 0) {
+				foeOutageDTSetInvalidItems(item, 62);
+				continue;
+			}
+
+			API.STTInfoLog("0", "[onFoeValidateOutageDTOrder] - Product: " + item.productCode + " Item:" + item.itemCode.toString(), SRC_BC_SALES);
+			foeOutageDTSetValidItems(item, productNode);
+		}
+		
+		// if there is a remaining VM...
+		foeOutageDTSetValueMealItens();
+
+		if ("" != valuePromoIdCounter) {
+			var xmlCustomInfo = new XML(xmlView.CustomInfo.toString());
+			if (xmlCustomInfo.length() > 0) {
+				var infoTag = new XML('<Info />'); //<Info name="customerId" value="1391858"/>
+				infoTag.@name = "PromotionIdCounterList";
+				infoTag.@value = valuePromoIdCounter;
+				xmlView.CustomInfo.appendChild(infoTag);
+			}
+		}
+
+		// delete all processed items
+		delete xmlView.ItemView;
+		// if there are valid items, insert them back
+		if (xmlValidItemsXML != undefined && xmlValidItemsXML != null) {
+			xmlView.appendChild(xmlValidItemsXML);
+		}
+		result = xmlView.toString() + "<<>>" + xmlInvItemsXML;
+		return (result);
+	}
+	catch( ex ) {
+		API.STTErrorLog("0", "[onFoeValidateOutageDTOrder] - " + ex.message, SRC_BC_SALES);
+		API.STTErrorLog("0", "[onFoeValidateOutageDTOrder] - Stack trace: " + ex.stack, SRC_BC_SALES);
+		return "";
+	}
+
+	// ** Auxiliary functions 
+	function foeOutageDTSetValueMealItens() {
+		if(xmlValueMealItemsXML.length() > 0) {
+			if(valueMealHasInvalid) {
+				for each (var item in xmlValueMealItemsXML) {
+					var invalidItemInfo = new XML("<InvalidItemView/>");
+					invalidItemInfo.itemCode = item.itemCode;
+					invalidItemInfo.name = item.name;
+					invalidItemInfo.quantity = item.quantity;
+					invalidItemInfo.productCode = item.productCode;
+					invalidItemInfo.unitPrice = item.unitPrice;
+					invalidItemInfo.currentSelected = item.currentSelected;
+					invalidItemInfo.validationCode = valueMealValidationCode;
+
+					xmlInvItemsXML += invalidItemInfo;
+				}
+			}
+			else {
+				for each (var item in xmlValueMealItemsXML) {
+					var itemInfo = new XML(item);
+
+					xmlValidItemsXML += itemInfo;
+				}
+			}
+		}
+	}
+	function foeConvertStringHour2Number(sHour) {
+		var hour = Number(String(sHour).split(":")[0]);
+		var minute = Number(String(sHour).split(":")[1]);
+		var nHour = hour * 100 + minute;
+		return nHour;
+	}
+
+	function foeVerifyTimeRange(sTodayStart, sTodayEnd, sPreviusDayStart, sPreviusDayEnd, tNow) {
+
+		var todayStart = foeConvertStringHour2Number(sTodayStart);
+		var todayEnd = foeConvertStringHour2Number(sTodayEnd);
+		var previusDayStart = foeConvertStringHour2Number(sPreviusDayStart);
+		var previusDayEnd = foeConvertStringHour2Number(sPreviusDayEnd);
+
+		if (todayStart <= todayEnd) {
+			if (tNow >= todayStart && tNow <= todayEnd) {
+				return true;
+			}
+		}
+		if (todayStart > todayEnd) {
+			if (tNow >= todayStart && tNow <= 2359) {
+				return true;
+			}
+		}
+		if (previusDayStart > previusDayEnd) {
+			if (tNow >= 0 && tNow <= previusDayEnd) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	function foeIsInExtendedDayPart(customDayPart, storeDayparts) {
+		API.STTWarningLog("0", "[onFoeValidateOutageDTOrder.foeIsInExtendedDayPart] Start", SRC_BC_SALES);
+		// constructs weekday name
+		var weekday=new Array();
+		weekday[0]="Sunday";
+		weekday[1]="Monday";
+		weekday[2]="Tuesday";
+		weekday[3]="Wednesday";
+		weekday[4]="Thursday";
+		weekday[5]="Friday";
+		weekday[6]="Saturday";
+
+		var today=new Date();
+		var currTime = today.getHours()*100 + today.getMinutes();
+		var iWeekDay = today.getUTCDay();
+		var iPreviusWeekDay = iWeekDay - 1;
+		if (iPreviusWeekDay < 0) {
+			iPreviusWeekDay = 6;
+		}
+		var weekDayName = "DayPart" + weekday[iWeekDay];
+		var previusWeekDayName = "DayPart" + weekday[iPreviusWeekDay];
+
+		for each (var sdaypart in storeDayparts.DayPart) {
+			if(sdaypart.@name == customDayPart) {
+				var sTime = sdaypart[weekDayName].@start;
+				var eTime = sdaypart[weekDayName].@end;
+				var previus_sTime = sdaypart[previusWeekDayName].@start;
+				var previus_eTime = sdaypart[previusWeekDayName].@end;
+
+				var ret = foeVerifyTimeRange(sTime, eTime, previus_sTime, previus_eTime, currTime);
+				if (ret) {
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+	
+	function foeIsInDayPart(productDayPart, storeDayPart) {
+		
+		var dayPartCode;
+		
+		API.STTInfoLog("0", "[onFoeValidateOutageDTOrder.foeIsInDayPart] Start", SRC_BC_SALES);
+		API.STTInfoLog("0", "[onFoeValidateOutageDTOrder.foeIsInDayPart] Store DayPart [" + storeDayPart + "]", SRC_BC_SALES);
+		dayPartCode = foeConvertDayPartFromStringToCode(productDayPart);	
+		// If the day part code is DAYPART_BREAKFAST_DAY_MENU, than this product belongs to both day parts and may be selled at any time.
+		if (dayPartCode == CSL_DAYPART_BREAKFAST_DAY_MENU) {
+			return true;
+		}
+		else if (dayPartCode == storeDayPart) {
+			return true;
+		}
+		else {
+			return false;
+		}
+
+		function foeConvertDayPartFromStringToCode(dayPartString) {
+			if (dayPartString == "BREAKFAST_MENU") {
+				return CSL_DAYPART_BREAKFAST_MENU;
+			}
+			else if (dayPartString == "DAY_MENU") {
+				return CSL_DAYPART_DAY_MENU;
+			}
+			else if (dayPartString == "BREAKFAST_DAY_MENU") {
+				return CSL_DAYPART_BREAKFAST_DAY_MENU;
+			}
+			else {
+				return CSL_DAYPART_INVALID; // Default value.
+			}
+		}
+	}
+
+	function foeCheckCategoriesDayPart(prodCategories, storeCategories, storeDaypart, storeDayparts) {
+		if (prodCategories == undefined || prodCategories == "") {
+			API.STTInfoLog("0", "[onFoeValidateOutageDTOrder.foeCheckCategoriesDayPart] Product does not define Categories", SRC_BC_SALES);
+			return true;
+		}
+		if (storeCategories == undefined || storeCategories == "") {
+			API.STTInfoLog("0", "[onFoeValidateOutageDTOrder.foeCheckCategoriesDayPart] Store does not define Categories", SRC_BC_SALES);
+			return false;
+		}
+		if (storeDayparts == undefined || storeDayparts == "") {
+			API.STTInfoLog("0", "[onFoeValidateOutageDTOrder.foeCheckCategoriesDayPart] Store does not define extended DayParts", SRC_BC_SALES);
+			for each (var pcategory in prodCategories.Category) {
+				for each (var scategory in storeCategories.Category) {
+					if (pcategory.@categoryID == scategory.@id) {
+						if(foeIsInDayPart(scategory.@daypart, storeDaypart)) {
+							return true;
+						}
+					}
+				}
+			}
+		}
+		else {
+			API.STTInfoLog("0", "[onFoeValidateOutageDTOrder.foeCheckCategoriesDayPart] Store will be used", SRC_BC_SALES);
+			for each (var pcategory in prodCategories.Category) {
+				for each (var scategory in storeCategories.Category) {
+					if (pcategory.@categoryID == scategory.@id) {
+						if(foeIsInExtendedDayPart(scategory.@daypart, storeDayparts)) {
+							return true;
+						}
+					}
+				}
+			}
+			for each (var pcategory in prodCategories.Category) {
+				for each (var scategory in storeCategories.Category) {
+					if (pcategory.@categoryID == scategory.@id) {
+						if(foeIsInDayPart(scategory.@daypart, storeDaypart)) {
+							return true;
+						}
+					}
+				}
+			}
+		}
+		return false;
+	}
+
+	function foeIsInTimeRestriction(period) {
+		API.STTInfoLog("0", "[onFoeValidateOutageDTOrder.foeIsInTimeRestriction] Start", SRC_BC_SALES);
+		if(period == null || period == "") {
+			API.STTInfoLog("0", "[onFoeValidateOutageDTOrder.foeIsInTimeRestriction] End no period", SRC_BC_SALES);
+			return true;
+		}
+		var timeNow = new Date();
+
+		var timeRange = String(period).split(",");
+		var initialHour = Number(String(timeRange[0]).split(":")[0]);
+		var initialMinute = Number(String(timeRange[0]).split(":")[1]);
+		var finalHour = Number(String(timeRange[1]).split(":")[0]);
+		var finalMinute = Number(String(timeRange[1]).split(":")[1]);
+		
+		var initialTime = new Date(timeNow.getFullYear(), timeNow.getMonth(), timeNow.getDate(), initialHour, initialMinute);
+		var finalTime = new Date(timeNow.getFullYear(), timeNow.getMonth(), timeNow.getDate(), finalHour, finalMinute);
+		if(timeNow >= initialTime && timeNow <= finalTime) {
+			API.STTInfoLog("0", "[onFoeValidateOutageDTOrder.foeIsInTimeRestriction] End", SRC_BC_SALES);
+			return false;
+		}
+		API.STTInfoLog("0", "[onFoeValidateOutageDTOrder.foeIsInTimeRestriction] End time restricted", SRC_BC_SALES);
+		return true;
+	}
+
+	function foeCheckTimeRestrictions(TimeRestrictions) {
+		var timeInterval;
+
+		if (TimeRestrictions == undefined || TimeRestrictions == null) {
+			return false;
+		}
+		for each (var allowedTime in TimeRestrictions.AllowedTime) {
+			timeInterval = allowedTime.@startTime + "," + allowedTime.@endTime;
+			if (!foeIsInTimeRestriction(timeInterval)) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	function foeSearchProdInfoCategory(cat) {
+		var found = false;
+		var iDay;
+		var yesterday_starTime;
+		var yesterday_endTime;
+		var startTime;
+		var endTime;
+
+		var today=new Date();
+		var iWeekDay = today.getDay();
+		var nowTime = today.getHours()*100 + today.getMinutes();
+		var weekday=new Array(7);
+		weekday[0]="SUNDAY";
+		weekday[1]="MONDAY";
+		weekday[2]="TUESDAY";
+		weekday[3]="WEDNESDAY";
+		weekday[4]="THURSDAY";
+		weekday[5]="FRIDAY";
+		weekday[6]="SATURDAY";
+		var todayWeekday = weekday[iWeekDay];
+		var iPreviusWeekDay = iWeekDay - 1;
+		if (iPreviusWeekDay < 0) {
+			iPreviusWeekDay = 6;
+		}
+		var yesterdayWeekday = weekday[iPreviusWeekDay];
+
+		for each (var categoryHour in xmlCategory.CategoryHour) {
+			if (categoryHour.@categoryId.toString() == cat.toString()) {
+				for each (var weekDay in categoryHour.Weekday) {
+					if (weekDay.@enabled.toUpperCase() == "TRUE") {
+						if (yesterdayWeekday == weekDay.@name.toUpperCase()) {
+							yesterday_starTime = weekDay.@startTime;
+							yesterday_endTime = weekDay.@endTime;
+							continue;
+						}
+						if (todayWeekday == weekDay.@name.toUpperCase()) {
+							startTime = weekDay.@startTime;
+							endTime = weekDay.@endTime;
+							continue;
+						}
+					}
+				}
+				found = foeVerifyTimeRange(startTime, endTime, yesterday_starTime, yesterday_endTime, nowTime);
+				if (found) {
+					break;
+				}
+			}
+		}
+		return (found);
+	}
+
+	function foeCheckProductCategory(productNode) {
+		var categoryFound = false;
+	
+		if(productNode.CategoryMenus == undefined || productNode.CategoryMenus == null) {
+			var ProductCategories = productNode.CustomParameters.Parameter.(@name=="categoryMenus").@value.toString();
+			var aProdCategories = ProductCategories.split(",");
+			if (aProdCategories != null) {
+				for each (var cat in aProdCategories) {
+					if (foeSearchProdInfoCategory(cat)) {
+						categoryFound = true;
+						break;
+					}
+				}
+			}
+		}
+		else 
+		{
+			for each (var cat in productNode.CategoryMenus.CategoryMenu) {
+				if (foeSearchProdInfoCategory(cat.@categoryID)) {
+					categoryFound = true;
+					break;
+				}
+			}
+		}
+		return categoryFound;
+	}
+	
+	function foeOutageDTSetValidItems(item) {
+		if(!newValueMeal) {
+			var validItemInfo = new XML(item);
+			validItemInfo.validationCode = 0;
+			xmlValidItemsXML += validItemInfo;
+		}
+		else {
+			var itemInfo = new XML(item);
+			itemInfo.validationCode = 0;
+			xmlValueMealItemsXML += itemInfo;
+		}
+	}
+
+	function foeVerifyItemPromotion(item) {
+		var promoId = 0;
+		promoId = Number(item.PromotionApplied.@promotionId.toString());
+		if (!isNaN(promoId)) {
+			if (promoId > 0) {
+				return promoId;
+			}
+		}
+		return 0;
+	}
+
+	function foeInvalidatePromotion(promotionId, rejectionReason) {
+		var promotId;
+		var invPromotId;
+		var xmlPromotions = new XML(xmlView.Promotions.toString());
+		var xmlInvalidPromotions = new XML(xmlView.InvalidPromotions.toString());
+		// is there a promotion tag?
+		if (xmlPromotions.Promotion.length() > 0) {
+			// yes, search promotion (promotion ID) into view's promotions tag
+			for each (var promo in xmlPromotions.Promotion) {
+				promotId = promo.@id;
+				// if found search invalidPromotions tag in view
+				if (promotId == promotionId) {
+					if (xmlInvalidPromotions.Promotion.length() > 0) {
+						// if found search promotion (promotion ID) into view's invalidPromotions tag
+						for each (var invPromo in xmlInvalidPromotions.Promotion) {
+							invPromotId = invPromo.@id;
+							if (invPromotId == promotionId) {
+								// if found, do nothing, already there
+								return "";
+							}
+						}
+						// if not found, copy promotion tag from promotions tag to invalidPromotions tag
+						var promoTag = new XML('<Promotion />');
+						promoTag.@id = promo.@id;
+						promoTag.@offerId = promo.@offerId;
+						promoTag.@rejection = rejectionReason;
+						promoTag.@promotionName = promo.@promotionName;
+						xmlView.InvalidPromotions.appendChild(promoTag);
+						return promo.@id + "|" + promo.@counter;
+					}
+					// if not, create an empty one and copy promotion tag from promotions tag to invalidPromotions tag
+					var InvPromosTag = new XML('<InvalidPromotions />');
+					var promoTag = new XML('<Promotion />');
+					promoTag.@id = promo.@id;
+					promoTag.@offerId = promo.@offerId;
+					promoTag.@rejection = rejectionReason;
+					promoTag.@promotionName = promo.@promotionName;
+					xmlView.appendChild(InvPromosTag);
+					xmlView.InvalidPromotions.appendChild(promoTag);
+					return promo.@id + "|" + promo.@counter;
+				}
+			}
+		}
+		return "";
+	}
+
+	function foeOutageDTSetInvalidItems(item, validationCode) {
+		if(!newValueMeal) {
+			var invalidItemInfo = new XML("<InvalidItemView/>");
+
+			invalidItemInfo.itemCode = item.itemCode;
+			invalidItemInfo.name = item.name;
+			invalidItemInfo.quantity = item.quantity;
+			invalidItemInfo.productCode = item.productCode;
+			invalidItemInfo.unitPrice = item.unitPrice;
+			invalidItemInfo.validationCode = validationCode;
+			invalidItemInfo.currentSelected = item.currentSelected;
+			invalidItemInfo.level = item.level;
+
+			xmlInvItemsXML += invalidItemInfo;
+		}
+		else {
+			var itemInfo = new XML(item);
+			valueMealHasInvalid = true;
+			itemInfo.validationCode = validationCode;
+			if(valueMealValidationCode == 0) {
+				valueMealValidationCode = validationCode;
+			}
+			xmlValueMealItemsXML += itemInfo;
+		}
+		API.SLog("LOGLEVL_WARNING", "[onFoeValidateOutageDTOrder.foeOutageDTSetInvalidItems] The item " + item.productCode + " in the order " + orderKeyVal + " is invalid validationCode : " + validationCode);
+		
+		lastItemValidationCode = validationCode;
+	}
+
+	function foeIsInProductOutage(productCode) {
+		
+		var outageFile = API.getProductOutage();
+		var outageXML;		
+		
+		// Check if the outage file exists.
+		if(outageFile == undefined || outageFile == null) {
+			return false;
+		}
+		
+		outageXML = new XML(outageFile.toString());
+		
+		// Check if the current product code is inside the outage file.
+		for each(var outageProductCode in outageXML.Product.@code) {
+		
+			// If the current product is in the outage file.
+			if(outageProductCode == productCode.toString()) {
+				return true;
+			}
+		}
+		
+		// If the current product isn't in the outage file.
+		return false;
+	}
+}
+
+/** onCslFoeInitialize
+ *
+ * @brief - This method initializes the variables that will be used by the FOE.
+ * @returns - 0 if this method was successfully executed, otherwise returns -1.
+ * @since - FOE - Implement the product validation used in the Check-In Device into the FOE.
+ */
+function onCslFoeInitialize()
+{
+	API.STTDebugLog("0","[onCslFoeInitialize] - Initiating function.");
+	
+	// Verifying rootProductDB and productDictionary that should be loaded in CSL_Tools.nps
+	if (rootProductDB == null || productDictionary == null){
+		if (loadProductDB() == false){
+			if (rootProductDB == null) {
+				API.STTErrorLog("0","[onCslFoeInitialize] - Failed: rootProductDB is null", SRC_BC_SALES);
+			}
+			
+			if (productDictionary == null) {
+				API.STTErrorLog("0","[onCslFoeInitialize] - Failed: productDictionary is null", SRC_BC_SALES);
+			}
+
+			return -1;
+		}
+	}
+	API.STTInfoLog("0","[onCslFoeInitialize] - This function was successfully executed.", SRC_BC_SALES);
+	return 0;
+}
+
+function PosIsAllowedSellCYT() {		
+	var cmd = "PosIsAllowedSellCYT";	
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+   	return executeBC(cmd);	
+}
+
+/** PosGetOrderFromNPSharpByCode
+ *
+ * @brief - This method returns a ProdInfo (sale representation) from NPSharp given a barcode.
+ * @success ProdInfo is stored in the "prodInfoFromNPSharp" context variable.
+ * @since 1.23
+ */
+function PosGetOrderFromNPSharpByCode(barcode)
+{
+	var cmd = "PosGetOrderFromNPSharpByCode";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd,[barcode]);
+}
+
+/** PosCreateSaleFromProdInfo
+ *
+ * @brief - This method creates a Sale given a ProdInfo XML.
+ * @success A new Sale is created and the Invalid Items (if any) are pointed (available via getMobileInvalidItems() helper)
+ * @since 1.23
+ */
+function PosCreateSaleFromProdInfo(prodInfo, useDTOutageValidation, ignorePriceDiff)
+{
+	var cmd = "PosCreateSaleFromProdInfo";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd,[prodInfo, useDTOutageValidation, ignorePriceDiff]);
+}
+
+/** PosRequestPaymentToEcp
+ *
+ * @brief - This method requests a mobile payment to eCP.
+ * @param allowCancellation - TRUE if the interface should display a pop-up allowing the crew to cancel the request
+ * @success payment went through
+ * @since 1.29.1 - SDO-16077
+ */
+function PosRequestPaymentToEcp(allowCancellation) {
+	var cmd = "PosRequestPaymentToEcp";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd, [allowCancellation]);
+}
+
+/** PosRequestPaymentCancelationForeCP
+ *
+ * @brief - This method returns if the order payment cancelation succedded (mobile payment details) from NPSharp.
+ * @success payment was cancelled
+ * @since 1.23
+ */
+function PosRequestPaymentCancelationForeCP() {
+	var cmd = "PosRequestPaymentCancelationForeCP";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/** PosMobilePaymentHasCanceled
+ *
+ * @brief - This method verifies if, for this current mobile order, has had the request to cancel the mobile payment
+ * @success mobile payment screen should not be shown for this order anymore
+ * @since 1.29.1 - SDO-16077
+ */
+function PosMobilePaymentHasCanceled() {
+	var cmd = "PosMobilePaymentHasCanceled";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/** posCheckInMobileOrder
+ *
+ * @brief - This method retrieves the mobile order and creates a new Sale on POS.
+ * @success A new Sale is created and the Invalid Items (if any) are pointed (available via getMobileInvalidItems() helper)
+ * @since 1.23
+ */
+function posCheckInMobileOrder(barcode, ignorePriceDiff) {
+	if (!PosGetOrderFromNPSharpByCode(barcode)) {
+		return false;
+	}
+	var ctx=new SessionContext;
+	var prodInfo = ctx.get("prodInfoFromNPSharp");
+	if (!PosCreateSaleFromProdInfo(prodInfo, "true", ignorePriceDiff)) {
+		return false;
+	}
+	
+	return true;
+}
+
+/** PosGetOrderFromNPSharpByCode
+ *
+ * @brief - This method returns a ProdInfo (sale representation) from NPSharp given a barcode.
+ * @success ProdInfo is stored in the "prodInfoFromNPSharp" context variable.
+ * @since 1.23
+ */
+function PosGetOrderFromNPSharpByCode(barcode)
+{
+	var cmd = "PosGetOrderFromNPSharpByCode";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd,[barcode]);
+}
+
+/** PosDoGetPaymentXml
+ *
+ * @brief - This method returns a OrderPaymentStatus (mobile payment details) from NPSharp.
+ * @success OrderPaymentStatus is stored in the "orderPaymentStatusFromNPSharp" context variable.
+ * @since 1.23
+ */
+function PosDoGetPaymentXml() {
+	var cmd = "PosDoGetPaymentXml";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/** PosExtractInfoFromOrderPaymentStatus
+ *
+ * @brief - This method process OrderPaymentStatus XML and extracts data from it.
+ * @success Tender tag is stored in the "mobileTenderTag" context variable; getLastSuccess("PosExtractInfoFromOrderPaymentStatus") returns ORDER KEY|OVERALL PAYMENT STATUS|POD NAME
+ * @since 1.23
+ */
+function PosExtractInfoFromOrderPaymentStatus(orderPaymentStatus) {
+	var cmd = "PosExtractInfoFromOrderPaymentStatus";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd,[orderPaymentStatus]);
+}
+
+/** posCheckInMobileOrder
+ *
+ * @brief - This method retrieves the mobile order and creates a new Sale on POS.
+ * @success A new Sale is created and the Invalid Items (if any) are pointed (available via getMobileInvalidItems() helper)
+ * @since 1.23
+ */
+function posCheckInMobileOrder(barcode) {
+	if (!PosGetOrderFromNPSharpByCode(barcode)) {
+		return false;
+	}
+	var ctx=new SessionContext;
+	var prodInfo = ctx.get("prodInfoFromNPSharp");
+	if (!PosCreateSaleFromProdInfo(prodInfo)) {
+		return false;
+	}
+	
+	return true;
+}
+
+/** PosMobileCheckInNewSale
+ *
+ * @brief - This method retrieves the mobile order and creates a new Sale on POS.
+ * @success A new Sale is created
+ * @since 1.23
+ */
+function PosMobileCheckInNewSale(barcode) {
+	if (!PosGetOrderFromNPSharpByCode(barcode)) {
+		var npSharpError = getLastFail("PosGetOrderFromNPSharpByCode");
+		if (npSharpError == "Timeout trying to reach the server") {
+			PosShowMessage("MOBILE_CHECKIN_TIMEOUT_ECP");
+		}
+		else {
+			PosShowMessage("MSG_MOBILE_CHECKIN_INVALID_CODE");
+		}
+		return false;
+	}
+	var ctx=new SessionContext;	
+	var prodInfo = ctx.get("prodInfoFromNPSharp");
+	if (!PosCreateSaleFromProdInfo(prodInfo, "false")) {
+		var conversionError = getLastFail("PosCreateSaleFromProdInfo");
+		PosShowMessage(conversionError);
+		return false;
+	}
+	
+	return true;
+}
+
+/** PosDoMobilePayment
+ *
+ * @brief - This method process OrderPaymentStatus XML.
+ * @success Tender tag is stored in the "mobileTenderTag" context variable; getLastSuccess("PosDoMobilePayment") returns ORDER KEY|OVERALL PAYMENT STATUS|POD NAME
+ * @since 1.23
+ */
+function PosDoMobilePayment() {
+	var ctx = new SessionContext;	
+	var shouldRetry = true;
+	var paymentRet = false;
+	var cancelRet = false;
+	var isCSO = PosCheckSessionProperty("POD", "CSO");
+	var orderPaymentStatus = "";
+
+	while(shouldRetry) {
+		if(isCSO) {
+			paymentRet = PosDoGetPaymentXml();
+			shouldRetry = false;
+		}
+		else {
+			//When executing payment should display PopUp for non-DT and non-CSO areas
+			paymentRet = PosRequestPaymentToEcp(false);
+			shouldRetry = false;
+			
+			//Payment failed, and it was not canceled, retry
+			if (!paymentRet && !PosMobilePaymentHasCanceled()) {
+				//Display a message warning about the timeout and asks if want to retry
+				shouldRetry = PosYesNoMessage("MSG_MOBILE_PAYMENT_TIME_OUT", "MSG_RETRY", "MSG_BTN_CANCEL");
+				//NVS-7011 - Make sure the previous request is properly canceled
+				PosRequestPaymentCancelationForeCP();
+			}
+		}
+	}
+	
+	if(!paymentRet) {
+		var XMLResult = new XML("<Workflow/>");
+		XMLResult.Command.@name = "PosDoMobilePayment";
+		XMLResult.Command.@fail = getLastFail("PosDoGetPaymentXml");
+		ctx.set("WF_Result", XMLResult, false);
+		return false;
+	}
+	var orderPaymentStatus = ctx.get("orderPaymentStatusFromNPSharp");
+	
+	if (!PosExtractInfoFromOrderPaymentStatus(orderPaymentStatus)) {
+		var XMLResult = new XML("<Workflow/>");
+		XMLResult.Command.@name = "PosDoMobilePayment";
+		XMLResult.Command.@fail = getLastFail("PosExtractInfoFromOrderPaymentStatus");
+		ctx.set("WF_Result", XMLResult, false);
+		return false;
+	}
+	
+	var paymentResult = getLastSuccess("PosExtractInfoFromOrderPaymentStatus");
+	var paymentResultItems = paymentResult.split("|");
+	if (paymentResultItems.length >= 3) {
+		var orderKey = paymentResultItems[0];
+		var paymentStatus = parseInt(paymentResultItems[1]);
+		var tenderXml = ctx.get("mobileTenderTag");
+
+		PosSetMobileOrderStatus(MOS_PENDING);
+
+		if (!PosDoQueryPaymentStatus(orderKey, tenderXml, paymentStatus)) {
+			var XMLResult = new XML("<Workflow/>");
+			XMLResult.Command.@name = "PosDoMobilePayment";
+			XMLResult.Command.@fail = getLastFail("PosExtractInfoFromOrderPaymentStatus");
+			ctx.set("WF_Result", XMLResult, false);
+			return false;
+		}
+	}
+
+	var XMLResult = new XML("<Workflow/>");
+	XMLResult.Command.@name = "PosDoMobilePayment";
+	XMLResult.Command.@success = paymentResult;
+	ctx.set("WF_Result", XMLResult, false);
+	return true;
+}
+
+/** IsOfferEnabled
+ *
+ * @brief - This method verifies if Offer is enabled
+ * @since 1.23
+ */
+function IsOfferEnabled() {
+	var hlp = new BusinessObjectHelper;
+
+	var isEnabled = hlp.findParamInSectionWide("isEnabled", "Offers");
+	if (isEnabled != null && isEnabled.toUpperCase() === "TRUE") {
+		return true;
+	}
+	
+	return false;
+}
+
+/** PosValidateMobileCheckinPOD
+ *
+ * @brief - This method verifies if the POD of the POS is specified in the "mobileOrderCheckinAllowedPODs" parameter
+ * @since 1.23
+ */
+function PosValidateMobileCheckinPOD() {
+	var hlp = new BusinessObjectHelper;
+
+	var allowedPOD = hlp.findParamInSectionWide("mobileOrderCheckinAllowedPODs", "OperationMode");
+	if (null == allowedPOD) {
+		return false;
+	}
+	var podList = allowedPOD.toUpperCase().split("|");
+	
+	var pod = hlp.findParamInSectionConfig("POD", "PosType").toUpperCase();
+	
+	return (podList.indexOf(pod) >= 0);
+}
+
+function PosDoMobileCheckInWithScanner() {
+	if (!PosValidateMobileCheckinPOD()) {
+		PosShowMessage("MSG_MOBILE_CHECKIN_NOT_ALLOWED_POD");
+		return false;
+	}
+
+	var ctx = new SessionContext;
+	ctx.remove("sUncommittedScanner");
+	
+	if (!PosScannerBlockCapture("MSG_MOBILE_CHECKIN_ALLOWED_POD")) {
+		return false;
+	}
+	
+	var barcode = ctx.get("sUncommittedScanner");
+	
+	if (barcode == null) {
+		return false;
+	}
+	
+	return PosMobileCheckInNewSale(barcode);
+}
+
+function PosMobileCheckInShowKeyboard(screenNumber, message, keyboardField, workflow) {
+	if (!PosValidateMobileCheckinPOD()) {
+		PosShowMessage("MSG_MOBILE_CHECKIN_NOT_ALLOWED_POD");
+		return false;
+	}
+	var hlp = new BusinessObjectHelper;
+	var maximumLength = hlp.findParamInSectionWide("mobileOrderCheckInCodeLength", "OperationMode");
+
+	if ((maximumLength === null )
+	 || ((!isNaN(parseFloat(maximumLength.toString()) ) && isFinite(maximumLength.toString())) == false)
+	 || (parseInt(maximumLength.toString()).toString() != parseFloat(maximumLength.toString()).toString())
+	 || (parseInt(maximumLength.toString()) < 0)
+	 || (parseInt(maximumLength.toString()) > 15)) {
+		maximumLength = 4;
+	} else {
+		maximumLength = parseInt(maximumLength);
+	}
+
+	return PosShowKeyboard(screenNumber, message, keyboardField, "", workflow, maximumLength);
+}
+
+function PosAssociateTagId(TagId) {		
+	var cmd = "PosAssociateTagId";	
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+   	return executeBC(cmd, [TagId]);	
+}
+
+function PosVerifyTagId() {
+	var cmd = "PosVerifyTagId";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+   	return executeBC(cmd);
+}
+
+function PosShowTagIdSmartScreen(SmartScreenNumber) {		
+	var cmd = "PosShowTagIdSmartScreen";	
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+   	return executeBC(cmd, [SmartScreenNumber]);	
+}
+
+function PosCheckIfSelectedItemHasCYT() {
+	var cmd = "PosCheckIfSelectedItemHasCYT";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+   	return executeBC(cmd);
+}
+
+function PosCYTCancelOrderAndCreateNew() {
+	var cmd = "PosCYTCancelOrderAndCreateNew";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+   	return executeBC(cmd);
+}
+
+function PosCheckCYTOrderShouldBeRecreated() {
+	var cmd = "PosCheckCYTOrderShouldBeRecreated";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+   	return executeBC(cmd);
+}
+
+function PosCheckCYTSale(productCode) {
+	var hlp = new BusinessObjectHelper;
+	
+	if(hlp.isProductCYT(productCode) == true &&
+       hlp.GetTrackSaleStatus() & 2 &&
+       PosCheckCYTOrderShouldBeRecreated())
+	{
+		if(!PosYesNoMessage("MSG_BC_SALE_CYT_AFTER_TOTAL"))
+		{
+			return(false);
+		}
+	}
+	var cmd = "PosCheckCYTSale";	
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+   	return executeBC(cmd, [productCode]);	
+}
+
+/** PosPromptRecreateSaleDueCYTAfterTotal
+ * @brief Prompts the crew before recreating the sale due to teh addition of a CYT Product.
+ * If the crew decides to press NO and cancel the product addition, it should be voided ou deduced from the sale
+ * @param productCode - the code from the product that is CYT and is being added to the Sale
+ * @param qtyAdded - quantity of CYT products being added and selected on the selected line
+ * @return true if sale was recreated
+ * \since SDO-14842
+ */
+function PosPromptRecreateSaleDueCYTAfterTotal(productCode, qtyAdded) {
+    
+    // This BC is responsible for verifying if current sale was totalized and the new product is a CYT. \n
+	// The sale will be cancelled in this situation and a new sale will be start. \n
+	// The new sale will have all products of old sale and it will have the new product (CYT product). \n
+    if(PosCheckCYTSale(productCode) == false) { //Answered NO
+        var cmd = "PosDoVoidLine";
+        CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+        return executeBC(cmd, [qtyAdded]);	
+    }
+    
+    return true;
+}
+
+/**
+* PosDeliverEarlier
+*
+* @brief Set the selected line or the entire sale as "deliver earlier"
+* Persistence:<b>Not persisted</b>\n
+* This BC is used to set the selected line or the entire sale as "deliver earlier"\n
+* In a workflow sequence it is called:<b>PosDeliverEarlier $EntireSale</b>\n
+* In java script it should be called:<b>PosDeliverEarlier(EntireSale)</b>\n
+* @param EntireSale - boolean - "true": the entire sale is set as "deliver earlier"; "false": the selected line is set as "deliver earlier" (default)\n
+* @return true if success.
+*/
+function PosDeliverEarlier(EntireSale) {
+	var allEarlier = (EntireSale != null && EntireSale.toUpperCase() === "TRUE");
+	
+	var cmd = "PosDeliverEarlier";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+   	var result = executeBC(cmd, [allEarlier]);
+	
+	if (!result) {
+		var message = (allEarlier) ? "MSG_BC_SM_DELIVER_ALL_EARLIER_WARN" : "MSG_BC_SM_DELIVER_EARLIER_WARN";
+		PosShowMessage(message);
+	}
+	
+	return result;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosToggleDeliveryEarlyProductCode</b>.
+ *
+ * This BC is used to toggle the delivery early status of all products in the sale having the given product code
+ * 
+ *
+ * @success The delivery early status of all products in the sale having the given product code are toggled
+ * @false   
+ * @hook
+ * @remarks
+ * @param productCode - string - product code\n
+ * @since 1.23
+ */
+function PosToggleDeliveryEarlyProductCode(productCode) {
+	var cmd = "PosToggleDeliveryEarlyProductCode";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+
+	return executeBC(cmd, [productCode]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosModifyDeliveryEarlyAllProducts</b>.
+ *
+ * This BC is used to set all products that can be delivered earlier to be delivered earlier -- or not
+ * 
+ *
+ * @success The delivery early status of all products in the sale having the given product code are toggled
+ * @false   
+ * @hook
+ * @remarks
+ * @param deliveryEarly - bool - true: all products are set do be delivered earlier - false: no product will be delivered earlier\n
+ * @since 1.23
+ */
+function PosModifyDeliveryEarlyAllProducts(deliveryEarly) {
+	var cmd = "PosModifyDeliveryEarlyAllProducts";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+
+	return executeBC(cmd, [deliveryEarly]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosDeliveryEarlySmartReminderDone</b>.
+ *
+ * This BC is used to update the product list of deliverable earlier products (for modify order purposes)
+ * 
+ *
+ * @success The delivery early product list is updated
+ * @false   
+ * @hook
+ * @remarks
+ * @since 1.23
+ */
+function PosDeliveryEarlySmartReminderDone() {
+	var cmd = "PosDeliveryEarlySmartReminderDone";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosHasCYTProductInSale</b>.
+ *
+ * This BC is used to verify if the sale has a CYT product
+ * 
+ *
+ * @success Returns "true" if the sale has a CYT product
+ * @false   
+ * @hook
+ * @remarks
+ * @param positive - bool - "true": not voided lines only; "false": all lines
+ * @since 1.23
+ */
+function PosHasCYTProductInSale(positive) {
+	var cmd = "PosHasCYTProductInSale";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+
+	return executeBC(cmd, [positive]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosSetProductDeliverEarlierQuantity</b>.
+ *
+ * This BC is used to set the quantity to be delivered earlier for a specific product in the selected line
+ * 
+ *
+ * @success Returns "true" on success
+ * @false   
+ * @hook
+ * @remarks
+ * @param componentIndex - int - index of the component on the selected line
+ * @param deliverEarlierQuantity - int - quantity to be delivered earlier
+ * @since 1.23
+ */
+function PosSetProductDeliverEarlierQuantity(componentIndex, deliverEarlierQuantity) {
+	var cmd = "PosSetProductDeliverEarlierQuantity";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+
+	return executeBC(cmd, [componentIndex, deliverEarlierQuantity]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosUpdateView</b>.
+ *
+ * This BC is used to update the Sale View
+ * 
+ *
+ * @success Returns "true" on success
+ * @false   
+ * @hook
+ * @remarks
+ * @since 1.23
+ */
+function PosUpdateView() {
+	var cmd = "PosUpdateView";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+
+	return executeBC(cmd);
+}
+/**PosDisplayOnOrb
+ *
+ * @brief - This function implements the BC,Business Component: <b>PosDisplayOnOrb</b>\n
+ * Return - rval - True for successful execution or False for failure.
+ */
+function PosDisplayOnOrb(status) {
+	var cmd = "PosDisplayOnOrb";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd,[status]);
+}
+
+/**PosMultiOrderStore
+*
+*@brief - This function implements the BC,Business Component:<b>PosMultiOrderStore</b>\n
+*Return - rval - True for successful execution of PosMultiOrderStore, or false for failure
+*/
+function PosMultiOrderStore(btnNumber, imgOn, imgOff,mode){
+var rval;
+var ctx=new SessionContext;
+var PosDisplayMultiOrderStatus = "PosDisplayMultiOrderStatus";
+var PosMultiOrder = "PosMultiOrderStore";
+	CSL_dbglog(7, SRC_BC_SALES, PosMultiOrder, "Start");
+	rval = executeBC(PosMultiOrder, [mode]);
+	CSL_dbglog(7, SRC_BC_SALES, PosDisplayMultiOrderStatus, "Start");
+    executeBC(PosDisplayMultiOrderStatus, [btnNumber, imgOn, imgOff]);
+	PosShowScreen(ctx.get("baseScreenId"));
+	return rval;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosCheckDisplayOnOrbStatus</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC can be used to get the DisplayOnOrb Status.
+  * @success Status of the DisplayOnOrb.
+ */
+function PosCheckDisplayOnOrbStatus() {
+	var cmd = "PosCheckDisplayOnOrbStatus";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd);
+}
+
+function PosSetCYTCustomInfo(customInfo, lastIndex)
+{
+	var cmd = "PosSetCYTCustomInfo";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+
+	return executeBC(cmd,[customInfo, lastIndex]);
+}
+
+function PosSetProductCustomField(key, value, splitQty)
+{
+	var cmd = "PosSetProductCustomField";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+
+	return executeBC(cmd,[key, value, splitQty]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosCheckSaleForTableService</b>.
+ *
+ * This BC is used to verify if the sale has some product that, under configuration, uses Table Service
+ * 
+ *
+ * @success Returns "true" if the sale has a product that, under configuration, uses Table Service
+ * @false   
+ * @hook
+ * @remarks
+ * @param positive - bool - "true": not voided lines only; "false": all lines
+ * @since 1.28
+ */
+function PosCheckSaleForTableService(positive) {
+	var cmd = "PosCheckSaleForTableService";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+
+	return executeBC(cmd, [positive]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosDismissTagId</b>.
+ *
+ * This BC is used to inform that Tag Id will not be used
+ * 
+ *
+ * @success Returns "true" on success
+ * @false   
+ * @hook
+ * @remarks
+ * @since 1.28
+ */
+function PosDismissTagId() {
+	var cmd = "PosDismissTagId";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosRequestTagId</b>.
+ *
+ * This BC is used to entry the Tag Id
+ * 
+ *
+ * @success Returns "true" when the Smart Reminder Floating Screen is displayed
+ * @false   
+ * @hook
+ * @remarks
+ * @since 1.28
+ */
+function PosRequestTagId() {
+    var hlp = new BusinessObjectHelper;
+	
+	var deviceIdEntryMode = hlp.findParamInSectionWide("deviceIdEntryMode", "TableService");
+	var pod = hlp.findParamInSectionConfig("POD", "PosType").toUpperCase();
+	
+	if (deviceIdEntryMode != null && deviceIdEntryMode.toUpperCase() === "KEYPAD") {
+		var i18nKey = "MSG_BC_MSG_POPUP_KEYPAD";
+		while (true) {
+			var deviceId = PosShowCalculator(i18nKey, "", 1, 0);
+			
+			if (deviceId == ";") {
+				// No value entered, ask again
+				i18nKey = "MSG_BC_MSG_POPUP_KEYPAD";
+			}
+			else if (deviceId == "" && pod != "CSO") {
+				// "Back" pressed...
+				if (PosHasCYTProductInSale(true)) {
+					// ... the order contains CYT, warns and ask for Tag Id again
+					PosShowMessage("MSG_BC_MSG_POPUP_CYTERROR");
+					i18nKey = "MSG_BC_MSG_POPUP_KEYPAD";
+				}
+				else {
+					// ... no Tag Id will be associated
+					PosDismissTagId();
+					break;
+				}
+			}
+			else {
+				if (PosValidateTagIdValue(deviceId)) {
+					PosAssociateTagId(deviceId);
+					break;
+				}
+				else {
+					i18nKey = "MSG_BC_MSG_INVALID_DEVICE_TABLE_SERVICE";
+				}
+			}
+		}
+	}
+	else {
+		var tagIdScreenNumber = null;
+		var posTableServiceEnabled = hlp.findParamInSectionWide("posTableServiceEnabled", "TableService");
+		var tableServiceLocatorEnabled = hlp.findParamInSectionWide("tableServiceLocatorEnabled", "TableService");
+		var deviceType = hlp.findParamInSectionWide("deviceType", "TableService");
+		if (posTableServiceEnabled != null && posTableServiceEnabled.toUpperCase() === "TRUE" &&
+		    tableServiceLocatorEnabled != null && tableServiceLocatorEnabled.toUpperCase() === "TRUE" &&
+		    deviceType != null && deviceType.toUpperCase() === "CALLBACKLOCATOR")
+		{
+			var saleType = hlp.getSaleType();
+			if (0 == saleType) {
+				tagIdScreenNumber = hlp.findParamInSectionWide("tableLocatorDeviceScreenNumber", "TableService");
+			}
+			else if (1 == saleType) {
+				tagIdScreenNumber = hlp.findParamInSectionWide("callBackDeviceScreenNumber", "TableService");
+			}
+		}
+		else {
+			// Legacy mode (introduced by CYT)
+			tagIdScreenNumber = hlp.findParamInSectionConfig("cytTagIdSR", "UserInterface");
+		}
+
+		if (tagIdScreenNumber != null && tagIdScreenNumber != "") {
+			return PosShowTagIdSmartScreen(tagIdScreenNumber);
+		}
+	}
+	
+	return false;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosValidateTagIdValue</b>.
+ *
+ * This BC is used to validate a Tag Id against "callBackRange" or "tableLocatorRange" parameter
+ * 
+ *
+ * @success Returns "true" when given Tag Id is valid
+ * @false   
+ * @hook
+ * @remarks
+ * @since 1.29
+ */
+function PosValidateTagIdValue(tagIdValue) {
+	var cmd = "PosValidateTagIdValue";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+
+	return executeBC(cmd, [tagIdValue]);
+}
+
+// ARC-232
+/**PosDoSelBySellSequence
+ *
+ * @brief - This BC sets selected sellSequence index
+ * Return - rval - true if allowed to continue
+ */
+function PosDoSelBySellSequence(index)
+{
+	var cmd = "PosDoSelBySellSequence";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, [index]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosStartSaleNormalization</b>
+ * This BC turns on sale normalization, in case it wa turned off by PosStopSaleNormalization.
+ * It also triggers a normalization of the current sale and generates a new view at the end
+ */
+function PosStartSaleNormalization() {
+	var cmd = "PosStartSaleNormalization";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosStopSaleNormalization</b>
+ * This BC turns off sale normalization.
+ */
+function PosStopSaleNormalization() {
+	var cmd = "PosStopSaleNormalization";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosSetHiddenOrder</b>.
+ *
+ * This BC is used to set the flag to hide the order in DT
+ * 
+ *
+ * @success Returns "true" when the flag is set
+ * @remarks
+ * @since 1.28 NPS-23061
+ */
+function PosSetHiddenOrder(){
+	var cmd = "PosSetHiddenOrder";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/** PosDoAutoEVM
+ * @brief - This function implements the BC,Business Component: <b>PosDoAutoEVM</b>\n
+ *          Persistence:<b>Not Persisted</b>\n
+ *          This BC is responsible for creating the AutoEVM, solving choices using the selected sale items or
+ *          corresponding upgrades, moving internal choices and grills from the selected sale items to their
+ *          corresponding solved choices or components, and removing the selected sale items from the sale.
+ *          In a workflow sequence should be called:<b>PosDoAutoEVM $VMCode $VMItemInfo</b>\n
+ *          In java script it should be called:<b>PosDoAutoEVM(VMCode, VMItemInfo)</b>\n
+ * @parameters:
+ *			VMCode - string - mandatory:    Product code of the AutoEVM.
+ *			VMItemInfo - array - mandatory: List of selected sale items with their corresponding upgrades and solved choices.
+ *			                                Each element of the array should have the following format:
+ *			                                
+ *											    viewIndex,upgradeCode,choiceCode
+ *											
+ *											where
+ *											
+ *											    viewIdex    - the sale item index in the sale view (itemCode);
+ *											    upgradeCode - the product code of the corresponding component or choice solution
+ *											                  of the AutoEVM;
+ *											    choiceCode  - the product code of the corresponding choice of the AutoEVM to
+ *											                  solve (0 if it is not a choice solution).
+ * @return - rval - True if the AutoEVM was created successfully.
+ * @since - 1.30
+ */
+function PosDoAutoEVM(VMCode,VMItemInfo) {
+	var cmd = "PosDoAutoEVM";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+
+	return executeBC(cmd, [VMCode, VMItemInfo]);
+}
+
+function PosSetOrderArea(orderArea) {
+	var cmd = "PosSetOrderArea";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+
+	return executeBC(cmd, [orderArea]);
+}
+/**
+ * END nps
+ */
+/* signed aut version 9-9076
+ * authority id = builder
+ * authority level = 10
+ * authority name = NewPOS release level
+ * group = npi
+ * validity = 2010-04-18
+ * signature type = slash_star
+ * time stamp (GMT) = Fri Jan 26 16:27:04 2018
+ * certificate = 393735312d37393437005f4c78bb506182a2e0c61b6cbb31df764f580a9b6e4ce2e9c7a166c14ef59a5f642ab98541374a38b13a2c8bc375ecbc52100010
+ * =============================================================================================================================
+*/

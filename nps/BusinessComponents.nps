@@ -1,0 +1,375 @@
+/**
+ * @file BusinessComponents.nps
+ * @brief This NPS file implements BusinessComponents Initialiation. This is the main entry of CSL
+ *
+ * @addtogroup 	CSL The NP6 Core Script Lybrary (CSL)
+ *
+ * Copyright (C) 2008 McDonalds Corp. All rights reserved.
+ *
+ * $Source: /NP6/SRC/np61cvs/cvs/NP6/src/npCore/npBusComp/scripts/BusinessComponents.nps,v $
+ * $Revision: 776 $
+ * $Date: 2009-08-06 10:46:38 -0300 (qui, 06 ago 2009) $ (of revision)
+ * $Author: rcaram $ (of revision)
+ * @{
+ */
+
+/* Variable used for version control */
+BUSINESS_COMPONENTS_VERSION = "$WCURL$:$WCREV$";
+
+var csl_version;
+var csl_lastchange;
+var csl_buildtime;
+var NP6_build;
+executeScript("CSL_Compatibility.nps",true);
+executeScript("CSL_Init.nps",true);
+executeScript("CSL_UnitTests.nps",true);
+//Let's try to include the CSL_VERSION file
+try {
+	executeScript("CSL_VERSION.ver",true);
+} catch(filenotfound) {
+	csl_version = "development version";
+	//When it was last committed in the repository
+	csl_lastchange = "unknown";
+	//When it was included in build
+	csl_buildtime = new Date();
+	//NP6 Build number
+	NP6_build = "unknown";
+} finally {
+	logVersion();
+}
+
+initTools(false);
+
+/**
+ * @since 1.17-
+ */
+function logVersion() {
+	API.dbg("***************C S L   V E R S I O N***************");
+	API.dbg("version:   " + csl_version);
+	API.dbg("lastchange: " + csl_lastchange);
+	API.dbg("buildTime: " + csl_buildtime);
+	API.dbg("buildNumber: " + NP6_build);
+	API.dbg("FILE                           VERSION");
+	API.dbg("BusinessComponents.nps         " + BUSINESS_COMPONENTS_VERSION);
+	API.dbg("CSL_Adaptors.nps               " + CSL_ADAPTORS_VERSION);
+	API.dbg("CSL_ApplyUpdate.nps            " + CSL_APPLYUPDATE_VERSION);
+	API.dbg("CSL_CashOperation.nps          " + CSL_CASHOPERATION_VERSION);
+	API.dbg("CSL_Choices.nps                " + CSL_CHOICES_VERSION);
+	API.dbg("CSL_Compatibility.nps          " + CSL_COMPATIBILITY_VERSION);
+	API.dbg("CSL_CoreUtilities.nps          " + CSL_COREUTILITIES_VERSION);
+	API.dbg("CSL_Grill.nps                  " + CSL_GRILL_VERSION);
+	API.dbg("CSL_Init.nps                   " + CSL_INIT_VERSION);
+	API.dbg("CSL_Missing.nps                " + CSL_MISSING_VERSION);
+	API.dbg("CSL_Register.nps               " + CSL_REGISTER_VERSION);
+	API.dbg("CSL_Reports.nps                " + CSL_REPORTS_VERSION);
+	API.dbg("CSL_Sales.nps                  " + CSL_SALES_VERSION);
+	API.dbg("CSL_Screen.nps                 " + CSL_SCREEN_VERSION);
+	API.dbg("CSL_Security.nps               " + CSL_SECURITY_VERSION);
+	API.dbg("CSL_Tender.nps                 " + CSL_TENDER_VERSION);
+	API.dbg("CSL_Tools.nps                  " + CSL_TOOLS_VERSION);
+	API.dbg("CSL_TotalStoreRecall.nps       " + CSL_TOTALSTORERECALL_VERSION);
+	API.dbg("CSL_TSS.nps			        " + CSL_TSS_VERSION);
+	API.dbg("***************************************************");
+}
+
+/**
+ * @brief Adjusts the Float Grill after a Side Choice or Drink is grilled
+ *
+ * @since 1.17-
+ */
+function lAdjustFloatScreen() {
+	var id=rootCtx.get("FLOATGRILL_ID");
+	var oper=rootCtx.get("FLOATGRILL_OPER");
+
+	PosSetFloatGrillOper(oper,"");
+	PosSetSessionProperty("OPERFLOATGRILL",id,"true");
+	PosRefreshFloatButtons();
+}
+
+function PosShowOffersKeyboardJS(screenNo, field, defaultValue, enterWorkflow)
+{
+	if(PosNotATransactionInProgress(true) == true) {
+		PosShowMessage("MSG_BC_NO_ORDER_IN_PROGRESS");
+		return;
+	}
+
+	if( hasReachedMaxOfferRedeemRetries() == true ) {
+		return;
+	}
+
+	if(PosIsOfferApplied() == false) {
+		PosShowKeyboard(screenNo, 'MSG_BC_OFFERS_ENTER_BARCODE', field, defaultValue, enterWorkflow);
+	} else {
+		var hlp = new BusinessObjectHelper;
+		var msg = hlp.getSysMessage( "MSG_BC_OFFERS_ENTER_NEXT_BARCODE", getLastEnteredOffersRandomCode() );
+		PosShowKeyboard(screenNo, msg, field, defaultValue, enterWorkflow);
+	}
+}
+
+/**
+*@brief Show the KeyBoard with the maxLength for each field of the Fiscal Informations
+**/
+function PosShowNIFKeyboardJS(screenNo, field, defaultValue, enterWorkflow,FiscalInformation,nifField)
+{
+	var maxLengh;
+	if (nifField == "tin"){
+		maxLengh = 9;
+	}else if ((nifField =="name") || (nifField == "address")){
+		maxLengh = 64
+	}else if(nifField == "ZIP"){
+		maxLengh = 8;
+	}
+	PosShowNIFKeyboard(screenNo, FiscalInformation, field, defaultValue, enterWorkflow,maxLengh);
+}
+
+function setEnteredNIFInformation(newCodeField) {
+	var ctx = new SessionContext;
+	var value = ctx.get( newCodeField );
+	
+	if( value === null ) {
+		PosSetSessionProperty( "NIF_INFORMATION", "" );
+	} else {
+		PosSetSessionProperty( "NIF_INFORMATION", value );
+	}
+}
+function getLastEnteredNIFInformation() {
+	var ctx = new SessionContext;
+	var value = ctx.get( "NIF_INFORMATION" );
+	if( value === null ) {
+		value = "";
+	}
+	return value;
+}
+
+/**
+*@brief Get the fiscal informations 
+**/
+function nifInfos(xml){
+	this.tin = API.AESDefaultDecrypt(xml.Fiscal_Information.@TIN);
+	this.name = API.AESDefaultDecrypt(xml.Fiscal_Information.@name);
+	this.address = API.AESDefaultDecrypt(xml.Fiscal_Information.@address);
+	this.ZIP = API.AESDefaultDecrypt(xml.Fiscal_Information.@ZIP);
+}
+
+/**
+*@brief Get the parameters that are missing
+**/
+nifInfos.prototype.getNifParameters = function () {
+		if(this.tin == "" || this.tin == null || this.tin == undefined){
+			return "tin";
+		}
+		if(this.name =="" || this.name == null || this.name == undefined){
+			return "name";
+		}
+		if(this.address =="" || this.address == null || this.address == undefined){
+			return "address";
+		}
+		if(this.ZIP =="" || this.ZIP == null || this.ZIP == undefined){
+			return "ZIP";
+		}
+		return "";
+	}
+	
+/**
+*@brief Get the messages from the i18n keys for each missing information, to be displayed in the screen with the keyboard
+**/	
+nifInfos.prototype.getSectionPropertiesFrom = function (fieldName) {
+		if(fieldName == "tin"){
+			return "MSG_BC_ENTER_FISCAL_INFO_TIN";
+		}		
+		if(fieldName == "name"){
+			return "MSG_BC_ENTER_FISCAL_INFO_NAME";
+		}
+		if(fieldName == "address"){
+			return "MSG_BC_ENTER_FISCAL_INFO_ADDRESS";
+		}
+		if(fieldName == "ZIP"){
+			return "MSG_BC_ENTER_FISCAL_INFO_ZIP";
+		}
+		return ""
+	
+	}
+	
+/**
+*@brief Set the missing Informations
+**/	
+	function setNifProperties(field,value){
+		if (field === "tin"){
+			this.tin = value;
+		}else if (field =="name"){
+			this.name= value;
+		}else if (field=="address"){
+			this.address = value;
+		}else if(field=="ZIP"){
+			this.ZIP = value;
+		}
+	}
+	
+/**
+*@brief Mounts the message with the fiscal informations to be displayed.
+**/	
+nifInfos.prototype.getInfosForMsg = function() {
+	if ((this.tin==null || this.tin=="" || this.tin==undefined) && (this.name==null ||this.name==""||this.name==undefined) && (this.address==null ||this.address=="" ||this.address==undefined) && (this.ZIP==null ||this.ZIP==""||this.ZIP==undefined)){
+		return "";
+	}
+	var message = "\n";
+	if (this.tin!="" && this.tin!= undefined){
+		message += "TIN: "+this.tin+"\n"; 
+	}
+	if (this.name!="" && this.name!= undefined){
+		message += "Name: "+this.name+"\n"; 
+	}
+	if (this.address!="" && this.address != undefined){
+		message += "address: "+this.address+"\n"; 
+	}
+	if (this.ZIP!="" && this.ZIP!= undefined){
+		message += "ZIP code: "+this.ZIP+"\n"; 
+	}
+	return message;
+}
+
+/*
+ *
+ * NPS-14851: Cyt Custom Info implementation
+ *
+ */
+
+//Product Custom Info retriever method
+const CRM_SAVED_CYT			= 0;
+const CRM_PRODUCT_BY_TICKET	= 1;
+ 
+function GetProductTicketByRetrieverMethod(crmType, lastProductTicket)
+{
+	var ret;
+	var hlp = new BusinessObjectHelper;
+	//Setting default
+	if(crmType == undefined || crmType == null)
+	{
+		crmType = CRM_SAVED_CYT;
+	}
+	//Swtitching by CustomInfo Product Retriever Method
+	switch(crmType)
+	{
+		case CRM_SAVED_CYT:
+		{
+			ret = hlp.GetSavedCytProductTicket();
+		}
+		break;
+		
+		case CRM_PRODUCT_BY_TICKET:
+		{
+			ret = lastProductTicket;
+		}
+		break;
+	}	
+	
+	return ret;	
+}
+
+function PosShowCytCustomInfoKeyboardJS(crmType, lastProductTicket)
+{
+	var hlp = new BusinessObjectHelper;
+	if(hlp.GetAllowCustomInfo())
+	{
+		var productTicket = GetProductTicketByRetrieverMethod(crmType, lastProductTicket);
+		if(hlp.IsValidProductTicket(productTicket))
+		{
+			var cytCustomInfo = hlp.GetCustomInfoByProductTicket(productTicket);
+			var maxLengthCustomInfo = hlp.GetMaxLengthCustomInfo();
+			if(cytCustomInfo != undefined && cytCustomInfo != "")
+			{
+				defaultValue = cytCustomInfo;
+			}
+			var cytName = hlp.GetNameByProductTicket(productTicket);
+			var msg = hlp.getSysMessage("MSG_BC_CYT_ENTER_CUSTOM_INFO", cytName);
+			hlp.SaveProductTicket(productTicket);
+			//Calling user configured Keyboard - The onShowCytCustomInfoKeyboard must be configured
+			onShowCytCustomInfoKeyboard(msg, cytCustomInfo, maxLengthCustomInfo);
+		}
+	}
+}
+
+function PosCheckCytCustomInfoJS(crmType, lastProductTicket)
+{    
+	var ret = true;
+	var hlp = new BusinessObjectHelper;
+	//Testing if the feature is on
+	if(hlp.GetAllowCustomInfo() && !PosCheckSessionProperty("POD","CSO"))
+	{
+		var productTicket = hlp.GetEmptyCustomInfoCytFromProductTicket(GetProductTicketByRetrieverMethod(crmType, lastProductTicket));
+		if(hlp.IsValidProductTicket(productTicket))
+		{	
+			//Testing Cyt Custom Info
+			var cytName = hlp.GetNameByProductTicket(productTicket);
+			var msg = hlp.getSysMessage("MSG_BC_CYT_ENTER_CUSTOM_INFO_WARNING", cytName);
+			hlp.SetAvoidedCustomInfoByProductTicket(productTicket,true);
+			if(PosShowConfirmationMessage(msg,"MSG_OK","MSG_CANCEL"))
+			{
+				PosShowCytCustomInfoKeyboardJS(CRM_PRODUCT_BY_TICKET, productTicket);
+				ret = false;
+			}
+		}
+	}
+
+	return ret;
+}
+
+function setEnteredOffersRandomCode( newCodeField ) {
+	var value = rootCtx.get( newCodeField );
+	if( value === null ) {
+		resetEnteredOffersRandomCode();
+	} else {
+		PosSetSessionProperty( "LAST_OFFERS_RANDOM_CODE_ENTERED", value );
+	}
+}
+
+function resetEnteredOffersRandomCode( ) {
+	PosSetSessionProperty( "LAST_OFFERS_RANDOM_CODE_ENTERED", "" );
+}
+
+function getLastEnteredOffersRandomCode( ) {
+	var value = rootCtx.get( "LAST_OFFERS_RANDOM_CODE_ENTERED" );
+	if( value === null ) {
+		value = "";
+	}
+	return value;
+}
+
+function PosSetAutomaticChangeDayOnOff() {
+	var cmd = "PosSetAutomaticChangeDayOnOff";
+	CSL_dbglog(7, SRC_BC_UTIL, cmd, "Start");
+	return executeBC(cmd);
+}
+
+function PosDisplaySeamlessStatus(btnNumber, imgOn, imgOff) {
+	var cmd = "PosDisplaySeamlessStatus";
+	CSL_dbglog(7, SRC_BC_UTIL, cmd, "Start");
+	return executeBC(cmd,[btnNumber, imgOn, imgOff]);
+}
+
+function setNifInformation(value,parameter){
+	var cmd = "PosSetNifInformation";
+	CSL_dbglog(7, SRC_BC_UTIL, cmd, "Start");
+	return executeBC(cmd,[value,parameter]);
+}
+
+function PosRunAutoBundling() {
+	var cmd = "PosRunAutoBundling";
+	CSL_dbglog(7, SRC_BC_UTIL, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/**
+ * @} END nps
+ */
+/* signed aut version 9-9076
+ * authority id = builder
+ * authority level = 10
+ * authority name = NewPOS release level
+ * group = npi
+ * validity = 2010-04-18
+ * signature type = slash_star
+ * time stamp (GMT) = Fri Jan 26 16:27:04 2018
+ * certificate = 393735312d373934370003453e293f45f73a61fe199b3fa1e9603ef5d68fb1dce207a5f2d4df7cc7e3cb9cb0d0a0f865f55392a101b6e228ec2f3f090010
+ * =============================================================================================================================
+*/

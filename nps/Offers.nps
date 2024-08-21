@@ -1,0 +1,691 @@
+/**
+ * Offers.nps
+ * This NPS file implements Offers solution
+ *
+ * Copyright - (C) 2014 McDonald's Corporation
+ *
+ * $Revision: $
+ * $Date: $ (of revision)
+ * $Author:  $ (of revision)
+ */
+
+/**
+ * @brief Creates the Offers report. See PosCreateReport for parameters description
+ * @see - PosCreateReport
+ */
+function PosOffersCreateReport_USCOE(dataTypes, reportScript, flags, customParam, PODtype, serviceList)
+{
+	// flags
+API.dbg("PosOffersCreateReport_USCOE started");
+
+	var StoreWideFlag = false;
+	var AskDateFlag = false;
+	var flagList = flags.split("|");
+	for (var f=0;f<flagList.length;f++) {
+		if (flagList[f]=='DATE')
+			AskDateFlag = true;
+		else if (flagList[f]=='CONSOLIDATED')
+			StoreWideFlag = true;
+	}
+
+	// get date information
+	var registerBusinessDay;	// "yyyymmdd"
+	var fmtDate	= rootStoreDB.StoreDB.StoreProfile.Localization.DateFormat;
+	var hlp     = new BusinessObjectHelper;
+
+	var businessDay = new XML(hlp.getBusinessDate("false"));
+	if (businessDay.@Register != "")
+	{
+		registerBusinessDay = businessDay.@Register;
+	} else {	   // Gets System Date
+		var wdate  = new NPDate();
+		var wyear  = API.setZerosOnLeft(wdate.getFullYear(), 4);
+		var wmonth = API.setZerosOnLeft(wdate.getMonth() + 1, 2);
+		var wday   = API.setZerosOnLeft(wdate.getDate(), 2);
+		registerBusinessDay = wyear + wmonth + wday;
+	}
+
+	var repDate = registerBusinessDay;
+	if (AskDateFlag) {
+		var sMsg = hlp.getSysMessage("MSG_BC_ENTER_RPT_DATE", fmtDate);
+		if (!PosAskDate(registerBusinessDay, sMsg, 2))
+		{
+			return false;
+		}
+		var repDate = getLastSuccess("PosAskDate");
+	}
+	flags = flags + "|DATE_SUPPLIED";
+
+	// POS id of 0 for store wide report
+	var POSid = 0;
+	if (!StoreWideFlag)
+	{
+		var xmlPOS  = new XML(hlp.getPOSState());
+	    POSid = toInt(xmlPOS.@ID.substring(3, 7));
+	}
+	// store wide
+	if (!PosOffersGetDataForReport(repDate, POSid))
+	{
+API.dbg("PosOffersCreateReport_USCOE no data for Offers report");
+	PosShowMessage("MSG_BC_WAYCOMUNIC");
+		return false;
+	}
+
+	// get result as Encoded xml (some xml symbols are removed to be able to use getLastSuccess)
+	var xmlEncode = getLastSuccess("PosOffersGetDataForReport");
+	// decode to a "regular" xml
+	var xmlDecode = DecodeToXml(xmlEncode.toString());
+API.dbg("PosOffersCreateReport_USCOE xmlEncode=" + xmlEncode + "\nxmlDecode=" + xmlDecode);
+
+	var POSList = "";
+
+	// PUT on custom param
+	return PosCreateReport(dataTypes, reportScript, flags, xmlDecode, PODtype, serviceList, POSList, repDate);
+}
+
+
+function PosScannerReset(managerRequired, commandLine)
+{
+API.dbg("PosScannerReset managerRequired:"+managerRequired+" commandLine:"+commandLine);
+	if ( (managerRequired == "true") && (!PosGetAuthorization("manager",false)) )
+	{
+		 // Not Authorized
+		return(false);
+	}
+    return(PosRunOSCommand(commandLine));
+}
+
+/**
+* @brief Function to remove Offers and recalculate onTotal promotions if needed
+*/
+function PosDoClearOffer_USCOE() {
+	if (!PosCheckState("POS_OpLogged")) {
+		PosShowMessage("MSG_BC_NOTSALEMODE");
+		return(false);
+	}
+	
+	// NVS-4463
+	if (PosIsOfferApplied()) {     
+		if (PosDoClearOffer()) {
+			var view = new XML(rootHlp.getCurrentView());
+			if(view != null && (view.@saleStatus == SALE_STATUS_TOTALIZED || view.@saleStatus == SALE_STATUS_ON_TOTAL)) {
+				//Remove promotions;
+				PosBackFromTotalUndoOffer();
+				PosBackFromTotalUndoPromotion(); 
+				//re-add promotions;
+				PosPromotionOnTotal();
+			}
+			//NVS-4932 Tishin Thomas
+			rootCtx.set("CURRENTOFFERSCODE", "", true);
+		}
+	} else {
+		//NVS-6728 jpaar - Reverting the changes for NVS-4922. This is handled by PosDoClearOffer
+		PosDoClearOffer();
+		//NVS-7325 Tishin Thomas
+		rootCtx.set("CURRENTOFFERSCODE", "", true);
+	}
+	
+	return true;
+}
+
+/**
+ * @brief Check if is there a discount set by offers
+ *
+ * @success return TRUE is there is no offers discount SET. False otherwise
+ */
+function PosOffersIsDiscountAllowed_USCOE(mode)
+{
+	var hlp = new BusinessObjectHelper;
+	var xmlView = new XML(hlp.getCurrentView());
+ 
+	// Not allow apply discounts to orders with promotions/offers
+	if (xmlView.Promotions.Promotion.length() > 0)
+	{
+		for each (var promotion in xmlView.Promotions.Promotion)
+		{
+			if ((promotion.@offerId != null) || (promotion.@offerId != undefined) || (promotion.@offerId.toString() == "-1"))
+			{
+				PosShowMessage("MSG_BC_PROMOTION_DISCOUNT_NOT_ALLOWED");
+				return false;
+			}
+		}
+	}
+		
+	//NVS-4187 - msilva - Avoiding coupons or any other discount with discounts, however allow more than one coupon
+	if(mode == "COUPON" && (xmlView.ItemTenderView.(cat != "TENDER_GIFT_COUPON")).length() > 0) {
+		PosShowMessage("MSG_BC_OFFERS_DISCOUNT_NOT_ALLOWED");
+		return false;
+	}
+
+    // Avoiding coupons or any other discount with discounts NVS-4094/NVS-4367/NVS-4187
+    if (mode == "DISCOUNT") { 
+		if (xmlView.@transactionKind == ACC_OT_DISCOUNT || xmlView.@transactionKind == ACC_OT_CREW || xmlView.@transactionKind == ACC_OT_MANAGER) {
+			//auxShowMessageClearCalc("Cannot use coupons with discount");
+			PosShowMessage("MSG_BC_OFFERS_DISCOUNT_NOT_ALLOWED");
+			return false;
+		}
+	}
+	return true;
+	/**
+	* - GSS-909 - Lindomar Araujo Jul/21/2016 - NP 6.1.29 - The buttons "Discount" and "Coupons" does not have any action when clicked on it
+	* - According to the (NPS-13891 CR#7590309) the BC PosOffersIsDiscountAllowed was deprecated (in the NP 6.1.25)
+	* - (NPS-13891) Allow Other Discounts with Global Promotions - 7590309
+	var cmd = "PosOffersIsDiscountAllowed";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    executeBC(cmd);
+
+	var ret = getLastSuccess("PosOffersIsDiscountAllowed");
+	if (ret == "true")
+	{
+		return true;
+	}
+	PosShowMessage("MSG_BC_OFFERS_DISCOUNT_NOT_ALLOWED");
+	return false;
+	*/
+}
+
+/**
+ * @brief - Apply global promotions to the order after the offer is evaluated. Sorted by priority: 1-Offers/2-Coupons/3-Promotions
+ * @return - true
+ * @author - Marcelo Silva
+ * @since - NVS-4215 -  NVS-4865 - msilva - Adjustments for async offers evaluation.
+ */
+function PosApplyOffers_COE(needsReevaluation, applyPromotion)
+{
+
+	var shouldApplyPromotions = true;
+	//Suggestion to keep compatibility with the current use of this method
+	if(applyPromotion != undefined && applyPromotion == "false")
+	{
+		shouldApplyPromotions = false;
+	}
+	//UberEats NVS-6999 - msilva - UberEats Integration  - Skip promotions
+	var skipPromotionForUberEats = rootStoreDB.Configurations.Configuration.(@type=="POS").Section.(@name=="OperationMode").Parameter.(@name=="SkipPromotionForUberEats").@value;
+	if(skipPromotionForUberEats == undefined || skipPromotionForUberEats == null || skipPromotionForUberEats == "")
+	{
+		skipPromotionForUberEats = true;
+	}
+	
+	if(isUberEatsOrder() && (skipPromotionForUberEats == true || skipPromotionForUberEats == "true"))
+	{
+		return false;
+	}
+	if(needsReevaluation == undefined || needsReevaluation == null || needsReevaluation == "")
+	{
+		needsReevaluation = false;
+	}
+	
+	if(shouldApplyPromotions && (needsReevaluation || needsReevaluation == "true"))
+	{
+		//PosBackFromTotalUndoOffer(); //NVS-5895 - When the order level offer is applied at Kiosk and after the order is recalled at FC, the offer is no longer applied on the order.
+		PosBackFromTotalUndoPromotion(); 
+	}
+
+	//Sorted by priority offers and promotions applying
+
+	//1 - Offers //NVS-5744 - After OnTotal modify offer will pop-up lots of messages
+	if ((needsReevaluation || needsReevaluation == "true") && typeof(PosOffersOnTotal) == "function")
+	{
+		PosOffersOnTotal(true);		
+	}	
+	if(shouldApplyPromotions){
+		//2 - Coupons
+		if (typeof(PosApplyPromotionCoupons) == "function")
+		{
+			PosApplyPromotionCoupons();
+		}	
+
+		//3 - On Item Sold Promotions
+		if (typeof(PosPromotionOnItemSold) == "function")
+		{
+			PosPromotionOnItemSold();
+		}	
+		
+		//4 - On Total Promotions
+		if (typeof(PosPromotionOnTotal) == "function")
+		{
+			PosSetSessionProperty("runPromotionOnTotal", "true");
+			PosPromotionOnTotal();
+		}	
+	}
+	return true;
+}
+
+/**
+ * @brief - Return a xml string with details of the applied offer 
+ * @return - Return a xml string with details of the applied offer 
+ * @author - Marcelo Silva
+ * @since - NVS-4909
+ */
+function PosGetOfferDetails_JS()
+{
+	if (!executeBC("PosGetOfferDetails"))
+	{
+		return false;
+	}
+	// get result as Encoded xml (some xml symbols are removed to be able to use getLastSuccess)
+	var xmlEncode = getLastSuccess("PosGetOfferDetails");
+	if(xmlEncode == null)
+	{
+		return false;
+	}
+	var xmlDecode = DecodeToXml(xmlEncode.toString());
+	return xmlDecode;
+}
+
+/**
+ * @brief - Get a translated field from the offers detail XML 
+ * @param - fieldName - TITLE, SHORTDESCRIPTION or LONGDESCRIPTION
+ * @param - language - Expected translated language - default: en_US
+ * @return - The text inside the field requested or an empty string if the field was not found
+ * @author - Marcelo Silva
+ * @since - NVS-4909
+ */
+function PosGetCurrentOfferDetail_COE(fieldName, language){
+	
+	if(language == null || language == ""){
+		language = "en_US";
+	}
+	
+	var info = "";
+	
+	// The function PosViewOfferDetails calls the PosCreateReport, so we have to execute the
+	//  BC PosGetOfferDetails
+	if (!executeBC("PosGetOfferDetails"))
+	{
+		return "";
+	}
+	
+	// Get result as Encoded xml (some xml symbols are removed to be able to use getLastSuccess)
+	var xmlEncode = getLastSuccess("PosGetOfferDetails");
+	
+	if (xmlEncode != null && typeof(DecodeToXml) == "function")
+	{
+		// CSO-530 - PosGetCurrentOfferDetail_COE :: Change position of API.dbg
+		API.dbg("PosGetCurrentOfferDetail_COE:: original details xml [" + DecodeToXml(xmlEncode.toString()) + "]");
+		
+		// We need to replace symbols before calling the Decode function
+		var regExp = new RegExp("&", "g");
+		xmlEncode = xmlEncode.toString().replace(regExp, "&amp;");
+		
+		API.dbg("PosGetCurrentOfferDetail_COE:: modified details xml [" + DecodeToXml(xmlEncode.toString()) + "]");
+		
+		var xmlDecode = new XML(DecodeToXml(xmlEncode.toString()));
+		
+		if (xmlDecode.Languages != undefined)
+		{
+			//var currentLang = sessionSale.get("LANGUAGE");
+			var currentLang = language;
+			
+			API.dbg("PosGetCurrentOfferDetail_COE:: current language [" + currentLang + "]");
+			
+			var languageXml = xmlDecode.Languages.Language.(@code == currentLang);
+			if (languageXml == undefined)
+			{
+				// We couldn't find the language with the default separator "_", so
+				//  let's search for the language code and the country code
+				//  regardless of the separator
+				var langCountry = currentLang.split("_");
+				
+				for each (var lang in xmlDecode.Languages.Language)
+				{
+					//Offer name and offer description are not shown
+					if (lang.@code != undefined &&
+						lang.@code.indexOf(langCountry[0]) >= 0 &&
+						lang.@code.indexOf(langCountry[1]) >= 0)
+					{
+						languageXml = lang;
+						break;
+					}
+				}
+				
+				// If we still don't find the language with the country, let's try
+				//  to find only the language
+				if (languageXml == undefined) {
+					//Check In with Offer shows - No Offer In Progress
+					languageXml = xmlDecode.Languages.Language.(@code.indexOf(langCountry[0]) >= 0)[0];
+				}
+
+				//Check In with Offer shows - No Offer In Progress
+				// If we still don't find the language, let's get the first one
+				if (languageXml == undefined) {
+					languageXml = xmlDecode.Languages.Language[0];
+				}
+			}
+			
+			if (languageXml != undefined)
+			{
+				if (fieldName.toUpperCase() == "TITLE")
+				{
+					if (languageXml.Name != undefined)
+					{
+						info = languageXml.Name.toString();
+					}
+				}
+				else if (fieldName.toUpperCase() == "SHORTDESCRIPTION")
+				{
+					if (languageXml.ShortDescription != undefined)
+					{
+						info = languageXml.ShortDescription.toString();
+					}
+				}
+				else if (fieldName.toUpperCase() == "LONGDESCRIPTION")
+				{
+					if (languageXml.LongDescription != undefined)
+					{
+						info = languageXml.LongDescription.toString();
+					}
+				}
+			}
+		}
+	}
+	
+	API.dbg("PosGetCurrentOfferDetail_COE:: Field [" + fieldName + "] :: Value [" + info + "]");
+	
+	return info;
+}
+
+/**
+ * @brief - Translate the offers description / name in the current order view
+ * @param - language - Expected translated language - default: en_US
+ * @return - true: Offers translated successfully; false: Offers not translated successfully
+ * @author - Marcelo Silva
+ * @since - NVS-4909
+ */
+function POSTranslateOffers_JS(language){
+
+	//API.dbg("CELO POSTranslateOffers_JS in");
+	
+	if(language == null || language == ""){
+		//No language specified, set the default target language
+		language = "en_US";
+	}
+
+	var hlp = new BusinessObjectHelper();
+	var currentView = hlp.getCurrentView();
+
+	if(currentView == null) {
+		//Current view not found, translation has failed
+		return false;
+	}
+	
+	//API.dbg("CELO POSTranslateOffers_JS currentView = " + currentView.toString());	
+
+	var view = new XML(currentView);
+	
+	var sessionSale = new SessionContext();
+	
+	if(view.Promotions != null && view.Promotions.Promotion.length() > 0) {
+		for each (var promotion in view.Promotions.Promotion) {
+			//Check if the promotion is an offer
+			if(promotion.@offerId > "0"){
+				//API.dbg("CELO translating promotion ");
+				var promotionName = PosGetCurrentOfferDetail_COE("TITLE", language);
+				if(promotionName != null && promotionName != "")
+				{
+					promotion.@promotionName = promotionName;
+				}
+			}
+		}
+	}
+	
+	if(view.Offers != null && view.Offers.length() > 0) {
+		for each (var offer in view.Offers) {
+			//Check if it is an offer
+			if(offer.@offerId > "0"){
+				//API.dbg("CELO translating offer ");
+				
+				//Translate offer name
+				var offerString = PosGetCurrentOfferDetail_COE("TITLE", language);
+				if(offerString != null && offerString != ""){
+					offer.@name = offerString;
+				}
+				//Translate offer short description
+				offerString = PosGetCurrentOfferDetail_COE("SHORTDESCRIPTION", language);
+				if(offerString != null && offerString != ""){
+					offer.@ShortDescription = offerString;
+				}				
+				//Translate offer long description
+				offerString = PosGetCurrentOfferDetail_COE("LONGDESCRIPTION", language);
+				if(offerString != null && offerString != ""){
+					offer.@LongDescription = offerString;
+				}				
+			}
+		}
+	}	
+	
+	//Update current view
+	hlp.setCurrentView(view.toXMLString());
+	
+	//API.dbg("CELO POSTranslateOffers_JS view = " + view.toString());
+	//currentView = hlp.getCurrentView();
+	//API.dbg("CELO POSTranslateOffers_JS new view = " + currentView.toString());
+	
+	return true;
+
+}
+
+/**
+ * @brief - Return a xml string with details of the applied offer 
+ * @return - Return a xml string with details of the applied offer 
+ * @author - Marcelo Silva
+ * @since - NVS-4909
+ */
+function PosGetOfferDetails_JS()
+{
+	if (!executeBC("PosGetOfferDetails"))
+	{
+		return false;
+	}
+	// get result as Encoded xml (some xml symbols are removed to be able to use getLastSuccess)
+	var xmlEncode = getLastSuccess("PosGetOfferDetails");
+	if(xmlEncode == null)
+	{
+		return false;
+	}
+	var xmlDecode = DecodeToXml(xmlEncode.toString());
+	return xmlDecode;
+}
+
+/**
+ * @brief - Get a translated field from the offers detail XML 
+ * @param - fieldName - TITLE, SHORTDESCRIPTION or LONGDESCRIPTION
+ * @param - language - Expected translated language - default: en_US
+ * @return - The text inside the field requested or an empty string if the field was not found
+ * @author - Marcelo Silva
+ * @since - NVS-4909
+ */
+function PosGetCurrentOfferDetail_COE(fieldName, language){
+	
+	if(language == null || language == ""){
+		language = "en_US";
+	}
+	
+	var info = "";
+	
+	// The function PosViewOfferDetails calls the PosCreateReport, so we have to execute the
+	//  BC PosGetOfferDetails
+	if (!executeBC("PosGetOfferDetails"))
+	{
+		return "";
+	}
+	
+	// Get result as Encoded xml (some xml symbols are removed to be able to use getLastSuccess)
+	var xmlEncode = getLastSuccess("PosGetOfferDetails");
+	
+	if (xmlEncode != null && typeof(DecodeToXml) == "function")
+	{
+		// CSO-530 - PosGetCurrentOfferDetail_COE :: Change position of API.dbg
+		API.dbg("PosGetCurrentOfferDetail_COE:: original details xml [" + DecodeToXml(xmlEncode.toString()) + "]");
+		
+		// We need to replace symbols before calling the Decode function
+		var regExp = new RegExp("&", "g");
+		xmlEncode = xmlEncode.toString().replace(regExp, "&amp;");
+		
+		API.dbg("PosGetCurrentOfferDetail_COE:: modified details xml [" + DecodeToXml(xmlEncode.toString()) + "]");
+		
+		var xmlDecode = new XML(DecodeToXml(xmlEncode.toString()));
+		
+		if (xmlDecode.Languages != undefined)
+		{
+			//var currentLang = sessionSale.get("LANGUAGE");
+			var currentLang = language;
+			
+			API.dbg("PosGetCurrentOfferDetail_COE:: current language [" + currentLang + "]");
+			
+			var languageXml = xmlDecode.Languages.Language.(@code == currentLang);
+			if (languageXml == undefined)
+			{
+				// We couldn't find the language with the default separator "_", so
+				//  let's search for the language code and the country code
+				//  regardless of the separator
+				var langCountry = currentLang.split("_");
+				
+				for each (var lang in xmlDecode.Languages.Language)
+				{
+					//Offer name and offer description are not shown
+					if (lang.@code != undefined &&
+						lang.@code.indexOf(langCountry[0]) >= 0 &&
+						lang.@code.indexOf(langCountry[1]) >= 0)
+					{
+						languageXml = lang;
+						break;
+					}
+				}
+				
+				// If we still don't find the language with the country, let's try
+				//  to find only the language
+				if (languageXml == undefined) {
+					//Check In with Offer shows - No Offer In Progress
+					languageXml = xmlDecode.Languages.Language.(@code.indexOf(langCountry[0]) >= 0)[0];
+				}
+
+				//Check In with Offer shows - No Offer In Progress
+				// If we still don't find the language, let's get the first one
+				if (languageXml == undefined) {
+					languageXml = xmlDecode.Languages.Language[0];
+				}
+			}
+			
+			if (languageXml != undefined)
+			{
+				if (fieldName.toUpperCase() == "TITLE")
+				{
+					if (languageXml.Name != undefined)
+					{
+						info = languageXml.Name.toString();
+					}
+				}
+				else if (fieldName.toUpperCase() == "SHORTDESCRIPTION")
+				{
+					if (languageXml.ShortDescription != undefined)
+					{
+						info = languageXml.ShortDescription.toString();
+					}
+				}
+				else if (fieldName.toUpperCase() == "LONGDESCRIPTION")
+				{
+					if (languageXml.LongDescription != undefined)
+					{
+						info = languageXml.LongDescription.toString();
+					}
+				}
+			}
+		}
+	}
+	
+	API.dbg("PosGetCurrentOfferDetail_COE:: Field [" + fieldName + "] :: Value [" + info + "]");
+	
+	return info;
+}
+
+/**
+ * @brief - Translate the offers description / name in the current order view
+ * @param - language - Expected translated language - default: en_US
+ * @return - true: Offers translated successfully; false: Offers not translated successfully
+ * @author - Marcelo Silva
+ * @since - NVS-4909
+ */
+function POSTranslateOffers_JS(language){
+
+	//API.dbg("CELO POSTranslateOffers_JS in");
+	
+	if(language == null || language == ""){
+		//No language specified, set the default target language
+		language = "en_US";
+	}
+
+	var hlp = new BusinessObjectHelper();
+	var currentView = hlp.getCurrentView();
+
+	if(currentView == null) {
+		//Current view not found, translation has failed
+		return false;
+	}
+	
+	//API.dbg("CELO POSTranslateOffers_JS currentView = " + currentView.toString());	
+
+	var view = new XML(currentView);
+	
+	var sessionSale = new SessionContext();
+	
+	if(view.Promotions != null && view.Promotions.Promotion.length() > 0) {
+		for each (var promotion in view.Promotions.Promotion) {
+			//Check if the promotion is an offer
+			if(promotion.@offerId > "0"){
+				//API.dbg("CELO translating promotion ");
+				var promotionName = PosGetCurrentOfferDetail_COE("TITLE", language);
+				if(promotionName != null && promotionName != "")
+				{
+					promotion.@promotionName = promotionName;
+				}
+			}
+		}
+	}
+	
+	if(view.Offers != null && view.Offers.length() > 0) {
+		for each (var offer in view.Offers) {
+			//Check if it is an offer
+			if(offer.@offerId > "0"){
+				//API.dbg("CELO translating offer ");
+				
+				//Translate offer name
+				var offerString = PosGetCurrentOfferDetail_COE("TITLE", language);
+				if(offerString != null && offerString != ""){
+					offer.@name = offerString;
+				}
+				//Translate offer short description
+				offerString = PosGetCurrentOfferDetail_COE("SHORTDESCRIPTION", language);
+				if(offerString != null && offerString != ""){
+					offer.@ShortDescription = offerString;
+				}				
+				//Translate offer long description
+				offerString = PosGetCurrentOfferDetail_COE("LONGDESCRIPTION", language);
+				if(offerString != null && offerString != ""){
+					offer.@LongDescription = offerString;
+				}				
+			}
+		}
+	}	
+	
+	//Update current view
+	hlp.setCurrentView(view.toXMLString());
+	
+	//API.dbg("CELO POSTranslateOffers_JS view = " + view.toString());
+	//currentView = hlp.getCurrentView();
+	//API.dbg("CELO POSTranslateOffers_JS new view = " + currentView.toString());
+	
+	return true;
+
+}
+/* signed aut version 9-9076
+ * authority id = coe
+ * authority level = 40
+ * authority name = NewPOS COE developer
+ * group = npi
+ * validity = 2010-04-18
+ * signature type = slash_star
+ * time stamp (GMT) = Wed Jan 31 01:28:45 2018
+ * certificate = 393735312d3739343700ba3409f8ecc7c7f741bb897f17bf3155255f9dc3a1b48229998e274e455e16e47d6ca4580ce56179fd67ce83f3f81139cc010010
+ * =================================================================================================================================
+*/

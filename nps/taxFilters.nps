@@ -1,0 +1,578 @@
+/**
+ * taxFilers.nps
+ * This NPS file implements Local Taxfilters for the US market
+ * f
+ * Copyright - - (c) 2005-2007 - McDonalds-
+ *
+ * $Source - -: /NewPOS/SRC/np61cvs/cvs/___Config61/Posdata/US/nps/BusinessComponentsLocal.nps,v
+ * $Revision: .1.18 $
+ * $Date: 2009/09/24 18:31:41 $ (of revision)
+  * $Author: djohnson $ (of revision)
+ */
+ 
+try {
+	hlp = new BusinessObjectHelper;
+} catch (e) { 
+	hlp = {};
+	hlp.getProductDescr = function() {};
+	//NVS-7465 - Avoid exception on AccountEngine. Do not impact the scenario on eCP (It is just a POS side fix)
+	hlp.getCurrentView = function() {};
+} 
+
+//NVS-7514 and NVS-7565
+	try {
+		API.dbg("[ROOTCTX] - INITIALIZING A CLASS INSTANCE")
+		rootCtx = new SessionContext;
+	} catch (e) { 
+		API.dbg("[ROOTCTX] - INITIALIZING A DUMMY PROTOTYPE")
+		rootCtx = {};
+		rootCtx.get = function() {};
+		rootCtx.set = function() {};
+	} 
+
+function Rec_NP_TaxFilterJS(items) {
+	for each (OrderItem in items) {
+		var prodString = API.getProductdbProduct(OrderItem.@code);
+		if(prodString != null) {
+			var prodXML = new XML(prodString);
+			OrderItem.@applyTax = (prodXML.FamilyGroup == "GIFT_COUPON" || prodXML.FamilyGroup == "NON_PRODUCT");
+			//PosShowMessage ("prod " + OrderItem.@code + " tax " + OrderItem.@applyTax);
+		}
+		if(OrderItem.Item.length() != 0) {
+			Rec_NP_TaxFilterJS(OrderItem.Item);
+		}
+	}
+}
+
+function Rec_OTSR1_TaxFilterJS(items) { // 4 dolars
+	for each (OrderItem in items) {
+		var prodString = API.getProductdbProduct(OrderItem.@code);
+		if(prodString != null) {
+			var prodXML = new XML(prodString);
+			if(prodXML.FamilyGroup != "GIFT_COUPON" && prodXML.FamilyGroup != "NON_PRODUCT") {
+				OrderItem.@applyTax = "false";
+			}
+			if(OrderItem.Item.length() != 0) {
+				Rec_OTSR1_TaxFilterJS(OrderItem.Item);
+			}
+		}
+	}
+}
+
+
+/* perform simple checks if a valid product that was actually sold */
+function validProduct(OrderItem) {
+	if (OrderItem.@code == 0) { 
+		return false; 
+	} 
+
+	/* avoid any voided products */ 
+	if ((OrderItem.@quantity == 0) ) { 
+		return false; 
+	}
+	
+	return true;
+} 
+
+
+/* checks if a PLU is defined as "Food" */
+function isFoodProduct(OrderItem) {
+	var prodString = "";
+
+	prodString =API.getProductdbProduct(OrderItem.@code);
+	if(prodString != null) {
+		var prodXML = new XML(prodString);
+		if(( (prodXML.@productClass == "PRODUCT" || prodXML.@productClass == "VALUE_MEAL") && (prodXML.FamilyGroup != "NON_PRODUCT") )) {
+			return true;
+		} else { 
+			return false;
+		} 
+	}
+} 
+
+
+/* returns true|false|null if custom parameter is true for a give product */
+function checkCustomParameter(code,customParam) { 
+	var prodString = API.getProductdbProduct(code);
+
+	if(null == prodString) { return null; }		
+	prodXML = new XML(prodString);
+	isCustomParam = prodXML.CustomParameters.Parameter.(@name == customParam);
+	if(isCustomParam.@value == "true") {
+		return true;
+	} else { 
+		return false;
+	}
+} 
+
+function isAllBottledWater(items) {
+	var btlCount = 0;
+	for each (OrderItem in items.Item) {
+		if (!validProduct(OrderItem)) { continue;}
+		
+		isBottledWater =checkCustomParameter(OrderItem.@code,"isBottledWater"); 
+		if (isFoodProduct(OrderItem) && ( isBottledWater == false) ) {
+			return false;		
+		} 
+		
+		if (isBottledWater == true) {
+			btlCount++;
+		} 
+	}
+	
+	/* check to see if there were any bottle waters in the meal */
+	if (btlCount > 0) { 
+		return true;
+	} else { 
+		return false;
+	} 
+}
+
+
+/**taxFilter_MAINE
+ *
+ * @brief - MAIN RULE: If a non-product is sold with a food product, it's sold at the higher tax rate
+ * Return - modified view to be used for taxation
+ */
+/* */
+function taxFilter_MAINE(rule, view) {
+	var prodChain = null;
+	var product_qty = 0;
+	var non_product_qty = 0;
+
+	/* check for a products and non-products */
+	for each (OrderItem in view.Items.Item) {
+		/* disable fees and deposits for tax 2 */ 
+		if ((rule == "MAINE_TAX_02") && (OrderItem.@code==0)) { OrderItem.@applyTax = "false"; }	
+		
+		if (!validProduct(OrderItem)) { continue;} 
+		
+		prodString =API.getProductdbProduct(OrderItem.@code);
+		if(prodString != null) {
+			var prodXML = new XML(prodString);		
+			if(prodXML.FamilyGroup != "NON_PRODUCT") {
+				if (rule == "MAINE_TAX_02") { OrderItem.@applyTax = "false"; }
+			} else if (prodXML.FamilyGroup == "NON_PRODUCT") {
+				if (rule == "MAINE_TAX_01") { OrderItem.@applyTax = "false"; }
+			}
+		} 
+		
+		/* count components as well */
+		for each (componentItem in OrderItem.Item) {
+			prodString =API.getProductdbProduct(componentItem.@code);
+			if(prodString != null) {
+				var prodXML = new XML(prodString);		
+				if(prodXML.FamilyGroup != "NON_PRODUCT") {
+					if (rule == "MAINE_TAX_02") { componentItem.@applyTax = "false"; }
+				} else if (prodXML.FamilyGroup == "NON_PRODUCT") {
+					if (rule == "MAINE_TAX_01") { componentItem.@applyTax = "false"; }
+				}
+			} 
+			
+			/* count grills as well */
+			for each (grillItem in componentItem.Item) {
+				prodString =API.getProductdbProduct(grillItem.@code);
+				if(prodString != null) {
+					var prodXML = new XML(prodString);		
+					if(prodXML.FamilyGroup != "NON_PRODUCT") {
+						if (rule == "MAINE_TAX_02") { grillItem.@applyTax = "false"; }
+					} else if (prodXML.FamilyGroup == "NON_PRODUCT") {
+						if (rule == "MAINE_TAX_01") { grillItem.@applyTax = "false"; }
+					}
+				} 
+			} 
+		}
+	}
+	
+	return view;
+}
+
+
+/* returns the number of products defined by viginia tax codes */
+function getProductCount_virgina_02(OrderItem) {
+	var product_qty = 0;
+	var prodString = "";
+
+	prodString = API.getProductdbProduct(OrderItem.@code);
+	
+	API.dbg("Product descr 0: " + prodString);
+	
+	if(prodString != null) {
+		var prodXML = new XML(prodString);
+		
+		API.dbg("Product descr 1: " + prodXML.@productClass + " " + prodXML.FamilyGroup + " " + checkCustomParameter(OrderItem.@code,"isBeverage"));
+		
+		if(( (prodXML.@productClass == "PRODUCT" || prodXML.@productClass == "VALUE_MEAL") && (prodXML.FamilyGroup != "NON_PRODUCT") && (checkCustomParameter(OrderItem.@code,"isBeverage") == false) )) { 
+			product_qty++; 
+		}
+	}
+	
+	return product_qty;
+} 
+
+
+/* returns the number of products defined by viginia tax codes */
+function getProductCount_virgina_03(OrderItem) {
+	var product_qty = 0;
+	var prodString = "";
+
+	prodString =API.getProductdbProduct(OrderItem.@code);
+	if(prodString != null) {
+		var prodXML = new XML(prodString);
+		if(( (prodXML.@productClass == "PRODUCT" || prodXML.@productClass == "VALUE_MEAL") 
+			&& (prodXML.FamilyGroup != "NON_PRODUCT") 
+			&& (checkCustomParameter(OrderItem.@code,"isBeverage") == false) )
+			&& (checkCustomParameter(OrderItem.@code,"isSnack") == false) ) { 
+			product_qty++; 
+		}
+	}
+	
+	return product_qty;
+} 
+
+
+/* returns the number of products defined by cali **functions are separate because definitions of what a product is keeps changing */
+function getProductCount_cali(OrderItem) {
+	var product_qty = 0;
+	var prodString = "";
+
+	prodString =API.getProductdbProduct(OrderItem.@code);
+	if(prodString != null) {
+		var prodXML = new XML(prodString);
+		if(( (prodXML.@productClass == "PRODUCT" || prodXML.@productClass == "VALUE_MEAL") && (prodXML.FamilyGroup != "NON_PRODUCT") && (checkCustomParameter(OrderItem.@code,"isColdFood") == false) )) { 
+			product_qty++; 
+		}
+	}
+	
+	return product_qty;
+} 
+
+
+/**taxFilter_VIRGINIA
+ *
+ * @brief - Arlington RULE: Change tax on drink if sold with a product.
+ * Return - modified view to be used for taxation
+ */
+/* */
+function taxFilter_VIRGINIA(rule, view) {
+	var product_qty = 0;
+	var beverage_qty = 0;
+	var snack_qty = 0;
+	var prodString = "";
+
+	/* products beverages sold with a product are taxed ith tax 2 */
+	if (rule == "VIRGINIA_TAX_02") {
+		/* default to not apply the tax */
+
+		for each (OrderItem in view.Items.Item) {
+			if (!validProduct(OrderItem)) { continue;}
+			
+			product_qty +=getProductCount_virgina_02(OrderItem);
+			if (checkCustomParameter(OrderItem.@code,"isBeverage")) { beverage_qty++; } 
+			
+			/* count components as well */
+			for each (componentItem in OrderItem.Item) {
+				product_qty +=getProductCount_virgina_02(componentItem);
+				if (checkCustomParameter(componentItem.@code,"isBeverage")) { beverage_qty++; } 	
+
+				/* count grills as well */
+				for each (grillItem in componentItem.Item) {
+					product_qty +=getProductCount_virgina_02(grillItem);
+					if (checkCustomParameter(grillItem.@code,"isBeverage")) { beverage_qty++; }
+				}
+			}
+		}
+
+		/* disable tax 2 if there are no products in the order */
+		if (product_qty == 0) {
+			for each (OrderItem in view.Items.Item) {
+				if (!validProduct(OrderItem)) { continue;}
+				OrderItem.@applyTax = "false";
+				
+				for each (componentItem in OrderItem.Item) {
+					if (!validProduct(componentItem)) { continue;}
+					componentItem.@applyTax = "false";
+					
+					for each (grillItem in componentItem.Item) {
+						if (!validProduct(grillItem)) { continue;}
+						grillItem.@applyTax = "false";										
+					} 
+				} 
+			}			
+		}
+	
+	/* NVS-4263 -Henrico County Tax Rule -products snacks and/or beverages sold with a product are taxed with tax 3 */
+	} else if (rule == "VIRGINIA_TAX_03") {
+		/* default to not apply the tax */
+		for each (OrderItem in view.Items.Item) {
+			if (!validProduct(OrderItem)) { continue;}			
+			product_qty +=getProductCount_virgina_03(OrderItem);
+			
+			/* count components as well */
+			for each (componentItem in OrderItem.Item) {
+				product_qty +=getProductCount_virgina_03(componentItem);				
+
+				/* count grills as well */
+				for each (grillItem in componentItem.Item) {
+					product_qty +=getProductCount_virgina_03(grillItem);
+				}
+			}
+		}
+
+		/* disable tax 3 if there are no products in the order */
+		if (product_qty == 0) {
+			for each (OrderItem in view.Items.Item) {
+				if (!validProduct(OrderItem)) { continue;}
+				OrderItem.@applyTax = "false";
+				
+				for each (componentItem in OrderItem.Item) {
+					if (!validProduct(componentItem)) { continue;}
+					componentItem.@applyTax = "false";
+					
+					for each (grillItem in componentItem.Item) {
+						if (!validProduct(grillItem)) { continue;}
+						grillItem.@applyTax = "false";										
+					} 
+				} 
+			}			
+		}
+	}
+	
+	
+	return view;
+}
+
+
+function taxFilter_CALIFORNIA_01(view) {
+	var product_qty = 0;
+	var coldFood_qty = 0;
+	var prodString = "";
+	/* ony process for take out */
+	if (view.@mode == "EAT_IN") { return view;} 	
+
+	/* cold food sold with a product are not taxed */
+	/* default to not apply the tax */
+
+	for each (OrderItem in view.Items.Item) {
+		if (!validProduct(OrderItem)) { continue;}
+		product_qty +=getProductCount_cali(OrderItem);
+		if (checkCustomParameter(OrderItem.@code,"isColdFood")) { coldFood_qty++; } 
+
+		for each (componentItem in OrderItem.Item) {
+			if (!validProduct(componentItem)) { continue;}
+			product_qty +=getProductCount_cali(componentItem);
+			if (checkCustomParameter(componentItem.@code,"isColdFood")) { coldFood_qty++; } 
+						
+			for each (grillItem in componentItem.Item) {
+				if (!validProduct(grillItem)) { continue;}
+				product_qty +=getProductCount_cali(grillItem);
+				if (checkCustomParameter(grillItem.@code,"isColdFood")) { coldFood_qty++; } 
+			}
+		} 
+	}
+
+	/* disable tax if the order has cold food and products */ 
+	if ((coldFood_qty>0) && (product_qty>0) ) {
+	} else { 
+		for each (OrderItem in view.Items.Item) {
+			if (!validProduct(OrderItem)) { continue;}
+			if ( (checkCustomParameter(OrderItem.@code,"isColdFood")) ) { OrderItem.@applyTax = "false"; }
+			
+			for each (componentItem in OrderItem.Item) {
+				if (!validProduct(componentItem)) { continue;}
+				if ( (checkCustomParameter(componentItem.@code,"isColdFood")) ) { componentItem.@applyTax = "false"; }
+
+				for each (grillItem in componentItem.Item) {
+					if (!validProduct(grillItem)) { continue;}
+					if ( (checkCustomParameter(grillItem.@code,"isColdFood")) ) { grillItem.@applyTax = "false"; }
+				} 				
+			} 
+		}
+	} 
+	
+	return view;
+}
+
+
+
+/**taxFilter_NEWHAMPSHIRE_01
+ *
+ * @brief - For the drinks with Happy Meal, if a milk or juice box is sold these are taxes exempt, if a soda or shake is sold, these are taxable.
+ * 		  For the meal sides, if apple dippers are sold these are tax exempt, if fries are sold, they are taxable
+ * Return - modified view to be used for taxation
+ */
+/* */
+function taxFilter_NEWHAMPSHIRE_01(view) {
+	for each (OrderItem in view.Items.Item) {
+		if (!validProduct(OrderItem)) { continue;} 
+		isHappyMeal =checkCustomParameter(OrderItem.@code,"isHappyMeal");
+		/* found a happy meal, let's check for a milk or juice */
+		if (isHappyMeal) {
+			for each (componentItem in OrderItem.Item) {
+				isJuiceOrMilk =checkCustomParameter(componentItem.@code,"isJuiceOrMilk");
+				if (isJuiceOrMilk == true) {				
+					componentItem.@applyTax = "false";
+				} 
+			}
+		}
+	}
+
+	return view;
+}
+
+
+/**taxFilter_FLORIDA_01
+ *
+ * @brief - Bottled water will be tax exempt if it is sold without a food product.  
+ *		  When bottled water is sold with a food product, then the bottled water becomes taxable.
+ * Return - modified view to be used for taxation
+ */
+/* */
+function taxFilter_FLORIDA_01(view) {
+	var prodChain = null;
+
+	/* make all bottled water non tax when only items in sale */ 
+	if (isAllBottledWater(view.Items)) {
+		for each (OrderItem in view.Items.Item) {
+			if (!validProduct(OrderItem)) { continue;} 
+			
+			/* NVS-922 -check if bottled water */ 
+			if (checkCustomParameter(OrderItem.@code,"isBottledWater") == 1) { 
+				OrderItem.@applyTax = "false";
+			}
+		}
+	} 
+
+	return view;
+}
+
+
+/* @description: called from tender menu, disables "tax 1" from the orders for arizona stores */
+function DoExemptLocalTaxJS () {
+
+	//NVS-7465 - msilva - Fixing promotions scenario
+	//var ctx=new SessionContext;
+	rootCtx.set("ExemptLocalTax",true,false);
+
+	/*tax enhancements (apply fees) */
+	saleType=Number(rootCtx.get("transactionSaleType"));
+	PosApplyOffers_COE();
+	PosApplyFee_COE(saleType);
+
+	//NVS-7465 - Force POS to re-account all order values/amount.
+	var view = hlp.getCurrentView();
+
+	//NVS-7465 - msilva - Fixed the discount scenario (removed POSDoTotal and refreshing sales panes properly)
+	PosRefreshSalePanel();
+
+	PosShowScreen(TENDER_SCREEN_NBR); 
+	return true;
+	
+}
+	
+
+function ExemptLocalTaxOnAllProducts(items) { 
+	for each (OrderItem in items) {
+		OrderItem.@applyTax = "false";
+		ExemptLocalTaxOnAllProducts(OrderItem.Item);
+	}
+}
+
+/**taxFilter_ARIZONA
+ *
+ * @brief - In the state of Arizona, an American Indian can be charged the state tax rate, 
+ * 			but is exempt from local taxes.  If the state sales tax rate is 6.0% and local sales taxes are configured 
+ * 			at 1.5%, a transaction to an American Indian can only be taxed at 6.0%, while all other transactions would be 
+ * 			taxed at the 7.5% rate.
+ * Return - modified view to be used for taxation
+ */
+function taxFilter_ARIZONA(rule, view) { 
+	//NVS-7514 and NVS-7565
+	//var ctx=new SessionContext;
+	if (rootCtx !== null && rootCtx !== "undefined" && rootCtx !== null) {
+	exemptTax =String(rootCtx.get("ExemptLocalTax"));
+	} else {
+		exemptTax = "false";
+	}
+	
+	if ((exemptTax == "true") && (rule == "ARIZONA_02") ) {
+		ExemptLocalTaxOnAllProducts(view.Items.Item);		
+	}
+
+	return view;
+} 
+
+
+
+
+/**OrderTaxFilterJS
+ *
+ * @brief - processes taxation rules based on <rule> and the sales view
+ * Return - modified sales view -if needed
+ */
+function OrderTaxFilterJS(sView) {
+	return sView;
+} 
+
+
+function TaxFilterJS(sView) {
+	var view = new XML(sView);
+	rule = view.Tax.@rule;
+	//API.dbg("DKJ B4: "+view.toString());
+	if ((rule == "MAINE_TAX_01")) {
+		view =taxFilter_MAINE(rule,view);
+		
+	} else if ((rule == "MAINE_TAX_02")) {
+		view =taxFilter_MAINE(rule,view);
+		
+	} else if ((rule == "VIRGINIA_TAX_01")) {
+		view =taxFilter_VIRGINIA(rule,view);
+
+	} else if ((rule == "VIRGINIA_TAX_02")) {
+		view =taxFilter_VIRGINIA(rule,view);
+	} else if ((rule == "VIRGINIA_TAX_03")) {
+		view =taxFilter_VIRGINIA(rule,view);		
+
+	} else if (rule == "CALIFORNIA_01") {
+		view =taxFilter_CALIFORNIA_01(view);
+
+	} else if (rule == "NEWHAMPSHIRE_01") {
+		view =taxFilter_NEWHAMPSHIRE_01(view);
+
+	} else if (rule == "FLORIDA_01") {
+		view =taxFilter_FLORIDA_01(view);
+
+
+	} else if (rule == "ARIZONA_02") {
+		view =taxFilter_ARIZONA(rule, view);
+	}
+
+	sView = view.toString();
+	API.dbg("DKJ AF: "+sView);
+	return sView;
+}
+
+
+
+
+/**PosChangeTaxModeJS
+ *
+ * @brief - This BC gives a discount in a sale
+ * Return - rval - true if allowed to continue
+ */
+function PosChangeTaxModeJS(mode,flags) {
+	return(PosChangeTaxMode_CSL(mode,flags));
+}
+
+
+/* signed aut version 9-9076
+ * authority id = coe
+ * authority level = 40
+ * authority name = NewPOS COE developer
+ * group = npi
+ * validity = 2010-04-18
+ * signature type = slash_star
+ * time stamp (GMT) = Wed Jan 31 01:28:45 2018
+ * certificate = 393735312d3739343700f9e32f27b5704ed03b8f575a9679582d15c2d6f8f61c198f54190bdfc558005f98866091ac00e26db8baae7672a2db133e180010
+ * =================================================================================================================================
+*/

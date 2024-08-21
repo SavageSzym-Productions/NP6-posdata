@@ -1,0 +1,3361 @@
+/*
+ * Cashless3.nps
+ * This NPS file implements cashless 3.0.
+ * Adapted from everest.nps.
+ *
+ * Copyright (c) 2014 McDonalds Corp. All rights reserved.
+ *
+ */
+
+//const CASHLESS_GC = "CASHLESS_GC";
+
+// Verifone/Point result codes
+var CASHLESS_SUCCESS = 				-1;
+var CASHLESS_UNKNOWN = 				 0;
+var CASHLESS_SETTLED = 				 2;
+var CASHLESS_CAPTURED =				 4;
+var CASHLESS_APPROVED = 			 5;
+var CASHLESS_DECLINED = 			 6;
+var CASHLESS_VOIDED = 				 7;
+var CASHLESS_COMPLETED = 			10;
+var CASHLESS_PARTCOMP = 			16;
+var CASHLESS_TIMEOUT_REVERSAL = 	22;
+var CASHLESS_TIMEOUT =				23;
+var CASHLESS_DUPLICATE = 			56783;
+var CASHLESS_CANCELLED_BY_CUSTOMER = 	59001;
+var CASHLESS_DEVICE_BUSY =          59002;
+var CASHLESS_SESSION_IN_PROGRESS = 	59003;
+var CASHLESS_NO_SESSION = 			59004;
+var CASHLESS_CARD_DATA_NOT_VALID =   59009;  // NVS-1953  RPS 2-20-2015
+var CASHLESS_UNABLE_TO_PAIR = 		60002;
+var CASHLESS_NPSHARP_TIMEOUT = 		60003;
+var CASHLESS_SIGNATURE_TIMEOUT =    60006;
+var CASHLESS_CARD_SWIPED =          70000;
+
+var CASHLESS_STATUS_IDLE =          11;
+
+var CASHLESS_INSUFFICIENT_FUNDS = 	"01: Insufficient Funds. ";
+var CASHLESS_UNKNOWN_ACCOUNT = 		"03: Unknown account ";
+var CASHLESS_INACTIVE = 			"inactive";  //NVS-1932  RPS 2-20-2015
+var CASHLESS_ALREADY_ACTIVE = 		" active";
+var CASHLESS_MAX_RELOAD_EXCEEDED =  "max bal";  // NVS-1841  rps 2/3/2015
+var CASHLESS_INVALID_BIN = 			"73: Invalid BIN. ";
+
+var REMOTE_RETURN_VALUE = "";
+var REMOTE_PAIRING_SCREEN = "4003";
+var REMOTE_POS_ID = "";
+var CALLING_POS_NO = "";
+var REMOTE_OPEN_POS_LIST = "";
+var SILENT_OPEN = false;
+
+var cashlessLoaded = false;
+var glo_GiftCard_Footer = "";
+var glo_MerchantID = "";
+var glo_CashlessSignLimit = 25.;
+var glo_CashlessRefundInfo = -1;
+var dlgTimeout = "_TIMEOUT:" + 3;  //TODO: timeout not working as expected
+
+var LISTENER_IP = "";
+var LISTENER_PORT = "";
+var POS_ID = "";
+var NODE_NAME = "";
+var POS_TYPE = "";
+var PED_IP = "";
+var STORE_NUM = "";
+var LANE_ID = "";
+var GENERAL_TIMEOUT;
+
+function CheckCashlessParam(sectionName, paramName, paramValue) {
+	return PosExecuteBC("PosCheckParameter", [sectionName, paramName, paramValue]);
+}
+
+//NVS-4561 - msilva - Validate POS type then displays the proper message box.
+function ShowCashlessMessage(msg, arg1, arg2, arg3){
+	
+	var isKiosk = (POS_TYPE == "CSO");
+	var params = "";
+	var isModal = false;
+	var isTimed = false;
+
+
+	var loop;
+	for (loop = 1; loop < arguments.length; loop++)
+	{
+		if (arguments[loop] != undefined && arguments[loop] != null && arguments[loop] != "")
+		{
+			params = arguments[loop].toString();
+			isModal = params.indexOf("MODAL") > -1;
+			isTimed = params.indexOf("TIMEOUT:") > -1;
+		}
+		if (isModal == true || isTimed == true)
+		{
+			break;
+		}
+	}
+
+	if(isKiosk && !isModal){
+		
+		var parameters = new Array();
+		var values = new Array();
+		var result;
+		
+		if(isTimed)
+		{
+			var index = params.indexOf("TIMEOUT:") + 8;
+			var timeout = params.substring(index, params.length);
+			if(timeout == undefined) {
+				timeout = -1;
+			}
+			
+			//parameters.push(new Array("Timeout", timeout));
+			//values = new Array(1);
+			result = PosNGKDoShowImageMessageJSCOE("", timeout, "", "", "", msg);
+			
+		}else{
+			//parameters = new Array("OK");
+			//values = ["true", "false"];
+			result = PosCSOSendSyncMessageJS("DLG_NGK_SIMPLE_MSG", new Array("OK"), ["true", "false"], msg);
+		}
+		
+		if(result == null || result == "-1")
+		{
+			PosSetSessionProperty("NGK_PINPAD_TIMEDOUT","true");
+		}
+	
+		if (result === null){
+			return false;
+		}else{
+			return true;
+		}
+	}else{
+		return PosExecuteBC("PosShowMessage", [msg,arg1, arg2, arg3]);
+	}
+	
+
+}
+
+/*
+ * This function gets the Cashless Service for Cashless 3.0 and SP7 Patch 9 or later. 
+ * NVS-4916 12-Sep-2016 John Brancaleon
+ */
+function GetCashlessService()
+{
+                var cashless30 = new NpSharpService("iCashless", NODE_NAME); 
+                return cashless30;
+}
+
+
+/*
+ *  This is the function that gets called at
+ *  POS startup if Cashless3 is configured
+ */
+function LoadCashless() {
+
+	if(cashlessLoaded) {
+		return true;
+	}
+	
+	// Perform TEST_MAC to check if PED is online
+	var resp = TestMAC();	
+	if(resp != null && (resp.RESULT_CODE == CASHLESS_SUCCESS || resp.RESULT_CODE == CASHLESS_SESSION_IN_PROGRESS)) {
+		// successfully tested MAC, OR got "session in progress" response...which tells us the PED is at least online and responding
+		// if we have an open session let's close it.  It causes more problems to leave it open than to deal with it not being open later.
+		if (resp.RESULT_CODE == CASHLESS_SESSION_IN_PROGRESS) {
+			StopCashlessSession();
+		}
+		cashlessLoaded = true;
+		return true;
+	}
+	else {
+		ShowCashlessMessage("MSG_BC_GC_NOT_AVAILABLE");
+		return false;
+	}
+}
+
+
+function SetUpCashless() {
+	// determine if this device has a PED/has Cashless3.0 enabled, if not bail/return false
+	if(!CheckCashlessParam("Cashless3", "Active", "true")) {
+		return false;
+	}	
+
+	PosSetSessionProperty("SITETOTALSCOMPLETE", "false", false, true);
+	PosSetSessionProperty("SENDMOBILECUTOVER", "false", false, true);
+
+	var hlp = new BusinessObjectHelper;
+	PED_IP = hlp.findParamInSectionConfig("PEDip","Cashless3");
+	LISTENER_IP = hlp.findParamInSectionConfig("ListenerIP","Cashless3");
+	LISTENER_PORT = hlp.findParamInSectionConfig("ListenerPort","Cashless3");
+	if (PED_IP == "" || PED_IP == null) {
+		// No PED configured for this device
+		return false;
+	}
+	
+	// Pull other settings from store-db/pos-db
+	var cfgXML;
+	// This section redone to address the issues of NVS-1784  RPS  1/13/2015
+	try {
+		cfgXML = new XML(API.getPosdb());
+		POS_ID = cfgXML.Services.Service.(@type == "POS").@name;
+		POS_TYPE = hlp.findParamInSectionConfig("POD","PosType");
+		LANE_ID = POS_ID;
+		NODE_NAME = GetMyPosID();
+
+		cfgXML = new XML(API.getStoredb());
+		STORE_NUM = cfgXML.StoreDB.StoreProfile.StoreDetails.StoreId;
+		
+
+		var hlp = new BusinessObjectHelper;
+		GENERAL_TIMEOUT = hlp.findParamInSectionConfig("generalTimeout", "Cashless3");
+		if (GENERAL_TIMEOUT == null || GENERAL_TIMEOUT == "" || GENERAL_TIMEOUT < 1 || isNaN(GENERAL_TIMEOUT)) {
+			GENERAL_TIMEOUT = 3000;
+		}
+		glo_GiftCard_Footer = cfgXML.Adaptors.Adaptor.(@type == "npCLayer").Section.(@name == "AdditionalGiftCard").Parameter.(@name == "contact").@value;
+		if (glo_GiftCard_Footer == null || glo_GiftCard_Footer == "") {
+			glo_GiftCard_Footer="For gift card balance call\n1-877-458-2200\n";
+		}
+
+		// glo_MerchantID=npTCLXmlGetINI("Everest","MerchantID");
+		glo_MerchantID = "";
+		var CashlessSignLimit = cfgXML.Adaptors.Adaptor.(@type == "npCLayer").Section.(@name == "POSOptions").Parameter.(@name == "CashlessSignLimit").@value;
+		if ((CashlessSignLimit != null) && (CashlessSignLimit != "")) {
+			glo_CashlessSignLimit=Number(CashlessSignLimit);
+		}
+		else {
+			glo_CashlessSignLimit = 50.01;
+		}
+	} catch (e) {
+		API.dbg("SetUpCashless(): Error parsing store-db");
+		return false;
+	}
+
+	
+	LoadCashless();
+}
+
+function PosDisplayLaneOpenMessage30()
+{
+	/* NVS-4600 - msilva - Avoid call for npTCLEvalEx when cashless is not enabled */
+	// NVS-6551 - only display when operator is logged in.
+	if (PosCheckParameter("Cashless3","Active","true") && PosCheckState("POS_OpLogged"))
+	{
+		var message = rootHlp.findParamInSectionConfig("laneOpenMessage","Cashless3");
+		if (message == null) {
+			message = "Welcome to McDonald's";
+		}
+		
+		var response = ChangeIdleMessage30(message);
+		var maxTries = 10;
+		while (response != null && maxTries > 0 && response.RESULT_CODE == CASHLESS_DEVICE_BUSY)
+		{
+			TimedDelay(1000);
+			response = ChangeIdleMessage30(message);
+			maxTries--;
+		}
+	
+	}	
+}
+
+function PosDisplayPEDWaitingMessage()
+{
+	if (PosCheckState("POS_OpLogged") == true)
+	{
+		PosDisplayLaneOpenMessage30();
+	}
+	else
+	{
+		var message = hlp.findParamInSectionConfig("laneClosedMessage","Cashless3");
+		if (message == null) {
+			message = "This register is closed";
+		}
+		ChangeIdleMessage30(message);
+	}
+}
+
+function cashlessPayment30(tenderId,tenderValue,refund)
+{
+	if (POS_TYPE == "CSO")
+	{
+		return requestKIOSKPayment(tenderId,tenderValue,refund);
+	}
+	else
+	{
+		return requestNON_KIOSKPayment(tenderId,tenderValue,refund);
+	}
+}
+
+function requestKIOSKPayment(tenderId,tenderValue,refund)
+{
+	var result;
+	var bCont=false;
+	var bDupDetected = false;  // UQA-118
+	PosSetSessionProperty("NGK_PINPAD_TIMEDOUT", "false");
+
+	//API.dbg("JS cashlessPayment tenderId = [" + tenderId + "] tenderValue [" + tenderValue + "] refund [" + refund + "]");
+
+	if(!CheckCashlessParam("Cashless3", "Active", "true")) {
+		ShowCashlessMessage("MSG_BC_GC_NOT_AVAILABLE");
+		return false;
+	}
+
+	// Check to see if we have a session or can get one
+	if (CheckForOpenSession() == false) {
+		return false;
+	}
+	
+	//NPS-21904 - msilva
+	PosSetSessionProperty("CASHLESS_CARD_BALANCE", ""); 
+	PosSetSessionProperty("CASHLESS_CARD_NUMBER", "");
+	PosSetSessionProperty("CASHLESS_AUTH_CODE", "");
+	PosSetSessionProperty("CASHLESS_SEQUENCE_NUMBER", "");
+	
+	var CashlessAmount="0.00";
+	var tenderType="10";
+
+	var pedResponse;
+	if(refund == null) {
+		refund=false;
+	}
+	//NVS-4989 23-Aug-2016 John Brancaleon - remove the "Please Insert, Tap or Swipe Card" message from display
+	//ShowCashlessMessage("MWT_CASHLESS_SWIPE_EMV", "_NOMODAL:START");
+	do {
+		bCont = false; // Clear continue flag otherwise we get stuck in a loop  UQA-118
+		if(!refund) {
+			if (!bDupDetected) {
+				// for normal swipe
+				//NVS-4989 23-Aug-2016 John Brancaleon - remove the "Please Insert, Tap or Swipe Card" message from display
+				var displayMessage = ""; //"MWT_CASHLESS_SWIPE_EMV";
+				//pedResponse = ProcessPayment(displayMessage, tenderValue, "false", true, false);
+				var maxRetries = 5;
+				var currentTry = 0;
+					do {
+					//NVS-4991 15-AUG-2016 John Brancaleon - force the reswipe to be true (last parameter) to prevent the Request Authorization message from showing
+					pedResponse = ProcessPayment(displayMessage, tenderValue, "false", true, true);  
+					var resultCode;
+					if (pedResponse != null) {
+						resultCode = pedResponse.RESULT_CODE;
+					} else {
+						resultCode = -1;
+					}
+					if (Number(resultCode) == CASHLESS_DEVICE_BUSY) {
+						displayMessage = "MWT_CASHLESS_REQUEST";
+//API.dbg("RPS DEBUG:  Cashless device has replied BUSY");
+					}
+					currentTry++;
+				} while ((currentTry < maxRetries) && (Number(resultCode) == CASHLESS_DEVICE_BUSY));
+			}
+			else {
+				// for a duplicate swipe re-auth
+				pedResponse = ProcessPayment("MWT_CASHLESS_REQUEST", tenderValue, "true", true, true);
+				bDupDetected = false;
+			}
+		} else {
+			// handle refund
+			//NVS-446  LC 03/19/2012
+			if (!PosWayOnline()) {
+				ShowCashlessMessage("MSG_BC_GC_CASH_REFUND");
+				return false;
+			}
+			//# get the total cashless amount sold
+			var hlp = new BusinessObjectHelper();
+			var XMLArray = hlp.getReportXML("CASH","CONSOLIDATED","","","");
+			if((XMLArray != null) && (XMLArray.length > 0)) {
+				var CashRoot = new XML(XMLArray[1].toString());
+				if(CashRoot != null) {
+					//ShowCashlessMessage(CashRoot.@requestDataType);
+					var tender=CashRoot.CashDetails.Tenders.Tender.(@id == "10");
+					if(tender.length() > 0) {
+						//ShowCashlessMessage(tender[0].@drawerAmount);
+						CashlessAmount=tender[0].@drawerAmount;
+					}
+				}
+			}
+			//ShowCashlessMessage(tender[0].@drawerAmount);
+
+			if (Number(tenderValue) > Number(CashlessAmount)) {
+				ShowCashlessMessage("MSG_BC_GC_NOT_ENOUGH");
+				return false;
+			}
+			
+			currentTry = 0;
+			maxRetries = 5;
+			//NVS-4989 23-Aug-2016 John Brancaleon - remove the "Please Insert, Tap or Swipe Card" message from display
+			displayMessage = "";  //"MWT_CASHLESS_SWIPE_EMV";
+			do {
+				ShowCashlessMessage(displayMessage, "_NOMODAL:START");
+				pedResponse = CreditRequest(tenderValue);
+				pedResponse = SeeIfCardSwiped(pedResponse, false);
+				if (pedResponse != null) {
+					resultCode = pedResponse.RESULT_CODE;
+				} else {
+					result = -1;
+				}
+				//NVS-4989 23-Aug-2016 John Brancaleon - remove the "Please Insert, Tap or Swipe Card" message from display
+				//ShowCashlessMessage("MWT_CASHLESS_SWIPE_EMV", "_NOMODAL:END");
+				displayMessage = "MWT_CASHLESS_REQUEST";
+				currentTry++;
+			} while ((currentTry < maxRetries) && (Number(resultCode) == CASHLESS_DEVICE_BUSY));
+		
+		}
+
+		if(pedResponse == null || pedResponse == "") {
+			ShowCashlessMessage("MSG_BC_GC_NOT_AVAILABLE");
+			return false;
+		}
+
+		var errcode = pedResponse.RESULT_CODE;
+
+		if(!refund && errcode == CASHLESS_DUPLICATE && pedResponse.DUPLICATE_TRANSACTION == 1) {
+			
+			bCont = true;
+			
+			// NVS-2509 RPS 6/11/15
+			// While we were waiting for the Authorization, the customer may have
+			// hot the cancel button.  If they did, we'll treat this as not approving then
+			// duplicate
+			var currentStatus = GetStatusValue();
+			
+			if (currentStatus == CASHLESS_STATUS_IDLE) {
+				ShowCashlessMessage("MWT_CASHLESS_CANCEL_USER");
+				bCont = false;
+			}
+
+			
+
+			//NVS-1934
+			// If we don't accept the duplicate, we need to close the session and open a new one.
+			if (bCont == false) {
+				StopCashlessSession();
+				//StartCashlessSession(true, true);
+			}
+			
+			bDupDetected = bCont;  // Duplicate swipe and continue need to set to the same value here.  UQA-118
+			PosLogDuplicateSwipe(bCont);
+		}
+		if(errcode == CASHLESS_NO_SESSION) {
+			//session not open...try to open a session, then retry the payment request
+			if(IsC3P0ResponseSuccess(StartCashlessSession(false, false))) {
+				bCont = true;
+			}
+		}
+	} while(bCont); // && errcode == CASHLESS_DUPLICATE);
+
+
+	PosSetSessionProperty("CASHLESS_CANCELLED_BY_CUSTOMER","false");
+	PosSetSessionProperty("CASHLESS_CARD_INACTIVE","false");
+	if(errcode != CASHLESS_CAPTURED && errcode != CASHLESS_PARTCOMP && errcode != CASHLESS_APPROVED) {
+		// handle any failures
+		PosSetSessionProperty("CASHLESS_TENDERID","-1");
+		if(errcode == CASHLESS_CANCELLED_BY_CUSTOMER) {
+			// cancelled by customer
+			PosSetSessionProperty("CASHLESS_CANCELLED_BY_CUSTOMER","true");
+		} else if (errcode == CASHLESS_DEVICE_BUSY) {
+			ShowCashlessMessage("MWT_CASHLESS_BUSY");
+		} else if (Number(errcode) >= 60000 && Number(errcode) < CASHLESS_SIGNATURE_TIMEOUT) {
+			ShowCashlessMessage("MWT_CASHLESS_COMM_ERROR");
+		} else if(pedResponse.RESPONSE_TEXT == CASHLESS_INVALID_BIN || pedResponse.RESPONSE_TEXT == CASHLESS_UNKNOWN_ACCOUNT) {
+			// invalid card type
+			ShowCashlessMessage("MWT_CASHLESS_DECLINED3");
+		} else if (pedResponse.RESPONSE_TEXT.toLowerCase().search(CASHLESS_INACTIVE) != -1) { // NVS-1932 changed comparison to accommodate variations  RPS 12/31/14
+			// card not active
+			PosSetSessionProperty("CASHLESS_TENDERID","11");
+			PosSetSessionProperty("CASHLESS_CARD_INACTIVE","true");
+		} else if (pedResponse.RESPONSE_TEXT == CASHLESS_INSUFFICIENT_FUNDS) {
+			// insufficient funds
+			ShowCashlessMessage("MWT_CASHLESS_OUTOFBALANCE");
+		} else if (errcode == CASHLESS_TIMEOUT_REVERSAL || errcode == CASHLESS_TIMEOUT) {
+			// TOR response from PED
+			ShowCashlessMessage("MWT_CASHLESS_TIMEOUT2");
+		} 
+		
+		/* NVS-4993 JP
+		else if (errcode == CASHLESS_SIGNATURE_TIMEOUT) {
+			//NVS-7112 10-MAR-2017 John Brancaleon - change MWT_CASHLESS_TIMEOUT to CSO_CASHLESS_TIMEOUT 
+			ShowCashlessMessage("CSO_CASHLESS_TIMEOUT","_TIMEOUT:3");
+		} */
+		
+		else if (errcode == CASHLESS_NPSHARP_TIMEOUT) {
+			if(!IsC3P0ResponseSuccess(CancelTransaction())) {
+				// cancel failed...try void
+				//TODO: try void/refund
+				VoidTransaction();
+			}
+			ShowCashlessMessage("MWT_CASHLESS_TIMEOUT2");
+		}
+		return false;
+	} else if (errcode == CASHLESS_PARTCOMP) {
+		//	// partial approved
+		ShowCashlessMessage("MWT_CASHLESS_PART_APPROVED", dlgTimeout);
+	} else {
+		// approved
+		//NVS-1989
+		if (Number(tenderValue) > Number(pedResponse.APPROVED_AMOUNT)) {
+			if (Number(pedResponse.APPROVED_AMOUNT) == 0.00) {
+				// The assumption here is that this is a gift card transaction.
+				PosSetSessionProperty("CASHLESS_TENDERID","11");
+				return false;
+			} 
+		}
+	}
+
+	CompletPaymentRequest(pedResponse, refund, tenderType);
+
+
+	return true;
+}
+
+function requestNON_KIOSKPayment(tenderId,tenderValue,refund)
+{
+	var result;
+	var bCont=false;
+	var bDupDetected = false;  // UQA-118
+	PosSetSessionProperty("NGK_PINPAD_TIMEDOUT", "false");
+
+	//API.dbg("JS cashlessPayment tenderId = [" + tenderId + "] tenderValue [" + tenderValue + "] refund [" + refund + "]");
+
+	if(!CheckCashlessParam("Cashless3", "Active", "true")) {
+		ShowCashlessMessage("MSG_BC_GC_NOT_AVAILABLE");
+		return false;
+	}
+
+	// Check to see if we have a session or can get one
+	if (CheckForOpenSession() == false) {
+		return false;
+	}
+	
+	//NPS-21904 - msilva
+	PosSetSessionProperty("CASHLESS_CARD_BALANCE", ""); 	
+	PosSetSessionProperty("CASHLESS_CARD_NUMBER", "");
+	PosSetSessionProperty("CASHLESS_AUTH_CODE", "");
+	PosSetSessionProperty("CASHLESS_SEQUENCE_NUMBER", "");
+	
+	var CashlessAmount="0.00";
+	var tenderType="10";
+
+	var pedResponse;
+	if(refund == null) {
+		refund=false;
+	}
+	do {
+		bCont = false; // Clear continue flag otherwise we get stuck in a loop  UQA-118
+		if(!refund) {
+			if (!bDupDetected) {
+				// for normal swipe
+				
+				var displayMessage = "MWT_CASHLESS_SWIPE_EMV";
+				//pedResponse = ProcessPayment(displayMessage, tenderValue, "false", false, false);
+				var maxRetries = 5;
+				var currentTry = 0;
+					do {
+					
+					pedResponse = ProcessPayment(displayMessage, tenderValue, "false", false, false);
+					var resultCode;
+					if (pedResponse != null) {
+						resultCode = pedResponse.RESULT_CODE;
+					} else {
+						resultCode = -1;
+					}
+					if (Number(resultCode) == CASHLESS_DEVICE_BUSY) {
+						displayMessage = "MWT_CASHLESS_REQUEST";
+//API.dbg("RPS DEBUG:  Cashless device has replied BUSY");
+					}
+					currentTry++;
+				} while ((currentTry < maxRetries) && (Number(resultCode) == CASHLESS_DEVICE_BUSY));
+			}
+			else {
+				// for a duplicate swipe re-auth
+				pedResponse = ProcessPayment("MWT_CASHLESS_REQUEST", tenderValue, "true", false, true);
+				bDupDetected = false;
+			}
+		} else {
+			// handle refund
+			//NVS-446  LC 03/19/2012
+			if (!PosWayOnline()) {
+				ShowCashlessMessage("MSG_BC_GC_CASH_REFUND");
+				return false;
+			}
+			//# get the total cashless amount sold
+			var hlp = new BusinessObjectHelper();
+			var XMLArray = hlp.getReportXML("CASH","CONSOLIDATED","","","");
+			if((XMLArray != null) && (XMLArray.length > 0)) {
+				var CashRoot = new XML(XMLArray[1].toString());
+				if(CashRoot != null) {
+					//ShowCashlessMessage(CashRoot.@requestDataType);
+					var tender=CashRoot.CashDetails.Tenders.Tender.(@id == "10");
+					if(tender.length() > 0) {
+						//ShowCashlessMessage(tender[0].@drawerAmount);
+						CashlessAmount=tender[0].@drawerAmount;
+					}
+				}
+			}
+			//ShowCashlessMessage(tender[0].@drawerAmount);
+
+			if (Number(tenderValue) > Number(CashlessAmount)) {
+				ShowCashlessMessage("MSG_BC_GC_NOT_ENOUGH");
+				return false;
+			}
+			
+			currentTry = 0;
+			maxRetries = 5;
+			
+			displayMessage = "MWT_CASHLESS_SWIPE_EMV";
+			do {
+				ShowCashlessMessage(displayMessage, "_NOMODAL:START");
+				pedResponse = CreditRequest(tenderValue);
+				pedResponse = SeeIfCardSwiped(pedResponse, false);
+				if (pedResponse != null) {
+					resultCode = pedResponse.RESULT_CODE;
+				} else {
+					result = -1;
+				}
+				ShowCashlessMessage("MWT_CASHLESS_SWIPE_EMV", "_NOMODAL:END");
+				displayMessage = "MWT_CASHLESS_REQUEST";
+				currentTry++;
+			} while ((currentTry < maxRetries) && (Number(resultCode) == CASHLESS_DEVICE_BUSY));
+		
+		}
+
+		if(pedResponse == null || pedResponse == "") {
+			ShowCashlessMessage("MSG_BC_GC_NOT_AVAILABLE");
+			return false;
+		}
+
+		var errcode = pedResponse.RESULT_CODE;
+
+		if(!refund && errcode == CASHLESS_DUPLICATE && pedResponse.DUPLICATE_TRANSACTION == 1) {
+			ShowCashlessMessage("MWT_CASHLESS_DUPESWIPE"); 			
+			bCont = PosGetAuthorization("manager");
+			
+			// NVS-2509 RPS 6/11/15
+			// While we were waiting for the Authorization, the customer may have
+			// hot the cancel button.  If they did, we'll treat this as not approving then
+			// duplicate
+			var currentStatus = GetStatusValue();
+			
+			if (currentStatus == CASHLESS_STATUS_IDLE) {
+				ShowCashlessMessage("MWT_CASHLESS_CANCEL_USER");
+				bCont = false;
+			}
+
+			
+
+			//NVS-1934
+			// If we don't accept the duplicate, we need to close the session and open a new one.
+			if (bCont == false) {
+				StopCashlessSession();
+				//StartCashlessSession(true, true);
+			}
+			
+			bDupDetected = bCont;  // Duplicate swipe and continue need to set to the same value here.  UQA-118
+			PosLogDuplicateSwipe(bCont);
+		}
+		if(errcode == CASHLESS_NO_SESSION) {
+			//session not open...try to open a session, then retry the payment request
+			if(IsC3P0ResponseSuccess(StartCashlessSession(false, false))) {
+				bCont = true;
+			}
+		}
+	} while(bCont); // && errcode == CASHLESS_DUPLICATE);
+
+
+	PosSetSessionProperty("CASHLESS_CANCELLED_BY_CUSTOMER","false");
+	PosSetSessionProperty("CASHLESS_CARD_INACTIVE","false");
+	if(errcode != CASHLESS_CAPTURED && errcode != CASHLESS_PARTCOMP && errcode != CASHLESS_APPROVED) {
+		// handle any failures
+		PosSetSessionProperty("CASHLESS_TENDERID","-1");
+		if(errcode == CASHLESS_CANCELLED_BY_CUSTOMER) {
+			// cancelled by customer
+			ShowCashlessMessage("MWT_CASHLESS_CANCEL_USER");
+		} else if (errcode == CASHLESS_DEVICE_BUSY) {
+			ShowCashlessMessage("MWT_CASHLESS_BUSY");
+		} else if (Number(errcode) >= 60000 && Number(errcode) < CASHLESS_SIGNATURE_TIMEOUT) {
+			ShowCashlessMessage("MWT_CASHLESS_COMM_ERROR");
+		} else if(pedResponse.RESPONSE_TEXT == CASHLESS_INVALID_BIN || pedResponse.RESPONSE_TEXT == CASHLESS_UNKNOWN_ACCOUNT) {
+			// invalid card type
+			ShowCashlessMessage("MWT_CASHLESS_DECLINED3");
+		} else if (pedResponse.RESPONSE_TEXT.toLowerCase().search(CASHLESS_INACTIVE) != -1) { // NVS-1932 changed comparison to accommodate variations  RPS 12/31/14
+			// card not active
+			ShowCashlessMessage("MWT_CASHLESS_NOT_ACTIVATED2");
+		} else if (pedResponse.RESPONSE_TEXT == CASHLESS_INSUFFICIENT_FUNDS) {
+			// insufficient funds
+			ShowCashlessMessage("MWT_CASHLESS_OUTOFBALANCE");
+		} else if (errcode == CASHLESS_TIMEOUT_REVERSAL || errcode == CASHLESS_TIMEOUT) {
+			// TOR response from PED
+			ShowCashlessMessage("MWT_CASHLESS_TIMEOUT2");
+		} else if (errcode == CASHLESS_SIGNATURE_TIMEOUT) {
+			ShowCashlessMessage("MWT_CASHLESS_TIMEOUT");
+		} else if (errcode == CASHLESS_NPSHARP_TIMEOUT) {
+			if(!IsC3P0ResponseSuccess(CancelTransaction())) {
+				// cancel failed...try void
+				//TODO: try void/refund
+				VoidTransaction();
+			}
+			ShowCashlessMessage("MWT_CASHLESS_TIMEOUT2");
+		} else {
+			if (errcode != CASHLESS_DUPLICATE) {
+				ShowCashlessMessage("MWT_CASHLESS_DECLINED");
+			}
+		}
+		return false;
+	} else if (errcode == CASHLESS_PARTCOMP) {
+		//	// partial approved
+		ShowCashlessMessage("MWT_CASHLESS_PART_APPROVED", dlgTimeout);
+	} else {
+		// approved
+		//NVS-1989
+		if (Number(tenderValue) > Number(pedResponse.APPROVED_AMOUNT)) {
+			if (Number(pedResponse.APPROVED_AMOUNT) == 0.00) {
+				// The assumption here is that this is a gift card transaction.
+				ShowCashlessMessage("MWT_CASHLESS_OUTOFBALANCE", dlgTimeout);
+				PosSetSessionProperty("CASHLESS_TENDERID","11");
+				return false;
+			} else {
+				ShowCashlessMessage("MWT_CASHLESS_PART_APPROVED", dlgTimeout);
+			}
+		} else {
+			var ctx =new SessionContext;
+			ctx.set("msgTimeout",2000,false);
+			
+			ShowCashlessMessage("MWT_CASHLESS_APPROVED", "_TIMEOUT:msgTimeout"); 
+		}
+	}
+
+	CompletPaymentRequest(pedResponse, refund, tenderType);
+	return true;
+}
+
+function CompletPaymentRequest(pedResponse, refund, tenderType)
+{
+	CashLessStr = FormatCashlessString(pedResponse, pedResponse.APPROVED_AMOUNT, true, refund, true, false);
+
+	var printFlag = ExtractPrintFlag(CashLessStr);
+
+	//ShowCashlessMessage(CashLessStr);
+	//API.dbg("JS cashlessPayment CASHLESS = [" + CashLessStr + "]");
+
+	var bOpenDrawer=(refund) ? "0" : printFlag;
+	// 0 - do not open drawer
+	// 1 - open drawer to receive the signed receipt
+
+	/* NVS-190 JWC 4/1/10 */
+	if(bOpenDrawer == 1){
+		PosSetSessionProperty("CASHLESS_OPENDRAWER",bOpenDrawer,"true");
+	}
+
+	var Value = ExtraValue(CashLessStr);
+	var providername = ExtractProvider(CashLessStr);
+	if(pedResponse.PAYMENT_TYPE == "GC" || pedResponse.PAYMENT_TYPE == "GIFT") {
+		tenderType="11";
+	}
+	PosSetSessionProperty("CASHLESS_TENDERID",tenderType);
+	PosSetSessionProperty("CASHLESS_VALUE",Value);
+	PosSetSessionProperty("CASHLESS_PROVIDER",providername);
+	//NPS-21904 - msilva
+	var gcBalance = ExtractGCBalance(CashLessStr);
+	var cardnum = ExtractCardNumber(CashLessStr);
+	var auth = ExtractAuth(CashLessStr);
+	var seqno = ExtractSeqNumber(CashLessStr);
+	PosSetSessionProperty("CASHLESS_CARD_BALANCE", gcBalance); 
+	PosSetSessionProperty("CASHLESS_CARD_NUMBER", cardnum);
+	PosSetSessionProperty("CASHLESS_AUTH_CODE", auth);
+	PosSetSessionProperty("CASHLESS_SEQUENCE_NUMBER", seqno); 	
+	
+}
+
+function CheckForDeclineReceipt(pedResponse) {
+	if(!CheckCashlessParam("Cashless3", "PrintDeclineReceipt", "true")) {
+		return false;
+	}	
+	
+	if (pedResponse.EMV_CVM == "SIGNATURE" && (pedResponse.EMV_CHIP_INDICATOR == "CHIP READ" || pedResponse.EMV_CHIP_INDICATOR == "CONTACT")) {
+		PosCreateReport("VIEW", "EMVDeclineReceipt@reports.nps", "NOPREVIEW|SAVE", pedResponse.toString());
+	}
+}
+
+function ProcessPayment(displayMessage, tenderValue, allowDuplicateSwipe, isKiosk, kioskReswipe) {
+
+	if (isKiosk == false || kioskReswipe == false)
+	{
+		ShowCashlessMessage(displayMessage, "_NOMODAL:START");
+	}
+	
+	var pedResponse = PaymentRequest(tenderValue, "false", allowDuplicateSwipe);
+	pedResponse = SeeIfCardSwiped(pedResponse, kioskReswipe);
+	var returnCode;
+	
+	// NVS-2023  we must prevent working with a null pedResponse, it's OK for it to be null
+	// we just need to avoid referencing it while it is null
+	if (pedResponse != null) {
+		returnCode = Number(pedResponse.RESULT_CODE);
+	} else {
+		returnCode = Number(60003);  // indicates a communication error
+	}
+	
+	if (returnCode == Number(CASHLESS_NO_SESSION) || (returnCode >= 60000 && returnCode < Number(CASHLESS_SIGNATURE_TIMEOUT))) {
+		StartCashlessSession(false, false);
+		pedResponse = PaymentRequest(tenderValue, "false", allowDuplicateSwipe);
+		pedResponse = SeeIfCardSwiped(pedResponse, kioskReswipe);
+	}
+	
+	if (isKiosk == false || (isKiosk == true && Number(pedResponse.RESULT_CODE) != CASHLESS_DUPLICATE && Number(pedResponse.RESULT_CODE) != CASHLESS_DEVICE_BUSY))
+	{
+		ShowCashlessMessage(displayMessage, "_NOMODAL:END");
+	}
+	
+	return pedResponse;
+}
+
+function CheckForOpenSession()
+{
+	var returnValue = false;
+	
+	// First Check get the status and check for an open session
+	var response = GetStatus();
+	if (response != null)
+	{
+		// If the secondary data is "10" we do not have an open Session
+		// 33 means last thing we sent was lane closed
+		if (response.SECONDARY_DATA == "10" || response.SECONDARY_DATA == "33")
+		{
+			// OK we can talk to the PED, can we open a session?
+			response = StartCashlessSession(false, false);
+			if (response != null)
+			{
+				if (response.RESULT_CODE == "-1")
+				{
+					returnValue = true;
+				}
+			}
+		}
+		else if (response.SECONDARY_DATA == "22")
+		{
+			// The PED is in a weird state
+			returnValue = false;
+		}
+		else
+		{
+			if (response.RESULT_CODE == "-1") {
+				returnValue = true;
+			}
+		}
+	}
+	
+	// If we can't open a session, display the unavailable message
+	if (returnValue == false)
+	{
+		ShowCashlessMessage("MWT_CASHLESS_COMM_ERROR");
+	}
+	
+	return returnValue;
+}
+
+function SeeIfCardSwiped(pedResponse, kioskReswipe)
+{
+	if (pedResponse != null) {
+		if (Number(pedResponse.RESULT_CODE) == CASHLESS_CARD_SWIPED) {
+			if (!kioskReswipe)
+			{
+				ShowCashlessMessage("", "_NOMODAL:END");
+			ShowCashlessMessage("MWT_CASHLESS_REQUEST", "_NOMODAL:START");
+			}
+			pedResponse = GetPaymentResponse();
+		}
+	}
+	
+	return pedResponse;
+}
+function PosCashlessPayment30(tenderId,tenderValue) {
+     return cashlessPayment(tenderId,tenderValue,false);
+}
+
+function PosRefundCashlessPayment30(tenderId,tenderValue) {
+     return cashlessPayment(tenderId,tenderValue,true);
+}
+
+// call at end of each sale
+function PosCashlessEndOfSale30() {
+	// stop any open cashless session
+	//StopCashlessSession();  //NVS-1988
+	return true;
+}
+
+function PosResetPinpad30() {
+
+	//ShowCashlessMessage("JS PosResetPinpad");
+	//API.dbg("JS PosResetPinpad");
+	/* PosSetSessionProperty("CASHLESS_STATUS",""); */
+	PosSetSessionProperty("CASHLESS_STATUS","0","true"); //NVS-6328
+	PosSetSessionProperty("CASHLESS_VALUE","");
+	PosSetSessionProperty("CASHLESS_PROVIDER","");
+	PosSetSessionProperty("NGK_PINPAD_TIMEDOUT","false");
+	if(!CheckCashlessParam("Cashless3", "Active", "true")) {
+		return false;
+	}
+	// JC DBG: no command to Reset Pinpad in Cashless3...just return true?
+	return true;
+}
+
+/*
+*   Reset Everest
+*   Gets called on button press.  Attempt to test communication w PED
+*   Close any open session 
+*/
+function ResetEverest30()
+{
+	DiagnosePED();
+ }
+
+
+/** PosActivateGCJS
+ *
+ * @brief - This function implements the BC,Business Component: <b>PosActivateGCJS</b>\n
+ * This BC activates GC!\n
+ * In a workflow sequence it is called:<b>PosActivateGCJS $Amount</b>\n
+ * In java script it should be called:<b>PosActivateGCJS(Amount)</b>\n
+ * Where: nAmount - string - (numeric value) Amount of gift card
+ * Return - rval - True if possible
+ */
+function PosActivateGCJS30(GCValue,reload) {
+
+	//API.dbg("PosActivateGCJS GCValue [" + GCValue + "]");
+
+	if(!CheckCashlessParam("Cashless3", "Active", "true")) {
+		ShowCashlessMessage("MSG_BC_GC_NOT_AVAILABLE");
+		return false;
+	}
+
+	var pedResponse;
+	var retry = false;
+	do {
+		ShowCashlessMessage("MWT_CASHLESS_SWIPE_EMV", "_NOMODAL:START");	
+		// Amount operation
+		if(reload) {
+			pedResponse = GCAdd(GCValue);
+			pedResponse = SeeIfCardSwiped(pedResponse, false);
+		}
+		else {
+			pedResponse = GCActivate(GCValue); 
+			pedResponse = SeeIfCardSwiped(pedResponse, false);
+		}
+		ShowCashlessMessage("MWT_CASHLESS_SWIPE_EMV", "_NOMODAL:END");
+		
+		if(pedResponse == null || pedResponse == "") {
+			ShowCashlessMessage("MSG_BC_GC_NOT_AVAILABLE");
+			return false;
+		}
+
+		var errcode = pedResponse.RESULT_CODE;
+		retry = false;
+
+		if(errcode != CASHLESS_CAPTURED && errcode != CASHLESS_APPROVED) {
+			if (pedResponse.RESPONSE_TEXT.toLowerCase().search(CASHLESS_ALREADY_ACTIVE) != -1) {
+				// card already active
+				retry = PosShowConfirmationMessage("MWT_CASHLESS_ALREADY_ACTIVE", "MSG_OK", "MSG_CANCEL");
+			} else if(errcode == CASHLESS_CARD_DATA_NOT_VALID || pedResponse.RESPONSE_TEXT == CASHLESS_INVALID_BIN || pedResponse.RESPONSE_TEXT == CASHLESS_UNKNOWN_ACCOUNT) {  // NVS-1953
+				// invalid card type
+				if(reload) {
+					ShowCashlessMessage("MWT_CASHLESS_NOT_ACCEPTED1");  // NVS-1789
+					retry = false;
+					//retry = PosShowConfirmationMessage("MWT_CASHLESS_NOT_GC2", "MSG_OK", "MSG_CANCEL");
+				}
+				else {
+					ShowCashlessMessage("MWT_CASHLESS_NOT_ACCEPTED1");  // NVS-1789
+					retry = false;
+					//retry = PosShowConfirmationMessage("MWT_CASHLESS_NOT_GC1", "MSG_OK", "MSG_CANCEL");
+				}
+			} else if (pedResponse.RESPONSE_TEXT.toLowerCase().search(CASHLESS_INACTIVE) != -1) { // NVS-1932 changed comparison to accommodate variations  RPS 12/31/14
+				// card not active
+				retry = PosShowConfirmationMessage("MWT_CASHLESS_NOT_ACTIVATED1", "MSG_OK", "MSG_CANCEL");
+			} else if(errcode == CASHLESS_CANCELLED_BY_CUSTOMER) {
+				// user cancelled on PED
+				ShowCashlessMessage("MWT_CASHLESS_CANCEL_USER");
+			} else if(errcode == CASHLESS_TIMEOUT_REVERSAL || errcode == CASHLESS_TIMEOUT) {
+				// timed out TOR
+				ShowCashlessMessage("MWT_CASHLESS_TIMEOUT2");
+			} else if (errcode == CASHLESS_SIGNATURE_TIMEOUT) {
+				retry = PosShowConfirmationMessage("MWT_CASHLESS_SIGNATURE_TIMEOUT", "MSG_OK", "MSG_CANCEL");
+			} else if (errcode == CASHLESS_NPSHARP_TIMEOUT) {
+				if (CheckStatus() == true) {
+					if(!IsC3P0ResponseSuccess(CancelTransaction())) {
+						// cancel failed...try void
+						//TODO: try void/refund
+						VoidTransaction();
+					}
+				}
+				ShowCashlessMessage("MWT_CASHLESS_TIMEOUT2");
+			} else if(errcode == CASHLESS_NO_SESSION) {
+				//session not open...try to open a session, then retry
+				if(IsC3P0ResponseSuccess(StartCashlessSession(false, false))) {
+					retry = true;
+				}
+			} else if (pedResponse.RESPONSE_TEXT.toLowerCase().search(CASHLESS_MAX_RELOAD_EXCEEDED) != -1) {   // NVS-1841  RPS 2/3/2015
+				if (reload) {
+					retry = PosShowConfirmationMessage("MWT_CASHLESS_GC_UNABLE_TO_RELOAD", "MSG_OK", "MSG_CANCEL");
+				} else {  // not really sure this can happen, just display generic activate error for now
+					retry = PosShowConfirmationMessage("MWT_CASHLESS_ACT_ERROR", "MSG_OK", "MSG_CANCEL");
+				}
+			} else {
+				//other failure
+				if(reload) {
+					retry = PosShowConfirmationMessage("MWT_CASHLESS_REL_ERROR", "MSG_OK", "MSG_CANCEL");
+				} else {
+					retry = PosShowConfirmationMessage("MWT_CASHLESS_ACT_ERROR", "MSG_OK", "MSG_CANCEL");
+				}
+			}
+
+			if(!retry) {
+				if(PosNotATransactionInProgress(true) ){
+					StopCashlessSession();
+				}
+				return false;
+			}
+		}
+		else {
+			var ctx =new SessionContext;
+			// NVS-2418 changed name of session parameter to avoid conflict when this function is called from
+			// BCevents.nps activation function
+			ctx.set("msg2Timeout",2000,false);
+			ShowCashlessMessage("MWT_CASHLESS_APPROVED", "_TIMEOUT:msg2Timeout");
+		}
+	} while (retry);
+
+
+	CashLessStr = FormatCashlessString(pedResponse, GCValue, false, false, false, true);
+
+	PosSetSessionProperty(CASHLESS_GC,CashLessStr);
+	//ShowCashlessMessage(CashLessStr);
+	//API.dbg("PosActivateGCJS CASHLESS_GC = [" + CashLessStr + "]");
+
+	return(true);
+}
+
+/*
+#
+# GCBalanceJS - Shows the Gift Card Balance
+#
+*/
+function GCBalanceJS30 ()
+{
+	PosSetSessionProperty(CASHLESS_GC,"");
+	//ShowCashlessMessage("GCBalanceJS ...");
+	if(!CheckCashlessParam("Cashless3", "Active", "true")) {
+		ShowCashlessMessage("MSG_BC_GC_NOT_AVAILABLE");
+		return null;
+	}
+	
+	var hlp = new BusinessObjectHelper;
+	var pedResponse;
+	var retry = false;
+
+	do {
+		// Amount operation
+		hlp.stopResumeScreenTimeout(false);
+		ShowCashlessMessage("MWT_CASHLESS_SWIPE_EMV", "_NOMODAL:START");
+		pedResponse = CheckGCBalance(); 
+		pedResponse = SeeIfCardSwiped(pedResponse, false);
+		// NVS-4391 Need to clean up the state file since the getpayemnt response will leave one
+		CleanStateFile();
+		ShowCashlessMessage("MWT_CASHLESS_SWIPE_EMV", "_NOMODAL:END");
+		hlp.stopResumeScreenTimeout(true);
+		
+		if(pedResponse == null || pedResponse == "") {
+			ShowCashlessMessage("MSG_BC_GC_NOT_AVAILABLE");
+			return null;
+		}
+
+		var errcode = pedResponse.RESULT_CODE;
+		retry = false;
+
+		if(errcode != CASHLESS_CAPTURED && errcode != CASHLESS_APPROVED) {
+			if(errcode == CASHLESS_CARD_DATA_NOT_VALID || pedResponse.RESPONSE_TEXT == CASHLESS_INVALID_BIN || pedResponse.RESPONSE_TEXT == CASHLESS_UNKNOWN_ACCOUNT) { // NVS-1953
+				// invalid card type
+				ShowCashlessMessage("MWT_CASHLESS_NOT_GC3");
+			} else if (pedResponse.RESPONSE_TEXT.toLowerCase().search(CASHLESS_INACTIVE) != -1) { // NVS-1932 changed comparison to accommodate variations  RPS 12/31/14
+				// card not active
+				retry = PosShowConfirmationMessage("MWT_CASHLESS_NOT_ACTIVATED1", "MSG_OK", "MSG_CANCEL");
+			} else if(errcode == CASHLESS_CANCELLED_BY_CUSTOMER) {
+				// cancelled by customer at PED
+				ShowCashlessMessage("MWT_CASHLESS_CANCEL_USER");
+			} else if(errcode == CASHLESS_TIMEOUT_REVERSAL || errcode == CASHLESS_TIMEOUT) {
+				// TOR response
+				ShowCashlessMessage("MWT_CASHLESS_TIMEOUT2");
+			} else if (errcode == CASHLESS_SIGNATURE_TIMEOUT) {
+				retry = PosShowConfirmationMessage("MWT_CASHLESS_SIGNATURE_TIMEOUT", "MSG_OK", "MSG_CANCEL");
+			} else if(errcode == CASHLESS_NO_SESSION) {
+				//session not open...try to open a session, then retry
+				if(IsC3P0ResponseSuccess(StartCashlessSession(false, false))) {
+					retry = true;
+				}
+			} else if (errcode == CASHLESS_NPSHARP_TIMEOUT) {
+				// The plugin did not receive a response, there are a couple of causes for this
+				ShowCashlessMessage("MWT_CASHLESS_TIMEOUT2");
+			} else {
+				ShowCashlessMessage("MWT_CASHLESS_DECLINED");
+			}
+			
+			if(!retry) {
+				if(PosNotATransactionInProgress(true) ){
+					// no trans in progress, close any cashless session
+					StopCashlessSession();
+				}
+				PosDisplayPEDWaitingMessage();
+				return null;
+			}
+		}
+		else  {
+			// success
+			ShowCashlessMessage("MWT_CASHLESS_BALANCE", pedResponse.AVAILABLE_BALANCE);
+		}
+	} while (retry);
+	//NVS-7185 15-MAR-2017 John Brancaleon - Add back blank line after cashless sale
+	CashLessStr = FormatCashlessString(pedResponse, pedResponse.AVAILABLE_BALANCE, false, false, false, true) + "\n";	//NVS-7185
+	
+	/* NVS-369 JWC 1/28/2011 */
+	PosSetSessionProperty("CASHLESS_STATUS","0");
+
+	if(PosNotATransactionInProgress(true) ){
+		// no trans in progress, close any cashless session
+		PosDisplayPEDWaitingMessage();
+	}
+	return(CashLessStr);
+}
+
+/*
+#
+# GCCashOutJS - Cash out a gift card
+#
+*/
+function GCCashOutJS30(maxCashOut)
+{
+	var RetValue = true;
+	
+	var cfgXML;
+	var cashoutThreshold;
+	try {
+		cfgXML = new XML(API.getStoredb());
+		// get cashout threshold from store-db
+		cashoutThreshold = cfgXML.Adaptors.Adaptor.(@type == "npCLayer").Section.(@name == "AdditionalGiftCard").Parameter.(@name == "cashout_thold").@value;
+		if(cashoutThreshold == null || cashoutThreshold == "") {
+			// not found...use default cashout threshold
+			cashoutThreshold = "4.99";
+		}
+	
+	} catch (e) {
+		API.dbg("GCCashOutJS(): Error retrieving cashout_thold, using default of 4.99");
+		cashoutThreshold = "4.99";
+	}
+	
+	PosSetSessionProperty(CASHLESS_GC,"");
+
+	//ShowCashlessMessage("GCCashOutJS ...");
+
+	if(!CheckCashlessParam("Cashless3", "Active", "true")) {
+		ShowCashlessMessage("MSG_BC_GC_NOT_AVAILABLE");
+		return false;
+	}
+
+	// We can only do a cashout when an order is NOT in progress... so make sure we open a cashless session
+	if(!PosCheckSessionProperty("CashlessSessionInProgress", "true")){
+		// no session is open -- try to start one
+		if(!IsC3P0ResponseSuccess(StartCashlessSession(false, false))) {
+			API.dbg("CashOutGC failed -- no session is open!"); 
+			ShowCashlessMessage("MSG_BC_GC_NOT_AVAILABLE");  // NVS-1764
+			return false;
+		}
+	}
+
+	var pedResponse;
+	var Value = 0;
+	ShowCashlessMessage("MWT_CASHLESS_SWIPE_EMV", "_NOMODAL:START");
+	pedResponse = CheckGCBalance();
+	pedResponse = SeeIfCardSwiped(pedResponse, false);
+	ShowCashlessMessage("MWT_CASHLESS_SWIPE_EMV", "_NOMODAL:END");
+	
+	
+	if(pedResponse == null || pedResponse == "") {
+		ShowCashlessMessage("MSG_BC_GC_NOT_AVAILABLE");
+		//StopCashlessSession();  // NVS-1835
+		PosDisplayPEDWaitingMessage();
+		return false;
+	}
+
+	// NVS-2372 moved this assignment after the above check to prevent a null access error
+	// UQA-118 Needed to declare and set this value  RPS 12/15/2014
+	var errcode = pedResponse.RESULT_CODE;
+
+	if(pedResponse.RESULT_CODE == CASHLESS_CAPTURED || pedResponse.RESULT_CODE == CASHLESS_APPROVED) {
+		Value = pedResponse.AVAILABLE_BALANCE;
+		if(Number(Value) > Number(cashoutThreshold)) {
+			// balance is over the threshold, can't cash out
+			ShowCashlessMessage("MWT_CASHLESS_GC_CASHOUT_EXCESS", Value, cashoutThreshold);
+			PosDisplayPEDWaitingMessage();
+			return false;
+		}
+		if(Number(Value) > Number(maxCashOut)) {
+			// not enough cash in drawer
+			ShowCashlessMessage("MWT_CASHLESS_GC_CASHOUT_DRAWER");
+			PosDisplayPEDWaitingMessage();
+			return false;
+		}
+		else if(Number(Value) == 0) {
+			// 0 balance
+			ShowCashlessMessage("MWT_CASHLESS_GC_CASHOUT_BALANCE");
+			PosDisplayPEDWaitingMessage();
+			return false;
+		}
+		else {
+		  // NVS-1834  RPS - 2/3/2015
+          var hlp = new BusinessObjectHelper;
+          var cashoutPrompt = hlp.getSysMessage("MWT_CASHLESS_GC_CASHOUT_PROCEEDE", Value);
+			// balance ok, prompt to show balance and if they want to proceed
+			if(!PosShowConfirmationMessage(cashoutPrompt, "MSG_OK", "MSG_CANCEL")) { 
+				// selected NO to prompt...
+				PosDisplayPEDWaitingMessage();
+				return false;
+			}
+		}
+	} else {
+		//failed to check balance
+		if(errcode == CASHLESS_CANCELLED_BY_CUSTOMER) {
+			ShowCashlessMessage("MWT_CASHLESS_CANCEL_USER");
+		} else if (errcode == CASHLESS_SIGNATURE_TIMEOUT) {
+			//ShowCashlessMessage("MWT_CASHLESS_TIMEOUT");
+			//NVS-4993 JP
+			if (POS_TYPE != "CSO") {
+				ShowCashlessMessage("CSO_CASHLESS_TIMEOUT");
+			}			
+		} else {
+			// NVS-6253
+			if (pedResponse.RESPONSE_TEXT.toLowerCase().search(CASHLESS_INACTIVE) != -1) {
+				ShowCashlessMessage("MWT_CASHLESS_NOT_ACTIVATED2");
+			} else {
+				ShowCashlessMessage("MWT_CASHLESS_DECLINED");
+			}
+		}
+		PosDisplayPEDWaitingMessage();
+		return false;
+	}
+
+	// cashout the card, requires another swipe
+	//ShowCashlessMessage("MWT_CASHLESS_SWIPE_EMV", "_NOMODAL:START");
+	pedResponse = CashOutGC();
+	pedResponse = SeeIfCardSwiped(pedResponse, false);
+	// This is still needed to clear the request message
+	ShowCashlessMessage("MWT_CASHLESS_SWIPE_EMV", "_NOMODAL:END");
+
+	if(pedResponse == null || pedResponse == "") {
+		ShowCashlessMessage("MSG_BC_GC_NOT_AVAILABLE");
+		PosDisplayPEDWaitingMessage();  // NVS-1835
+		return false;
+	}
+
+	//UQA -118 will declare this earlier in the function RPS - 12/15/2014
+	errcode = pedResponse.RESULT_CODE;
+	
+	if(errcode != CASHLESS_CAPTURED && errcode != CASHLESS_APPROVED) { //TODO: handle other error conditions, add retry -- wait til we have single-swipe solution from Verifone
+		if(errcode == CASHLESS_CANCELLED_BY_CUSTOMER) {
+			ShowCashlessMessage("MWT_CASHLESS_CANCEL_USER");
+		} else if(errcode == CASHLESS_TIMEOUT_REVERSAL || errcode == CASHLESS_TIMEOUT) {
+			ShowCashlessMessage("MWT_CASHLESS_TIMEOUT2");
+		} else if (errcode == CASHLESS_SIGNATURE_TIMEOUT) {
+			//NVS-4993 JP
+			if (POS_TYPE != "CSO") {
+				ShowCashlessMessage("CSO_CASHLESS_TIMEOUT");
+			}		
+
+		} else if (errcode == CASHLESS_NPSHARP_TIMEOUT) {
+			// The plugin did not receive a response, there are a couple of causes for this
+			ShowCashlessMessage("MWT_CASHLESS_TIMEOUT2");
+		} else {
+			ShowCashlessMessage("MWT_CASHLESS_DECLINED");
+		}
+		
+		PosDisplayPEDWaitingMessage();;
+		return false;
+	}
+	else {
+		// success. notify cashier to pay out the balance amount
+		ShowCashlessMessage("MWT_CASHLESS_CASHOUT", Value)
+	}
+
+	// NVS-2760 RPS 8-5-15
+	CashLessStr = FormatCashlessString(pedResponse, pedResponse.APPROVED_AMOUNT, false, false, false, true);
+
+     PosSetSessionProperty(CASHLESS_GC,CashLessStr);
+     PosSetSessionProperty("CASHLESS_TENDERID","11");
+     PosSetSessionProperty("CASHLESS_VALUE",Value);
+
+	if (RetValue == true) {
+		RetValue = (CASHLESS_CAPTURED == errcode || CASHLESS_APPROVED == errcode);
+	}
+	
+	PosDisplayPEDWaitingMessage();;
+	
+	return RetValue;
+}
+
+/*
+#
+# PinpadIsOnline - Check if pinpad hardware is available
+#
+*/
+function PinpadIsOnlineJS30()
+{
+    // If not loaded, then obviously not available
+    if(!CheckCashlessParam("Cashless3", "Active", "true")) {
+        ShowCashlessMessage("MSG_BC_GC_NOT_AVAILABLE");
+        return(false);
+    }
+
+	// Cashless is configured, but is the device responsive? Do a Test MAC to confirm.
+	var resp = TestMAC();
+	
+	if(resp != null && (resp.RESULT_CODE == CASHLESS_SUCCESS || resp.RESULT_CODE == CASHLESS_SESSION_IN_PROGRESS)) {
+		// successfully tested MAC, OR got "session in progress" response...which tells us the PED is at least online and responding
+		return true;
+	}
+	
+    return false;
+}
+
+
+/*
+ *  Cleans the cashless static file
+ *  off of harddrive
+ */
+function CleanCashlessState30() {
+	// stub from Cashless 2...
+	CleanStateFile();
+	return true;
+}
+
+
+/**
+ * PUBLIC
+ * Get response from C3P0 C# plugin
+ * request = JSON object example {	'commandInstruction': {'Topic':"C3P0Request", 'Message':"<xmldata>"}}, 
+ * return XML message from response or null
+ * @author jclark
+ */
+function GetC3P0Response(request) {
+	try
+	{
+		var cashless30 = GetCashlessService(); 		
+		var response = cashless30.Call("PedMessenger", request);
+	}
+	catch (e)
+	{
+		return null;
+	}
+	
+	var strRequest = (request.commandInstruction).Message;
+	API.dbg("GetC3P0Response(): Sending Request to NP# plugin: " + strRequest);
+	//var response = String(C3P0Request(LISTENER_IP, LISTENER_PORT, strRequest));
+	var xmlResp = null;
+	var counter = 10;
+	
+	while (xmlResp == null && counter > 0)
+	{
+		if (response != null) 
+		{
+	// retrieve "Message" contents from JSON as XML
+	//var xmlResp = new XML(response.Message);
+			try {
+			xmlResp = new XML(response.Message);
+			} catch (e) {
+				xmlResp = null;
+			}
+	API.dbg("GetC3P0Response(): Response from NP# plugin: " + xmlResp);
+
+		}
+		if (xmlResp == null)
+		{
+			response = GetLastResponse();
+		}
+		counter--;
+	}
+	return xmlResp;
+}
+
+/**
+ * PUBLIC
+ * Accept JSON object example {	"Topic":"name",	"Message":"<xmldata>" }
+ * return true/false
+ * @author jclark
+ */
+function IsC3P0ResponseSuccess(response) {
+	if(response == null){
+		return false;
+	}
+	
+	if(response.TERMINATION_STATUS == "SUCCESS") {
+		return true;
+	}
+	
+	return false;
+}
+
+function TestMAC() {
+	// create JSON request
+	var request = 	{ 'commandInstruction': 
+							{
+								'Topic':"C3P0Request",
+								'Message':"<REQUEST><REGNUM>" + POS_ID + "</REGNUM><COMMAND>TEST_MAC</COMMAND><PARAMETERS></PARAMETERS></REQUEST>"
+							}
+					};
+			  
+	return resp = GetC3P0Response(request);
+	
+}
+
+function DoTestMACJS() {
+	return IsC3P0ResponseSuccess(TestMAC());
+}
+
+function PairPED(ButtonNumber, LabelButtonNumber) {
+	// generate random 4-digit auth code
+	var auth=Number(Math.round(Math.random()*10000)).toString();
+	while (auth.length < 4) // "0000" - "9999"
+	{
+		auth = "0" + auth;
+	}	
+		
+	// create JSON request
+	var request =  { 'commandInstruction':
+						{
+							'Topic':"C3P0Request",
+							'Message':"<REQUEST><REGNUM>" + POS_ID + "</REGNUM><COMMAND>GET_ENTRY_CODE</COMMAND><PARAMETERS><CODE>" + auth + "</CODE></PARAMETERS></REQUEST>"
+						}
+					};
+
+	resp = GetC3P0Response(request);
+
+	if (IsC3P0ResponseSuccess(resp) == true)
+	{
+		auth = resp.RESPONSE_TEXT;
+	}
+	else
+	{
+		return resp;
+	}
+	// create JSON request
+	request =  { 'commandInstruction':
+					{
+						'Topic':"C3P0Request",
+						'Message':"<REQUEST><REGNUM>" + POS_ID + "</REGNUM><COMMAND>PAIR</COMMAND><PARAMETERS><IPADDRESS>" + PED_IP + "</IPADDRESS><CODE>" + auth + "</CODE></PARAMETERS></REQUEST>"
+					}
+				};
+
+	// show label
+	PosChangeButtonProperties(LabelButtonNumber,"visible|true", "title|Enter the following code on the PED:");
+	// Make buttons visible, assign text, and assign image "Clear-Keys-*.png"
+	var loc;
+	for(var i=0; i < 8; i++){
+		loc = parseInt(ButtonNumber) + i;
+		subStr = auth.substring(i,i+1);
+		img = "Clear-Keys-" + subStr.toUpperCase() + ".png";
+		PosChangeButtonProperties(loc, "visible|true", "title|" + subStr, "bitmap|" + img);
+	}
+	
+	resp = GetC3P0Response(request);
+	// re-hide buttons
+	PosChangeButtonProperties(LabelButtonNumber,"visible|false");
+	for(var i=0; i < 8; i++){
+		loc = parseInt(ButtonNumber) + i;
+		PosChangeButtonProperties(loc, "visible|false");
+	}
+	
+	return resp;
+
+}
+
+function DoPairPEDJS(ButtonNumber, LabelButtonNumber) {
+	// NVS-3089 Hide the return button during the pairing
+	PosChangeButtonProperties(90, "visible|false");
+	//For NVS-2061
+	var response = GetStatus();
+	
+	// We'll use this to establish if we have any connection
+	// If we don't we'll just let the chips fall where they may.
+	if (response != null) {
+	var resp = TestMAC();	
+		if(resp != null && (resp.RESULT_CODE == CASHLESS_SUCCESS || resp.RESULT_CODE == CASHLESS_SESSION_IN_PROGRESS)) {
+			ShowCashlessMessage("MWT_CASHLESS_ALREADY_PAIRED");
+			//NVS-3089 restore the return button
+			PosChangeButtonProperties(90, "visible|true");
+			return false;
+		}
+	}	
+	
+	var returnValue = IsC3P0ResponseSuccess(PairPED(ButtonNumber, LabelButtonNumber));
+	
+	if (returnValue == true) {
+		ShowCashlessMessage("MWT_CASHLESS_PAIR_SUCCESS");
+		// If the paring was successful, try to set sync the time to the PED.
+		SetDateTime();
+	} else {
+		ShowCashlessMessage("MWT_CASHLESS_PAIR_FAIL");
+	}
+	//NVS-3089 restore the return button
+	PosChangeButtonProperties(90, "visible|true");
+	
+	return  returnValue;
+}
+
+function UnPairPED() {
+	// create JSON request
+	var request =	{ 'commandInstruction':
+						{
+							'Topic':"C3P0Request",
+							'Message':"<REQUEST><REGNUM>" + POS_ID + "</REGNUM><COMMAND>UNPAIR</COMMAND><PARAMETERS></PARAMETERS></REQUEST>"
+						}
+					};
+			  
+	return resp = GetC3P0Response(request);
+	
+}
+
+function DoUnPairPEDJS() {
+	return IsC3P0ResponseSuccess(UnPairPED());
+}
+
+function StartCashlessSession30(swipeAhead, immediateReturn) {
+	// create JSON request
+	
+	// NVS-1960 RPS 2-20-2015
+	var useSwipeAhead = 0;
+	if (swipeAhead == true) {
+			useSwipeAhead = 1;
+	}
+	
+	if (PosCheckSessionProperty("POD", "FRONT_COUNTER") != true) {
+			useSwipeAhead = 0;
+		}
+	
+	
+	var request = 	{ 'commandInstruction':
+						{
+							'Topic':"C3P0Request",
+							'Message':"<REQUEST><REGNUM>" + POS_ID + "</REGNUM><COMMAND>START_SESSION</COMMAND><PARAMETERS><SWIPE_AHEAD>" + useSwipeAhead + "</SWIPE_AHEAD><LANENUMBER>" +
+							LANE_ID + "</LANENUMBER><STORENUMBER>" + STORE_NUM + "</STORENUMBER><TIMEOUT>" + GENERAL_TIMEOUT + "</TIMEOUT><FAST_RETURN>" + immediateReturn.toString() +
+							"</FAST_RETURN></PARAMETERS></REQUEST>"
+						}
+					};
+			  
+	var resp = GetC3P0Response(request);
+	
+	if(IsC3P0ResponseSuccess(resp)){
+		PosSetSessionProperty("CashlessSessionInProgress", "true");
+	}
+	
+	return resp;
+	
+}
+
+function DoStartCashlessSessionJS() {
+	return IsC3P0ResponseSuccess(StartCashlessSession(false, false));
+}
+
+function StopCashlessSession30() {
+	// create JSON request
+	
+	if (IsSessionOpen() == true) {
+		
+		var request = 	{ 'commandInstruction': 
+							{
+								'Topic':"C3P0Request",
+								'Message':"<REQUEST><REGNUM>" + POS_ID + "</REGNUM><COMMAND>STOP_SESSION</COMMAND><PARAMETERS><TIMEOUT>" + GENERAL_TIMEOUT + "</TIMEOUT></PARAMETERS></REQUEST>"
+							}
+						};
+				  
+		var resp = GetC3P0Response(request);
+		
+		if(IsC3P0ResponseSuccess(resp)){
+			PosSetSessionProperty("CashlessSessionInProgress", "false");
+		}
+		
+		return resp;
+	
+	}
+
+}
+
+function DoStopCashlessSessionJS() {
+	return IsC3P0ResponseSuccess(StopCashlessSession());
+}
+
+/*
+*  amount = string transaction amount #.## - #####.##, 
+*  forced = string true/false, used to override duplicate checking for the transaction
+*  duplicate = (optional) true if this is a duplicate swipe
+*  return XML response from PED
+*/
+function PaymentRequest(amount, force, duplicate) {
+	if(typeof duplicate === 'undefined') {
+		duplicate = "false";
+	}
+	
+	if(!PosCheckSessionProperty("CashlessSessionInProgress", "true")){
+		// no session is open -- try to start one
+		var resp = StartCashlessSession(false, false);
+		if(resp == null || (resp.RESULT_CODE != CASHLESS_SUCCESS && resp.RESULT_CODE != CASHLESS_SESSION_IN_PROGRESS)) {
+			API.dbg("PaymentRequest failed -- no cashless session is open!"); 
+			return null;
+		}
+	}
+	
+	// create JSON request
+	var request =	{ 'commandInstruction':
+						{
+							'Topic':"C3P0Request",
+							'Message':"<REQUEST><REGNUM>" + POS_ID + "</REGNUM><COMMAND>PAYMENT_REQUEST</COMMAND><PARAMETERS><AMOUNT>" + amount + "</AMOUNT><FORCE>" + force +"</FORCE><ALLOW_DUP>" + duplicate + "</ALLOW_DUP></PARAMETERS></REQUEST>"
+						}
+					};
+			  
+	return GetC3P0Response(request);
+
+}
+
+/*
+*  Return funds to a card
+*  amount = transaction amount #.## - #####.##
+*  return XML response from PED
+*/
+function CreditRequest(amount) {
+	if(!PosCheckSessionProperty("CashlessSessionInProgress", "true")){
+		var resp = StartCashlessSession(true, true);
+		if(resp == null || (resp.RESULT_CODE != CASHLESS_SUCCESS && resp.RESULT_CODE != CASHLESS_SESSION_IN_PROGRESS)) {
+			API.dbg("PaymentRequest failed -- no cashless session is open!"); 
+			return null;
+		}
+	}
+	
+	// create JSON request
+	var request =	{ 'commandInstruction':
+						{
+							'Topic':"C3P0Request",
+							'Message':"<REQUEST><REGNUM>" + POS_ID + "</REGNUM><COMMAND>CREDIT_REQUEST</COMMAND><PARAMETERS><AMOUNT>" + amount + "</AMOUNT></PARAMETERS></REQUEST>"
+						}
+					};
+			  
+	return GetC3P0Response(request);
+	
+}
+
+function CheckGCBalance() {
+		var resp = StartCashlessSession(false, false);
+		if(resp == null || (resp.RESULT_CODE != CASHLESS_SUCCESS && resp.RESULT_CODE != CASHLESS_SESSION_IN_PROGRESS)) {
+			API.dbg("PaymentRequest failed -- no cashless session is open!"); 
+			return null;
+		}
+
+	// create JSON request
+	var request =	{ 'commandInstruction':
+						{
+							'Topic':"C3P0Request",
+							'Message':"<REQUEST><REGNUM>" + POS_ID + "</REGNUM><COMMAND>GIFTCARD_BALANCE</COMMAND><PARAMETERS></PARAMETERS></REQUEST>"
+						}
+					};
+
+	return GetC3P0Response(request);
+}
+
+function GetLastResponse()
+{
+	var request =	{ 'commandInstruction':
+						{
+							'Topic':"C3P0Request",
+							'Message':"<REQUEST><REGNUM>" + POS_ID + "</REGNUM><COMMAND>GET_LAST_RESPONSE</COMMAND><PARAMETERS></PARAMETERS></REQUEST>"
+						}
+					};
+	
+	
+	try
+	{
+		var cashless30 = GetCashlessService(); 
+		var response = cashless30.Call("PedMessenger", request);
+	}
+	catch (e)
+	{
+		return null;
+	}
+	
+	var strRequest = (request.commandInstruction).Message;
+	API.dbg("LastTransaction: Sending Request to NP# plugin: " + strRequest);
+	//var response = String(C3P0Request(LISTENER_IP, LISTENER_PORT, strRequest));
+	
+	return response.Message;
+}
+
+function CashOutGC() {
+	if(!PosCheckSessionProperty("CashlessSessionInProgress", "true")){
+		var resp = StartCashlessSession(false, false);
+		if(resp == null || (resp.RESULT_CODE != CASHLESS_SUCCESS && resp.RESULT_CODE != CASHLESS_SESSION_IN_PROGRESS)) {
+			API.dbg("PaymentRequest failed -- no cashless session is open!"); 
+			return null;
+		}
+	}
+
+	// create JSON request
+	var request =	{ 'commandInstruction':
+						{
+							'Topic':"C3P0Request",
+							'Message':"<REQUEST><REGNUM>" + POS_ID + "</REGNUM><COMMAND>GIFTCARD_CASHOUT</COMMAND><PARAMETERS></PARAMETERS></REQUEST>"
+						}
+					};
+
+	return GetC3P0Response(request);
+}
+
+/*
+*  Activates Gift card for
+*  amount = transaction amount #.## - #####.##
+*  return XML response from PED
+*/
+function GCActivate(amount) {
+	if(!PosCheckSessionProperty("CashlessSessionInProgress", "true")){
+		var resp = StartCashlessSession(false, false);
+		if(resp == null || (resp.RESULT_CODE != CASHLESS_SUCCESS && resp.RESULT_CODE != CASHLESS_SESSION_IN_PROGRESS)) {
+			API.dbg("PaymentRequest failed -- no cashless session is open!"); 
+			return null;
+		}
+	}
+	
+	// create JSON request
+	var request =	{ 'commandInstruction':
+						{
+							'Topic':"C3P0Request",
+							'Message':"<REQUEST><REGNUM>" + POS_ID + "</REGNUM><COMMAND>GIFTCARD_ACTIVATE</COMMAND><PARAMETERS><AMOUNT>" + amount + "</AMOUNT></PARAMETERS></REQUEST>"
+						}
+					};
+			  
+	return GetC3P0Response(request);	
+}
+
+/*
+*  adds Gift card for
+*  amount = transaction amount #.## - #####.##
+*  return XML response from PED
+*/
+function GCAdd(amount) {
+	if(!PosCheckSessionProperty("CashlessSessionInProgress", "true")){
+		var resp = StartCashlessSession(false, false);
+		if(resp == null || (resp.RESULT_CODE != CASHLESS_SUCCESS && resp.RESULT_CODE != CASHLESS_SESSION_IN_PROGRESS)) {
+			API.dbg("PaymentRequest failed -- no cashless session is open!"); 
+			return null;
+		}
+	}
+	
+	// create JSON request
+	var request =	{ 'commandInstruction':
+						{
+							'Topic':"C3P0Request",
+							'Message':"<REQUEST><REGNUM>" + POS_ID + "</REGNUM><COMMAND>GIFTCARD_ADD</COMMAND><PARAMETERS><AMOUNT>" + amount + "</AMOUNT></PARAMETERS></REQUEST>"
+						}
+					};
+			  
+	return GetC3P0Response(request);
+}
+
+function SetDateTime()
+{
+	currentDate = new NPDate();
+	var yearStr = currentDate.getFullYear().toString();
+	var monthStr = ("0" + (currentDate.getMonth() + 1).toString()).slice(-2);
+	var dayStr = ("0" + currentDate.getDate().toString()).slice(-2);
+	
+	var hourStr = ("0" + currentDate.getHours().toString()).slice(-2);
+	var minStr = ("0" + currentDate.getMinutes().toString()).slice(-2);
+	var secStr = ("0" + currentDate.getSeconds().toString()).slice(-2);
+	var dateStr = yearStr + monthStr + dayStr;
+	var timeStr = hourStr + minStr + secStr;
+
+	
+	var request =	{ 'commandInstruction':
+						{
+							'Topic':"C3P0Request",
+							'Message':"<REQUEST><REGNUM>" + POS_ID + "</REGNUM><COMMAND>SETDATETIME</COMMAND><PARAMETERS><DATETIME>" + dateStr+ timeStr + "</DATETIME><TIMEOUT>" + GENERAL_TIMEOUT + "</TIMEOUT></PARAMETERS></REQUEST>"
+						}
+					};
+	
+	return GetC3P0Response(request);
+}
+
+function DayOpenPED30()
+{
+	var bSuccess = false;
+
+	// Ensure when we start a new day this property is cleared
+	PosSetSessionProperty("SITETOTALSCOMPLETE", "false", false, true);
+	PosSetSessionProperty("SENDMOBILECUTOVER", "false", false, true);
+
+	// get the timeout and max retries from the store-db
+	var hlp = new BusinessObjectHelper;
+	var maxRetries = hlp.findParamInSectionConfig("dayOpenMaxRetries", "Cashless3");
+	var timeout = hlp.findParamInSectionConfig("dayOpenTimeout", "Cashless3");
+	if (maxRetries == null || maxRetries == "" || maxRetries < 1 || isNaN(maxRetries)) {
+		//use default
+		maxRetries = 3;
+	}
+	if (timeout == null || timeout == "" || timeout < 1 || isNaN(timeout)) {
+		//use default
+		timeout = 15000;
+	}
+	
+	var dateStr = GetBusinessDate();
+	
+	// create JSON request
+	var request =	{ 'commandInstruction':
+						{
+							'Topic':"C3P0Request",
+							'Message':"<REQUEST><REGNUM>" + POS_ID + "</REGNUM><COMMAND>DAY_OPEN</COMMAND><PARAMETERS><LANENUMBER>" + LANE_ID + "</LANENUMBER><STORENUMBER>" + STORE_NUM + "</STORENUMBER><BUSINESSDATE>" + dateStr + "</BUSINESSDATE><TIMEOUT>" + timeout + "</TIMEOUT></PARAMETERS></REQUEST>"
+						}
+					};
+	
+	if (SILENT_OPEN == false) {
+	ShowCashlessMessage("Attempting to open the PED for " + dateStr, "_NOMODAL:START");
+	}
+	
+	// First set the time and date on the PED
+	for(var i=1; i <= maxRetries; ++i) {
+		if (IsC3P0ResponseSuccess(SetDateTime())) {
+			break;
+		}
+		if(i == maxRetries) {
+			API.dbg("Failed to Set Date & Time on PED.  Tried " + maxRetries + " times.");
+			if (SILENT_OPEN == false) {
+			ShowCashlessMessage("Attempting to open the PED for " + dateStr, "_NOMODAL:END");
+			}
+			PublishFailedOpen(dateStr);
+			return false;
+		}
+	}
+
+	// Next attempt to open PED.  retry maxRetries times if necessary
+	for(var i=1; i <= maxRetries; ++i) {
+		if(IsC3P0ResponseSuccess(GetC3P0Response(request))) {
+			bSuccess = true;
+			API.dbg("Successfully opened PED number " + POS_ID + " for business date " + dateStr);
+			break;
+		}
+		if(i == maxRetries) {
+			PublishFailedOpen(dateStr);
+			API.dbg("Failed to open PED number " + POS_ID + ".  Tried " + maxRetries + " times.");
+		}
+	}
+	
+	// Stop any open session
+	for(var i=1; i <= maxRetries; ++i) {
+		if(IsC3P0ResponseSuccess(StopCashlessSession())) {
+			break;
+		}
+	}
+	
+	if (SILENT_OPEN == false) {
+	ShowCashlessMessage("Attempting to open the PED for " + dateStr, "_NOMODAL:END");
+	}
+
+
+	// NVS-2020 3-20-2015
+	// Make sure the message we display appropriate for the logged in status
+	var message;
+	if (PosCheckState("POS_OpLogged") == true) {
+		message = hlp.findParamInSectionConfig("laneOpenMessage","Cashless3");
+		if (message == null) {
+			message = "Welcome to McDonald's";
+		}
+	} else {
+	// NVS-1992 RPS 2-26-2015
+		message = hlp.findParamInSectionConfig("laneClosedMessage","Cashless3");
+		if (message == null) {
+			message = "This register is closed";
+		}
+	}
+	ChangeIdleMessage30(message);
+	
+	if (bSuccess == true) {
+		PosSetSessionProperty("PED_OPEN_FAILURE", "false", true);
+		GetSAFParameters();
+	}
+	
+	return bSuccess;
+	
+	function GetBusinessDate()
+	{
+		var localDateStr = null;
+		var ctx   =new SessionContext;
+		localDateStr = String(ctx.get("BUSINESSDATE"));
+
+		// see if the date is viable, otherwise go and get it from the waystation.
+		if (localDateStr == null || localDateStr.length != 8 || isNaN(localDateStr))
+		{
+			var address = GLOBAL_STOREDB.Adaptors.Adaptor.(@type == "xmlrpccli").Section.(@name == "main").Parameter.(@name == "url").@value;
+			var wayResponse = GetPosList(address);
+			try
+			{
+				var wayXML = new XML(wayResponse);
+				if (wayXML != null)
+				{
+					localDateStr = String(wayResponse.PosList.@WayBusinessDay);
+				}
+			}
+			catch (e)
+			{
+				localDateStr = null;
+			}
+
+		}
+		
+		return localDateStr;
+	}
+}
+
+// Update idle message displayed on PED
+function ChangeIdleMessage30(message)
+{
+	if (message == null) {
+		// no message passed in...exit
+		return false;
+	}
+	
+	// replace all spaces with _ ...spaces were causing the message transmission to cut short
+	var messageNoSpace = message.replace(/ /g, "_");
+	
+	// create JSON request
+	var request =	{ 'commandInstruction':
+						{
+							'Topic':"C3P0Request",
+							'Message':"<REQUEST><REGNUM>" + POS_ID + "</REGNUM><COMMAND>LANE_CLOSE</COMMAND><PARAMETERS><DISPLAY_TEXT>" + messageNoSpace +"</DISPLAY_TEXT></PARAMETERS></REQUEST>"
+						}
+					};
+
+	return GetC3P0Response(request);
+}
+
+function EndOfDayCutover(Cashless3Timeout) {
+	// create JSON request
+	var request =	{ 'commandInstruction':
+						{
+							'Topic':"C3P0Request",
+							'Message':"<REQUEST><REGNUM>" + POS_ID + "</REGNUM><COMMAND>CUTOVER</COMMAND><PARAMETERS><TIMEOUT>" + Cashless3Timeout + "</TIMEOUT></PARAMETERS></REQUEST>"
+						}
+					};
+
+	return GetC3P0Response(request);
+}
+
+function CashlessEndOfDay() {
+	var responseEOD;		// response received from the PED
+	var maxRetries; 	  	// maximu number of retries allowed
+	var Cashless3Timeout; 	// Timeout value for end of day request
+	var hlp = new BusinessObjectHelper;
+	
+	maxRetries = hlp.findParamInSectionConfig("dayCloseMaxRetries","Cashless3");  //Get maxRetries value from configuration
+	if (maxRetries == "" || maxRetries == null || maxRetries < 1 || isNaN(maxRetries)) {
+		maxRetries = 1;  //Set default value for maxRetries
+	}
+	
+	if (VerifyPEDAvailability() != true)
+	{
+		return;
+	}
+	
+	Cashless3Timeout = hlp.findParamInSectionConfig("dayCloseTimeout","Cashless3");  //Get Cashless3Timeout value from configuration
+	if (Cashless3Timeout == "" || Cashless3Timeout == null || Cashless3Timeout < 1 || isNaN(Cashless3Timeout)) {
+		Cashless3Timeout = 75000;  //Set default value for Cashless3Timeout
+	}
+	
+	for (var i=1; i <= maxRetries; i++){
+		responseEOD = EndOfDayCutover(Cashless3Timeout); //this is synchronous call 
+		if (responseEOD != null) {
+			if((responseEOD.RESULT_CODE == CASHLESS_SUCCESS || responseEOD.RESULT_CODE == CASHLESS_APPROVED) && (responseEOD.TERMINATION_STATUS == "SUCCESS")) {
+			API.dbg("Cashless3 EndOfDay/Cutover operation completed successfully");
+			break;	//We have sucessful result, so exit this loop
+		}
+		}
+		if(i == maxRetries) {
+			//We tried max times and going to give up 
+			API.dbg("Cashless3 EndOfDay/Cutover operation failed. Tried " + maxRetries + " times.");
+		}
+	}
+	// kick off SAF query in order to publish SAF data
+	//QuerySAF();  we now do this on logout
+
+	return;
+}
+
+function VerifyPEDAvailability()
+{
+	var validAttempts = 0;
+	var badNetwork = 0;
+	var maxValidAttempts = 2;  // How many attempts witout a network error we'll try
+	var maxNetworkErrors = 5;  // How many network error we'll put up with
+	var returnValue = false;
+	do
+	{
+		var response = TestMAC();
+		
+		// if we get a null or 60005 return, it's always due to a netork error
+		//
+		if (response == null || response.RESULT_CODE == "60005")
+		{
+			badNetwork++;
+		}
+		else if (response.RESULT_CODE != CASHLESS_SUCCESS)
+		{
+			// Not a network error and not a success either
+			validAttempts++;
+		}
+		else if (response.RESULT_CODE == CASHLESS_SUCCESS)
+		{
+			// Yep, it's all good to go, let's get out of here.
+			returnValue = true;
+			break;
+		}
+		
+	} while (validAttempts < maxValidAttempts && badNetwork < maxNetworkErrors);
+	
+	return returnValue;
+}
+
+function EndOfDaySiteTotals() {
+	
+	if(!CheckCashlessParam("Cashless3", "Active", "true")) {
+		return false;
+	}	
+    if (PosCheckSessionProperty("SITETOTALSCOMPLETE", "true")) {
+		return false;
+	}
+
+	var returnValue = true;
+	
+	// create JSON request
+	var request =	{ 'commandInstruction':
+						{
+							'Topic':"C3P0Request",
+							'Message':"<REQUEST><REGNUM>" + POS_ID + "</REGNUM><COMMAND>SITETOTALS</COMMAND><PARAMETERS></PARAMETERS></REQUEST>"
+						}
+					};
+
+	// grab retry/timeout from config
+	var maxRetries = hlp.findParamInSectionConfig("dayCloseMaxRetries", "Cashless3");
+	var timeout = hlp.findParamInSectionConfig("dayCloseTimeout", "Cashless3");
+	if (maxRetries == null || maxRetries == "" || maxRetries < 1 || isNaN(maxRetries)) {
+		//use default
+		maxRetries = 1;
+	}
+	if (timeout == null || timeout == "" || timeout < 1 || isNaN(maxRetries)) {
+		//use default
+		timeout = 75000;
+	}
+	for (var i=1; i <= maxRetries; i++){
+		if(IsC3P0ResponseSuccess(GetC3P0Response(request))) {
+			API.dbg("Successfully completed EOD Site Totals operation.");
+			break;
+		}
+		if(i == maxRetries) {
+			API.dbg("Failed to complete EOD Site Totals operation.  Tried " + maxRetries + " times.");
+			returnValue = false;
+		}
+	}
+	
+	if (returnValue == true) {
+		PosSetSessionProperty("SITETOTALSCOMPLETE", "true", false, true);
+	}
+	return returnValue;
+}
+
+function LastTransaction() {
+	var request =	{ 'commandInstruction':
+						{
+							'Topic':"C3P0Request",
+							'Message':"<REQUEST><REGNUM>" + POS_ID + "</REGNUM><COMMAND>LAST_TRAN</COMMAND><PARAMETERS></PARAMETERS></REQUEST>"
+						}
+					};
+	
+	return GetC3P0Response(request);
+}
+
+function CancelTransaction() {
+	var request =	{ 'commandInstruction':
+						{
+							'Topic':"C3P0Request",
+							'Message':"<REQUEST><REGNUM>" + POS_ID + "</REGNUM><COMMAND>CANCEL</COMMAND><PARAMETERS></PARAMETERS></REQUEST>"
+						}
+					};
+	
+	return GetC3P0Response(request);
+}
+
+function GetSAFParameters() {
+	var request = { 'commandInstruction':
+		{
+			'Topic':"C3P0Request",
+			'Message':"<REQUEST><REGNUM>" + POS_ID + "</REGNUM><COMMAND>GETPARAMETERS</COMMAND><PARAMETERS><LIMITS>transactionfloorlimit|totalfloorlimit|safenabled|dayslimit</LIMITS></PARAMETERS></REQUEST>"
+		}
+	};
+	
+	return GetC3P0Response(request);
+}
+
+
+function VoidTransaction() {
+	var paymentType = "";
+	var ctroutd = "";
+	var resp = LastTransaction();
+	
+	// get details about the last transaction, we'll need to pass those in to the Void command
+	if (resp != null) {
+		if(resp.CTROUTD !=null && resp.PAYMENT_TYPE != null) {
+			paymentType = resp.PAYMENT_TYPE;
+			ctroutd = resp.CTROUTD;
+		}
+		else {
+			// response didn't contain data needed for void
+			return false;
+		}
+	}
+	else {
+		//failed to get last trans details...can't void
+		return false;
+	}
+	
+	return VoidSpecifiedTransaction(ctroutd, paymentType);
+}
+
+function VoidSpecifiedTransaction(ctroutd, paymentType)
+{
+	var request =	{ 'commandInstruction':
+						{
+							'Topic':"C3P0Request",
+							'Message':"<REQUEST><REGNUM>" + POS_ID + "</REGNUM><COMMAND>VOID</COMMAND><PARAMETERS><PAYMENT_TYPE>" + paymentType + "</PAYMENT_TYPE><CTROUTD>" + ctroutd +"</CTROUTD></PARAMETERS></REQUEST>"
+						}
+					};
+	
+	// Since we frequently call this function after a reboot scenario
+	// let's make sure there is an open session before we try the actual void
+	if (IsSessionOpen() == false)
+	{
+		StartCashlessSession(false, false);
+	}
+	resp = GetC3P0Response(request);
+	if (resp != null && resp.RESULT_CODE == CASHLESS_VOIDED) {
+		//successfully voided
+		return true;
+	}
+
+	return false;
+}
+
+function QuerySAF() {
+	// create JSON request
+	var request =	{ 'commandInstruction':
+						{
+							'Topic':"C3P0Request",
+							'Message':"<REQUEST><REGNUM>" + POS_ID + "</REGNUM><COMMAND>SAF_QUERY</COMMAND><PARAMETERS></PARAMETERS></REQUEST>"
+						}
+					};
+	return GetC3P0Response(request);
+}
+
+function PublishFailedOpen(dateStr) {
+	PosSetSessionProperty("PED_OPEN_FAILURE", "true", true);
+
+	// create JSON request
+	var request =	{ 'commandInstruction':
+						{
+							'Topic':"PublishOpenFailure",
+							'Message':"<REQUEST><REGNUM>" + POS_ID + "</REGNUM><COMMAND>PUBLISHFAILEDOPEN</COMMAND><PARAMETERS><LANENUMBER>" + LANE_ID + "</LANENUMBER><STORENUMBER>" + STORE_NUM + "</STORENUMBER><BUSINESSDATE>" + dateStr + "</BUSINESSDATE></PARAMETERS></REQUEST>"
+						}
+					};
+	return GetC3P0Response(request);
+}
+
+function IsSessionOpen() {
+	var returnValue = true;
+
+	var request =	{ 'commandInstruction':
+						{
+							'Topic':"C3P0Request",
+							'Message':"<REQUEST><REGNUM>" + POS_ID + "</REGNUM><COMMAND>Status</COMMAND><PARAMETERS></PARAMETERS></REQUEST>"
+						}
+					};				
+	var response = GetC3P0Response(request);
+	
+	if (response != null)
+	{
+		if (response.SECONDARY_DATA == "10")
+		{
+			returnValue = false;
+		}
+	}
+	
+	return returnValue;
+}
+
+function CheckStatus() {
+	var response = GetStatus();
+	
+	if (response != null)
+	{
+		if (response.SECONDARY_DATA != 14 && response.SECONDARY_DATA != 17 && response.SECONDARY_DATA != 19 && response.SECONDARY_DATA != 21 && response.SECONDARY_DATA != 34)
+		{
+			returnValue = false;
+		}
+	}
+}
+
+function GetStatus() {
+	var returnValue = true;
+	
+	var request =	{ 'commandInstruction':
+						{
+							'Topic':"C3P0Request",
+							'Message':"<REQUEST><REGNUM>" + POS_ID + "</REGNUM><COMMAND>Status</COMMAND><PARAMETERS></PARAMETERS></REQUEST>"
+						}
+					};				
+	return GetC3P0Response(request);
+}
+
+function CheckForUpdates() {
+	var request =	{ 'commandInstruction':
+						{
+							'Topic':"C3P0Request",
+							'Message':"<REQUEST><REGNUM>" + POS_ID + "</REGNUM><COMMAND>CHECKFORUPDATES</COMMAND><PARAMETERS></PARAMETERS></REQUEST>"
+						}
+					};				
+					
+	var pedResponse = GetC3P0Response(request);
+	
+	var returnValue = false;
+	
+	if (pedResponse != null) {
+		if (pedResponse.SECONDARY_DATA == "1") {
+		returnValue = true;
+		}
+	}
+	
+	return returnValue;
+}
+
+function ApplySoftwareUpdate() {
+	var request =	{ 'commandInstruction':
+						{
+							'Topic':"C3P0Request",
+							'Message':"<REQUEST><REGNUM>" + POS_ID + "</REGNUM><COMMAND>APPLYUPDATES</COMMAND><PARAMETERS></PARAMETERS></REQUEST>"
+						}
+					};				
+					
+	return GetC3P0Response(request);
+}
+
+function CheckUpdateStatus(delay) {
+	var request =	{ 'commandInstruction':
+						{
+							'Topic':"C3P0Request",
+							'Message':"<REQUEST><REGNUM>" + POS_ID + "</REGNUM><COMMAND>UPDATESTATUS</COMMAND><PARAMETERS><DELAY>" + delay + "</DELAY></PARAMETERS></REQUEST>"
+						}
+					};				
+					
+	return GetC3P0Response(request);
+}
+
+function GetStatusValue() {
+	var response = GetStatus();
+	
+	if (response != null)
+	{
+		return response.SECONDARY_DATA;
+	}
+	else
+	{
+		return -1;
+	}
+}
+
+function TimedDelay(sleepTime) {
+	var request =	{ 'commandInstruction':
+						{
+							'Topic':"C3P0PaymentResponse",
+							'Message':"<REQUEST><REGNUM>" + POS_ID + "</REGNUM><COMMAND>SLEEP</COMMAND><PARAMETERS><MSECONDS>" + sleepTime.toString() +"</MSECONDS></PARAMETERS></REQUEST>"
+						}
+					};
+	return GetC3P0Response(request);
+}
+
+function GetPaymentResponse() {
+	var request =	{ 'commandInstruction':
+						{
+							'Topic':"C3P0PaymentResponse",
+							'Message':"<REQUEST><REGNUM>" + POS_ID + "</REGNUM><COMMAND>GETPAYMENTRESPONSEONLY</COMMAND><PARAMETERS></PARAMETERS></REQUEST>"
+						}
+					};
+	return GetC3P0Response(request);
+}
+
+function InitializeStateFile() {
+	var request =	{ 'commandInstruction':
+						{
+							'Topic':"C3P0InitStateFile",
+							'Message':"<REQUEST><REGNUM>" + POS_ID + "</REGNUM><COMMAND>INITIALIZESTATEFILE</COMMAND><PARAMETERS></PARAMETERS></REQUEST>"
+						}
+					};
+	return GetC3P0Response(request);
+}
+
+function CloseStateFile() {
+	var request =	{ 'commandInstruction':
+						{
+							'Topic':"C3P0InitStateFile",
+							'Message':"<REQUEST><REGNUM>" + POS_ID + "</REGNUM><COMMAND>CLOSESTATEFILE</COMMAND><PARAMETERS></PARAMETERS></REQUEST>"
+						}
+					};
+	return GetC3P0Response(request);
+}
+
+function CleanStateFile() {
+	var request =	{ 'commandInstruction':
+						{
+							'Topic':"C3P0InitStateFile",
+							'Message':"<REQUEST><REGNUM>" + POS_ID + "</REGNUM><COMMAND>CLEANSTATEFILE</COMMAND><PARAMETERS></PARAMETERS></REQUEST>"
+						}
+					};
+	return GetC3P0Response(request);
+}
+
+function StateFileReversal() {
+	var request =	{ 'commandInstruction':
+						{
+							'Topic':"C3P0StateFileReversal",
+							'Message':"<REQUEST><REGNUM>" + POS_ID + "</REGNUM><COMMAND>STATEFILEREVERSAL</COMMAND><PARAMETERS></PARAMETERS></REQUEST>"
+						}
+					};
+	return GetC3P0Response(request);
+}
+
+function GetPosList(wayURL) {
+	var request =	{ 'commandInstruction':
+						{
+							'Topic':"C3P0GetPosList",
+							'Message':"<REQUEST><REGNUM>" + POS_ID + "</REGNUM><COMMAND>GETPOSLIST</COMMAND><PARAMETERS><WAY_URL>" + wayURL + "</WAY_URL></PARAMETERS></REQUEST>"
+						}
+					};
+	return GetC3P0Response(request);
+}
+
+
+function Reboot() {
+	var request =	{ 'commandInstruction':
+						{
+							'Topic':"Reboot",
+							'Message':"<REQUEST><REGNUM>" + POS_ID + "</REGNUM><COMMAND>REBOOT</COMMAND><PARAMETERS></PARAMETERS></REQUEST>"
+						}
+					};
+	return GetC3P0Response(request);
+}
+
+
+function DayCloseTest()
+{
+		CashlessEndOfDay();
+}
+
+function FormatCashlessString(pedResponse, valueAmount, calcPrintFlag, refund, appendProperty, giftCardOperation) {
+	var auth = pedResponse.AUTH_CODE;
+	var providername = pedResponse.PAYMENT_MEDIA;
+	var cardnum = pedResponse.ACCT_NUM;
+	var cardType = pedResponse.PAYMENT_TYPE;
+	var expire = ""; //JC DBG leave blank?
+	var seqno = pedResponse.TRANS_SEQ_NUM; //JC DBG correct field?
+	var local_GiftCard_Footer = glo_GiftCard_Footer;
+	glo_MerchantID = pedResponse.MERCHID; //JC DBG: dummy values?
+	glo_transactionID = pedResponse.CTROUTD;
+	var GCBalance = pedResponse.AVAILABLE_BALANCE;
+	var Account = 0; //JC DBG: what is this?
+	var Value = valueAmount;  //NVS-1942 RPS 2-19-2015
+	var StoreNumber = 0;  //JC DBG: leave as 0? (this is how it was before)
+	var cardToken = pedResponse.CARD_TOKEN;
+	var printFlag = "0";
+
+	// Start of things for EMV information
+	var emvChipIndicator = pedResponse.EMV_CHIP_INDICATOR;
+	if (emvChipIndicator == "CONTACT")
+	{
+		emvChipIndicator = "CHIP READ";
+	}
+	var emvCVM = CheckForSignatureRequired(pedResponse);
+	var emvMode = pedResponse.EMV_MODE;
+	var emvAID = pedResponse.EMV_TAG_4F;
+	var emvTVR = pedResponse.EMV_TAG_95;
+	var emvIAD = pedResponse.EMV_TAG_9F10;
+	var emvTSI = pedResponse.EMV_TAG_9B;
+	var emvARC = pedResponse.EMV_TAG_8A;
+	var cardEntryMode = pedResponse.CARD_ENTRY_MODE;
+	
+	// End of EMV variables
+
+	if(cardType == "GC" || cardType == "GIFT") {
+		providername="Gift Card";
+		tenderType="11";
+	} else if(cardType == "DB" || cardType == "DEBIT") {
+		providername="Debit";
+	} else {
+		if (providername == "MASTERCARD" || providername == "MC") {
+			providername = "Master";
+		} else if (providername == "AMEX") {
+			providername = "Amex";
+		} else if (providername == "DISCOVER" || providername == "DISC") {
+			providername = "Dscvr";
+		} else if (providername == "VISA") {
+			providername = "Visa";
+		}
+	}
+	
+
+	// For EMV we need to use different card names if they are present.
+	var cardPrintName = providername;
+	if (pedResponse.EMV_TAG_9F12 == undefined || pedResponse.EMV_TAG_9F12 == "") {
+		if (pedResponse.EMV_TAG_50 != undefined && pedResponse.EMV_TAG_50 != "") {
+			cardPrintName = pedResponse.EMV_TAG_50;
+		}
+	} else {
+		cardPrintName = pedResponse.EMV_TAG_9F12;
+	}
+	
+	if(!refund) {
+	// NVS-4949 if "No CVM" card we don't print a signature receipt
+		if((cardType == "CR" || cardType == "CREDIT") && (Number(Value) >= glo_CashlessSignLimit) && (emvCVM != "PIN") && (emvCVM.toUpperCase() != "NONE")) {
+			printFlag="1";
+		}
+	} else {
+		if ((Number(Value) >= glo_CashlessRefundInfo) && (glo_CashlessRefundInfo != -1)) {
+			printFlag="1";
+		}
+	}
+
+	/* make sure credit cards do not have balances */
+	if (GCBalance == null || GCBalance < 0) {
+		GCBalance = "";
+	}
+
+	var stringOpener = "CASHLESS:"
+	if (giftCardOperation == true) {
+		stringOpener = "CASHLESS_GC:";
+	} 
+	
+	var returnValue = stringOpener +
+		providername + "|" +
+		cardnum + "|" +
+		cardType + "|" +
+		auth + "|0|" +
+		printFlag + "|" +
+		seqno + "|" +
+		glo_MerchantID + "|" +
+		GCBalance + "|" +
+		Account + "|" +
+		Value + "|" +
+		StoreNumber + "|" +
+		local_GiftCard_Footer + "|"+
+		glo_transactionID + "||" + cardToken + "|" +
+		emvChipIndicator + "|" +
+		emvCVM + "|" +
+		emvMode + "|" +
+		emvAID + "|" +
+		emvTVR + "|" +
+		emvIAD + "|" +
+		emvTSI + "|" +
+		emvARC + "|" +
+		cardEntryMode + "|" +
+		cardPrintName +
+		"|#";
+
+	if (appendProperty != false) {	
+		PosAppendSessionProperty("CASHLESS", returnValue,true);
+		PosDoSetCustomInfo("CASHLESS", returnValue);
+	}
+	
+	return returnValue;
+}
+
+function CheckForSignatureRequired(pedResponse)
+{
+	var returnValue = pedResponse.EMV_CVM;
+
+	if (returnValue.toLowerCase() == "pin") {
+		if (pedResponse.EMV_TAG_9F34 != undefined) {
+			var indicator = pedResponse.EMV_TAG_9F34.toString();
+			if (indicator.length >= 2) {
+				var length = indicator.length;
+				var valid = indicator.substring(length - 2);
+				if (valid == "01") {
+					returnValue = "MUST SIGN";
+				}
+			}
+		}
+	}
+	
+	return returnValue;
+}
+				
+				
+			
+function ExtractProvider(saleString)
+{
+	var results = saleString.split("|");
+	var provider = results[0].replace("CASHLESS:", "");
+	
+	return provider;
+}
+
+function ExtraValue(saleString)
+{
+	var results = saleString.split("|");
+	
+	return results[10];
+}
+
+function ExtractPrintFlag(saleString)
+{
+	var results = saleString.split("|");
+	
+	return results[5];
+}
+
+/*
+ * Extracts gif card balance
+ * Since NPS-21904
+ * Create by msilva 
+*/
+function ExtractGCBalance(saleString)
+{
+	var results = saleString.split("|");
+	
+	return results[8];
+}
+
+function ExtractCardNumber(saleString)
+{
+	var results = saleString.split("|");
+	return results[2];
+}
+function ExtractAuth(saleString)
+{
+	var results = saleString.split("|");
+	return results[4];
+}
+function ExtractSeqNumber(saleString)
+{
+	var results = saleString.split("|");
+	return results[6];
+}
+function ApplyPEDUpdate()
+{
+	var hlp = new BusinessObjectHelper;
+	var delay = hlp.findParamInSectionConfig("UpdateStatusCheckInterval","Cashless3");
+	if (delay == null) {
+		delay = "5";
+	}
+	var maxWaitTime = hlp.findParamInSectionConfig("UpdateMaxWaitTime","Cashless3");
+	if (maxWaitTime == null) {
+		maxWaitTime = 3600;
+	}
+	var maxCommLost = hlp.findParamInSectionConfig("UpdateLostComMaxTime","Cashless3");
+	if (maxCommLost == null) {
+		maxCommLost = 600;
+	}
+	
+	var response = ApplySoftwareUpdate();
+	if (Number(response.RESULT_CODE) == -1) {
+	
+		// First call with no delay
+		var response = CheckUpdateStatus("0");
+		var updateStatus;
+		if (response != null) {
+			updateStatus = Number(response.SECONDARY_DATA);
+		} else {
+			updateStatus = "-1";
+		}
+		var timeElapsed;
+		
+		//Figure out how many loops for the various timeout options
+		var maxUpdateLoops = maxWaitTime / delay;
+		var maxLostCommLoops = maxCommLost / delay;
+		var updateLoops = 0;
+		var lostCommLoops = 0;
+		
+		while (updateStatus == "2") {
+			ShowCashlessMessage("MSG_CASHLESS_APPLY_UPDATE_INPR", updateLoops, "_NOMODAL:START");
+			response = CheckUpdateStatus(delay);
+			if (response != null) {
+				// look for a communication error
+				if (Number(response.RESULT_CODE) > 60000) {
+					lostCommLoops++;
+					
+				} else {
+					updateStatus = response.SECONDARY_DATA;
+					lostCommLoops = 0;
+				}
+				
+				//timeElapsed = response.SESSION_DURATION;
+			} else {
+				updateStatus = "-1";
+				lostCommLoops++;
+			}
+			ShowCashlessMessage("MSG_CASHLESS_APPLY_UPDATE_INPR", "_NOMODAL:END");
+			
+			updateLoops++;
+			
+			// Have we been waiting too long for the update to complete?
+			if (MaxTimeExceeded() || LostCommTimeOut())
+			{
+				break;
+			}
+		}
+
+		if (updateStatus == "3") {
+			ShowCashlessMessage("MSG_CASHLESS_APPLY_UPDATE_SUCC");
+		} else if (updateStatus == "4") {
+			ShowCashlessMessage("MSG_CASHLESS_APPLY_UPDATE_FAIL");
+		} else if (updateStatus == "5") {
+			displayRebootingMessage("MSG_CASHLESS_APPLY_UPDATE_REBO");
+			ShowCashlessMessage("MSG_CASHLESS_APPLY_UPDATE_COMP");
+		} else if (updateStatus == "6") {
+			displayRebootingMessage("MSG_CASHLESS_APPLY_UPDATE_REST");
+			ShowCashlessMessage("MSG_CASHLESS_APPLY_UPDATE_COMP");
+		}
+	} else {
+		ShowCashlessMessage("MSG_CASHLESS_APPLY_UPDATE_UNAB");
+	}
+	
+	return;
+	
+	
+	function displayRebootingMessage(message)
+	{
+		lostCommLoops = 0;
+		ShowCashlessMessage(message, "_NOMODAL:START");
+		WaitForReboot();
+		response = CheckUpdateStatus("0");
+		if (response != null) {
+			if (Number(response.RESULT_CODE) > 60000) {
+				updateStatus = -1;
+			} else {
+				updateStatus = Number(response.SECONDARY_DATA);
+			}
+		} else {
+			updateStatus = "-1";
+		}
+
+		while (updateStatus != "0") {
+			response = CheckUpdateStatus(delay);
+			if (response != null) {
+				if (Number(response.RESULT_CODE) > 60000) {
+					lostCommLoops++;
+					updateStatus = -1;
+				} else {
+					updateStatus = response.SECONDARY_DATA;
+				}
+			}
+			
+			if (LostCommTimeOut()) {
+				break;
+			}
+		}
+		
+		ShowCashlessMessage(message, "_NOMODAL:END");
+	}
+	
+	function WaitForReboot()
+	{
+		var lostComm = false;
+		var maxLoops = 30;
+		var loopWaitTime = 5;
+		
+		while (lostComm == false && maxLoops > 0) {
+			response = CheckUpdateStatus(loopWaitTime);
+			if (response != null) {
+				if (Number(response.RESULT_CODE) > 60000) {
+					lostComm = true;
+				}
+			}
+			maxLoops--;
+		}
+		
+	}
+	function LostCommTimeOut()
+	{
+		var returnValue = false;
+	
+		if (lostCommLoops > maxLostCommLoops)
+		{
+			ShowCashlessMessage("MSG_CASHLESS_APPLY_UPDATE_LOST_COMM");
+			returnValue = true;
+		}
+		return returnValue;
+	}
+	
+	function MaxTimeExceeded()
+	{
+		var returnValue = false;
+		
+		if (updateLoops > maxUpdateLoops)
+		{
+			ShowCashlessMessage("MSG_CASHLESS_APPLY_UPDATE_MAX_TIMEOUT");
+			returnValue = true;
+		}
+		
+		return returnValue;
+	}
+}
+
+/*
+ * @brief starting point to execute a PED reboot on a remote machine
+ */
+function RemoteForcedReboot()
+{
+
+	// The value for the REMOTE_POS_ID will have been set when the
+	// remote POS is selected.
+	var posID = REMOTE_POS_ID;
+	
+	// The calling register will execute DoRemoteForcedReboot on the remote POS.
+	// The result will be published from the remote machine and retieved on this machine
+	PosRemoteExecute(REMOTE_POS_ID, "DoRemoteForcedReboot", CALLING_POS_NO);
+	result = ReceivePublishMessage(20);
+
+	// The results will be displayed on the calling register
+	if (result == "true")
+	{
+		ShowCashlessMessage("MSG_CASHLESS_FORCED_REBOOT_SUCCESS");
+	}
+	else
+	{
+		ShowCashlessMessage("MSG_CASHLESS_FORCED_REBOOT_FAIL");
+	}
+}
+
+/*
+ * @brief To be executed from the remote machine, this will execute the ForcedReboot function and then
+ *        Publishes the result so the calling POS can be informed of the result.
+ * @param callingPOS - the POS ID of the calling regiter,  Example: POS0001
+ * Returns no return value
+ */
+function DoRemoteForcedReboot(callingPOS)
+{
+	var result = ForcedReboot();
+	PublishMessage(callingPOS, result.toString());
+}
+
+/*
+ * @brief this function attempts to reboot the PED configured for this Pos
+ * Return true or false based on the result of the attempt to reboot the PED
+ */
+function ForcedReboot()
+{
+	var rebootResult = Reboot();  // This actually does the reboot
+	var returnValue = false;
+	var isKiosk = (POS_TYPE == "CSO");
+	
+	// Check the results, if the reboot worked, display a meesage and set the return value to true.
+	// Otherwise display a failure message.
+	// If we are a kiosk, the we don't want to disply the message here.
+	if (rebootResult.RESULT_CODE == "-1" && rebootResult.SECONDARY_DATA == "0")
+	{
+		if (isKiosk == false)
+		{
+			ShowCashlessMessage("MSG_CASHLESS_FORCED_REBOOT_SUCCESS");
+		}
+		returnValue = true;
+	}
+	else
+	{
+		if (isKiosk == false)
+		{
+			ShowCashlessMessage("MSG_CASHLESS_FORCED_REBOOT_FAIL")
+		}
+	}
+	
+	return returnValue;
+}
+
+
+function DiagnosePED(remoteParam)
+{
+	var isRemote;
+	if (typeof(remoteParam)==='undefined' || remoteParam == null)
+	{
+		isRemote = false;
+	}
+	else{
+		isRemote = remoteParam.toLowerCase() == "true";
+	}
+	var hlp = new BusinessObjectHelper;
+
+	// Tell the user to get all cards out of the PED
+	ShowCashlessMessage("MSG_CASHLESS_DIAG_REMOVE_CARDS");
+	
+	// First check to see if the plugin responds
+	var response = false;
+	// First check to see if the plugin responds
+	if (isRemote == false)
+	{
+		response = TimedDelay(25);
+	}
+	else
+	{
+		response = RemoteTimedDelay(25);
+	}
+
+	if (response == null)
+	{
+		ShowCashlessMessage("MSG_CASHLESS_PLUGIN_UNAVAIL");
+		DisplayPEDMessage();
+		return;
+	}
+	
+	// Now lets see if we can talk at all
+	if (isRemote == false)
+	{
+	response = GetStatus();
+	}
+	else
+	{
+		response = RemoteFunctionExecute("GetStatus");
+	}
+	if (response != null && Number(response.RETURN_CODE) >= 60000)
+	{
+		ShowCashlessMessage("MSG_CASHLESS_PED_NO_COMM");
+		DisplayPEDMessage();
+		return;
+	}
+	
+	// Now lets try a test mac and see what's going on
+	if (isRemote == false)
+	{
+	response = TestMAC();
+	}
+	else
+	{
+		response = RemoteFunctionExecute("TestMacResults");
+	}
+	if(response != null && (response.RESULT_CODE == CASHLESS_SUCCESS || response.RESULT_CODE == CASHLESS_SESSION_IN_PROGRESS)) {
+		if (response.RESULT_CODE == CASHLESS_SESSION_IN_PROGRESS) {
+			if (isRemote == false)
+			{
+			response = StopCashlessSession();
+			}
+			else
+			{
+				response = RemoteFunctionExecute("StopCashlessSession");
+			}
+			if (response.RESULT_CODE != -1) {
+				ExecuteReboot("MSG_CASHLESS_STUCK_SESSION_REBOOT");
+			} else {
+				ShowCashlessMessage("MSG_CASHLESS_SESSION_CLOSED");
+			}
+		} else {
+			ShowCashlessMessage("MSG_CASHLESS_PED_COMM_OK");
+		}
+		DisplayPEDMessage()
+		return;
+	} else if (response.RESULT_CODE == CASHLESS_DEVICE_BUSY) {
+		// lets try few times and see if we are stuck in a busy status
+		var maxTries = 10;
+		var maxTries = hlp.findParamInSectionConfig("DiagnosticBusyRetries", "Cashless3");
+		if (maxTries == null || maxTries == "" || maxTries < 1 || isNaN(maxTries)) {
+			maxTries = 10;
+		}
+		while (maxTries > 0 && response.RESULT_CODE == CASHLESS_DEVICE_BUSY) {
+			if (isRemote == false)
+			{
+			TimedDelay(1000);
+			response = TestMAC();
+			}
+			else
+			{
+				RemoteTimedDelay(1000);
+				response = RemoteFunctionExecute("TestMacResults");
+			}
+			maxTries--;
+		}
+		
+		// It is possible we exit with a busy error or a comm error.  Both of those
+		// are indications we want to try and reboot.
+		if (response.RESULT_CODE == CASHLESS_DEVICE_BUSY) {
+			ExecuteReboot("MSG_CASHLESS_PED_BUSY_REBOOT");
+		} else if (Number(response.RESULT_CODE) > 60000) {
+			ExecuteReboot("MSG_CASHLESS_UNKN_COMM_ERR");
+		} else {
+			ShowCashlessMessage("MSG_CASHLESS_PED_COMM_OK");
+		}
+	} else {
+		ExecuteReboot("MSG_CASHLESS_UNKN_COMM_ERR");
+	}
+	DisplayPEDMessage();
+	return;
+	
+	function DisplayPEDMessage()
+	{
+		if (isRemote == false)
+		{
+			PosDisplayPEDWaitingMessage();
+		}
+		else
+		{
+			RemoteFunctionExecute("PosDisplayPEDWaitingMessage");
+		}
+	}
+	
+	function ExecuteReboot(displayMessage) {
+		if(PosShowConfirmationMessage(displayMessage,"MSG_YES","MSG_NO")) {
+			var responseLocal;
+			if (isRemote == false)
+			{
+				responseLocal = Reboot();
+			}
+			else
+			{
+				responseLocal = RemoteFunctionExecute("Reboot");
+			}
+			if (responseLocal != null && responseLocal.RESULT_CODE == -1) {
+				if (responseLocal.SECONDARY_DATA == 0) {
+					ShowCashlessMessage("MSG_CASHLESS_PED_REBOOTING");
+				} else {
+					ShowCashlessMessage("MSG_CASHLESS_PED_REBOOT_FAIL");
+				}
+			} else {
+				ShowCashlessMessage("MSG_CASHLESS_PED_REBOOT_FAIL");
+			}
+		}
+	}
+	
+}
+
+function SendMobileCutover() {
+	var request =	{ 'commandInstruction':
+						{
+							'Topic':"MobileCutover",
+							'Message':"<REQUEST><REGNUM>" + POS_ID + "</REGNUM><COMMAND>MOBILECUTOVER</COMMAND><PARAMETERS><TIMEOUT>" + "40" +
+								"</TIMEOUT></PARAMETERS></REQUEST>"
+						}
+					};
+	return GetC3P0Response(request);
+}
+
+function PublishMessage(target, message) {
+	var request =	{ 'commandInstruction':
+						{
+							'Topic':"PublishMessage",
+							'Message':"<REQUEST><REGNUM>" + POS_ID + "</REGNUM><COMMAND>PUBLISHMESSAGE</COMMAND><PARAMETERS><TARGET_POS>" + target +
+								"</TARGET_POS><MESSAGE>" + message + "</MESSAGE></PARAMETERS></REQUEST>"
+						}
+					};
+	return GetC3P0Response(request);
+}
+
+function ReceivePublishMessage(maxWaitSeconds)
+{
+	var myID = GetMyPosID();
+	var request =	{ 'commandInstruction':
+						{
+							'Topic':"PublishMessage",
+							'Message':"<REQUEST><REGNUM>" + POS_ID + "</REGNUM><COMMAND>RECEIVEPUBLISHMESSAGE</COMMAND><PARAMETERS><MAXWAIT>" + maxWaitSeconds +
+								"</MAXWAIT><TARGET_POS>" + myID + "</TARGET_POS></PARAMETERS></REQUEST>"
+						}
+					};
+	var response =  GetC3P0Response(request);
+	
+	// success or failure the return message will be in the same place
+	return response.RESPONSE_TEXT;
+}
+
+function RemoteKIOSMaintJS(buttonNumber, labelButtonNumber)
+{
+	var kioskToPair = ChooseKiosk();
+	if (kioskToPair.length != 0) {
+	REMOTE_POS_ID = kioskToPair;
+	CALLING_POS_NO = GetMyPosID();
+	PosShowScreen(REMOTE_PAIRING_SCREEN);
+	} else {
+		ShowCashlessMessage("MWT_CASHLESS_NO_KIOKS_ONLINE");
+	}
+}
+
+
+function ChooseKiosk()
+{
+	// Get the list of available KIOSKs, the type is CSO
+	var kioskList = FindPosTypesJS("CSO");
+	var ctx=new SessionContext;				
+	var selectedKiosk = "";
+	
+	
+	if (kioskList.length != 0) {
+		// See if there are more than one to choose from
+		if (kioskList.indexOf('|') != -1) {
+			var result = PosItemSelection(kioskList, kioskList, "Pair KIOSK", "The available KISOKS are:");
+			if (result == true)
+			{
+				selectedKiosk = ctx.get("SelectedButtonValue");
+			}
+		} else {
+				selectedKiosk = kioskList;
+		}
+	}
+	
+	return selectedKiosk;
+}
+
+function GetMyPosID()
+{
+	var numPart = POS_ID;
+	while (numPart.length < 4)
+	{
+		numPart = "0" + numPart;
+	}
+	
+	return "POS" + numPart;
+}
+
+function FindPosTypesJS(posType)
+{
+	var address = GLOBAL_STOREDB.Adaptors.Adaptor.(@type == "xmlrpccli").Section.(@name == "main").Parameter.(@name == "url").@value;
+
+	var returnValue = "";
+	REMOTE_OPEN_POS_LIST = "";
+	
+	var response = GetPosList(address);
+	if (response != null)
+	{
+		var posResponseXML = new XML(response);
+		var posList = posResponseXML.PosList.Pos;
+
+		// We now have a list of all the pos terminals known by the waystation, go through them
+		// one at a time
+		for (posNumber = 0; posNumber < posList.length(); posNumber++)
+		{
+			// See if we are looking for this type of terminal
+			// It also needs to be online at the moment
+			if ((posType == "ALL" || posType == posList[posNumber].@type) && posList[posNumber].@online == "1")
+			{
+				if (returnValue != "")
+				{
+					returnValue += "|";
+				}
+				returnValue += posList[posNumber].@id;
+				// build a list of the open Pos
+				if (posList[posNumber].@state.toLowerCase() == "open")
+				{
+					REMOTE_OPEN_POS_LIST += posList[posNumber].@id + "|";
+				}
+			}
+		}
+		
+	}
+	return returnValue;
+}
+
+
+function RemotePEDPairJS(ButtonNumber, LabelButtonNumber)
+{
+	//NVS-3089 hide the return button
+	PosChangeButtonProperties(90, "visible|false");
+	var ctx = new SessionContext;
+	var posID = REMOTE_POS_ID;
+	PosRemoteExecute(REMOTE_POS_ID, "DoRemoteTestMAC", CALLING_POS_NO);
+	var result = ReceivePublishMessage(20);
+	if (result == "true")
+	{
+		ShowCashlessMessage("MWT_CASHLESS_ALREADY_PAIRED");
+		//Nvs-6527
+		PosChangeButtonProperties(90, "visible|true");
+		return;
+	}
+
+	REMOTE_RETURN_VALUE = "empty";
+	var result = PosRemoteExecute(posID, "RemoteGetPairingCode", CALLING_POS_NO);
+	var pairingCode = ReceivePublishMessage(20);
+
+	// show label
+	PosChangeButtonProperties(LabelButtonNumber,"visible|true", "title|Enter the following code on the PED:");
+	// Make buttons visible, assign text, and assign image "Clear-Keys-*.png"
+	var loc;
+	var subStr;
+	var img;
+	for(var i=0; i < 8; i++){
+		loc = parseInt(ButtonNumber) + i;
+		subStr = pairingCode.substring(i,i+1);
+		img = "Clear-Keys-" + subStr.toUpperCase() + ".png";
+		PosChangeButtonProperties(loc, "visible|true", "title|" + subStr, "bitmap|" + img);
+	}
+
+	PosRemoteExecute(posID, "RemotePairing", pairingCode, CALLING_POS_NO);
+	result = ReceivePublishMessage(300);
+	if (result == "true") {
+		ShowCashlessMessage("MWT_CASHLESS_PAIR_SUCCESS");
+	} else {
+		ShowCashlessMessage("MWT_CASHLESS_PAIR_FAIL");
+	}
+
+	PosChangeButtonProperties(LabelButtonNumber,"visible|false");
+	for(var i=0; i < 8; i++){
+		loc = parseInt(ButtonNumber) + i;
+		PosChangeButtonProperties(loc, "visible|false");
+	}
+
+	//NVS-3089 restore the return button
+	PosChangeButtonProperties(90, "visible|true");
+
+	return true;
+	
+}
+
+
+
+function RemotePairing(code, callingPOS)
+{
+	// create JSON request
+	var request =  { 'commandInstruction':
+					{
+						'Topic':"C3P0Request",
+						'Message':"<REQUEST><REGNUM>" + POS_ID + "</REGNUM><COMMAND>PAIR</COMMAND><PARAMETERS><IPADDRESS>" + PED_IP + "</IPADDRESS><CODE>" + code + "</CODE></PARAMETERS></REQUEST>"
+					}
+				};
+
+	var resp = GetC3P0Response(request);
+	var returnValue = IsC3P0ResponseSuccess(resp);
+	
+	if (returnValue == true) {
+		// If the paring was successful, try to set sync the time to the PED.
+		SetDateTime();
+	}
+	PublishMessage(callingPOS, returnValue.toString());
+}
+
+function RemoteGetPairingCode(callingPOS)
+{
+	var myID = GetMyPosID();
+	var result = "";
+	// generate random 4-digit auth code
+	var auth=Number(Math.round(Math.random()*10000)).toString();
+	while (auth.length < 4) // "0000" - "9999"
+	{
+		auth = "0" + auth;
+	}	
+		
+	// create JSON request
+	var request =  { 'commandInstruction':
+						{
+							'Topic':"C3P0Request",
+							'Message':"<REQUEST><REGNUM>" + POS_ID + "</REGNUM><COMMAND>GET_ENTRY_CODE</COMMAND><PARAMETERS><CODE>" + auth + "</CODE></PARAMETERS></REQUEST>"
+						}
+					};
+
+	var resp = GetC3P0Response(request);
+
+	if (IsC3P0ResponseSuccess(resp) == true)
+	{
+		result = resp.RESPONSE_TEXT;
+	}
+	else
+	{
+		result = "fail";
+	}
+	
+	PublishMessage(callingPOS, String(resp.RESPONSE_TEXT));
+	
+}
+
+function RemoteUnPairPEDJS()
+{
+	var posID = REMOTE_POS_ID;
+	PosRemoteExecute(REMOTE_POS_ID, "DoRemoteUnPair", CALLING_POS_NO);
+	result = ReceivePublishMessage(20);
+
+	if (result == "true")
+	{
+		ShowCashlessMessage("Successfully un-paired PED.");
+	}
+	else
+	{
+		ShowCashlessMessage("Failed To Un-Pair PED.");
+	}
+}	
+
+function DoRemoteUnPair(callingPOS)
+{
+	var result = DoUnPairPEDJS();
+	PublishMessage(callingPOS, result.toString());
+}
+
+function RemoteTestMACJS()
+{
+	var posID = REMOTE_POS_ID;
+	PosRemoteExecute(REMOTE_POS_ID, "DoRemoteTestMAC", CALLING_POS_NO);
+	var result = ReceivePublishMessage(20);
+	
+	if (result == "true")
+	{
+		ShowCashlessMessage("Successfully tested MAC.");
+	}
+	else
+	{
+		ShowCashlessMessage("Failed To test MAC.");
+	}
+}
+
+function DoRemoteTestMAC(callingPOS)
+{
+	var result = DoTestMACJS();
+	PublishMessage(callingPOS, result.toString());
+}
+function RemoteTimedDelay(timeMS)
+{
+	PosRemoteExecute(REMOTE_POS_ID, "DoRemoteTimedDelay", CALLING_POS_NO, timeMS);
+	var result = ReceivePublishMessage(20);
+	if (result == "false")
+	{
+		result = null;
+	}
+	return result;
+}
+
+function DoRemoteTimedDelay(callingPOS, timeMS)
+{
+	var result = TimedDelay(timeMS);
+	if (result != null)
+	{
+		PublishMessage(callingPOS, "true");
+	}
+	else
+	{
+		PublishMessage(callingPOS, "false");
+	}
+}
+
+function RemoteDayOpenPEDJS()
+{
+	var result;
+	// Check if the remote POS has been opened
+/*
+	if (REMOTE_OPEN_POS_LIST.indexOf(REMOTE_POS_ID) == -1) {
+		ShowCashlessMessage("MWT_CASHLESS_POSNOTOPEN_PEDCANTBEOPENED");
+		return false;
+	}
+*/
+	PosRemoteExecute(REMOTE_POS_ID, "DoRemoteDayOpenPED", CALLING_POS_NO);
+	result = ReceivePublishMessage(40);
+	
+	if (result == "true") {
+		ShowCashlessMessage("Successfully Opened PED");
+	} else {
+		var ctx =new SessionContext;
+		ctx.set("waitForever","0",false);
+		
+		ShowCashlessMessage("MWT_CASHLESS_MANUAL_OPEN_FAILED", REMOTE_POS_ID, "_TIMEOUT:waitForever");
+	}
+	
+	return true;
+}
+
+function RemoteFunctionExecute(functionName)
+{
+	PosRemoteExecute(REMOTE_POS_ID, "DoRemoteFunctionExecute", functionName, CALLING_POS_NO);
+	var result = ReceivePublishMessage(20);
+	var temp = null;
+	
+	
+	// OK, this is really ugly, but nothing else worked
+	// I would have thought I code get the element using result.RESPONSE_TEXT
+	// But NOooo!. Had to maniulate strings and we don't have satrts
+	if (result != null)
+	{
+		temp = result.toString();
+		// See if we start with <RESPONSE_TEXT>, our javascript seems
+		// to be lacking startsWith(), would have looked better
+		if (temp.indexOf("<RESPONSE_TEXT>") == 0)
+		{
+			temp = temp.substr(15);
+		}
+		// now get the last </RESPONSE_TEXT>
+		temp = temp.substr(0, temp.lastIndexOf("</RESPONSE_TEXT>"));
+		
+		try
+		{
+			result = new XML(temp);
+		}
+		catch(e)
+		{
+			result = null;
+		}
+	}
+	
+		
+	
+	return result;
+}
+function DoRemoteFunctionExecute(functionName, callingPOS)
+{
+	switch (functionName)
+	{
+		case "StopCashlessSession":
+			result = StopCashlessSession();
+			break;
+		case "Reboot":
+			result = Reboot();
+			break;
+		case "GetStatus":
+			result = GetStatus();
+			break;
+		case "TestMacResults":
+			result = TestMAC();
+			break;
+		case "PosDisplayPEDWaitingMessage":
+			PosDisplayPEDWaitingMessage();
+			result = null;
+			break;
+		default:
+			result = null;
+	}
+	if (result == null)
+	{
+		result = "null";
+	}
+	PublishMessage(callingPOS, result.toString());
+}
+	
+function DoRemoteDayOpenPED(callingPOS)
+{
+	SILENT_OPEN = true;
+	var result = DayOpenPED30();
+	SILENT_OPEN = false;
+	PublishMessage(callingPOS, result.toString());
+	
+}
+
+function PosMobileCutoverJS()
+{
+	API.dbg("PosMobileCutoverJS is running!");
+	if (PosCheckSessionProperty("SENDMOBILECUTOVER", "true"))
+	{
+		return;
+	}
+	var response = SendMobileCutover();
+	
+	if (IsC3P0ResponseSuccess(response))
+	{
+		PosSetSessionProperty("SENDMOBILECUTOVER", "true", false, true);
+	}
+	
+}
+/* signed aut version 9-9076
+ * authority id = coe
+ * authority level = 40
+ * authority name = NewPOS COE developer
+ * group = npi
+ * validity = 2010-04-18
+ * signature type = slash_star
+ * time stamp (GMT) = Wed Jan 31 01:28:44 2018
+ * certificate = 393735312d373934370091995d2abe0adae6078002a99beecc72cde508f8f37231ebc7bc9c8db2cda2d3c5ffa971f3c83fb561cb0a2864b4154d7c2a0010
+ * =================================================================================================================================
+*/

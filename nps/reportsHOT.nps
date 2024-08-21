@@ -1,0 +1,2308 @@
+/**
+ * reportsHOT.nps
+ * This NPS file implements routines for generating reports.
+ *
+ *  * Copyright (C) 1998-2005 Torex Corporation
+ *
+ * $Source: /NewPOS/SRC/np61cvs/cvs/___Config61/Posdata/US/nps/reportsHOT.nps,v $
+ * $Revision: 1.1 $
+ * $Date: 2007/11/30 16:08:59 $ (of revision)
+  * $Author: amerolli $ (of revision)
+ */
+
+/** Output buffer used to generate report */
+var outputBuffer 	= null;
+
+/* Root node of XMLs */
+var rootConfig		= null;
+var rootCash		= null;
+var rootPmix		= null;
+var rootHourlySales	= null;
+var rootView		= null;
+var rootSOS			= null;
+var rootCustom		= null;
+var rootProduct		= null;
+
+var rootSOSFC		= null;
+var rootSOSDT		= null;
+var rootSOSWT		= null;
+var rootSOSMFY		= null;
+
+var flagTypePos		= "";
+
+var flagTypePodDT	= false;
+var flagTypePodWT	= false;
+var flagTypePodFC	= false;
+
+
+function initGlobalt()
+{
+	/** Output buffer used to generate report */
+	outputBuffer = new StringBuffer();
+
+	/* Root node of XMLs */
+	rootConfig		= null;
+	rootCash		= null;
+	rootPmix		= null;
+	rootHourlySales	= null;
+	rootView		= null;
+	rootSOS			= null;
+	rootCustom		= null;
+	rootProduct		= null;
+
+	rootSOSFC		= null;
+	rootSOSDT		= null;
+	rootSOSWT		= null;
+	rootSOSMFY		= null;
+
+	flagTypePos		= "";
+	flagTypePodDT	= false;
+	flagTypePodWT	= false;
+	flagTypePodFC	= false;
+}
+
+var COLS = 39; // Number of columns
+var SEP_UL = "_______________________________________"; //  under line
+
+/** Convenience method to center a string in the report */
+function center(str)
+{
+	return API.center(str, COLS);
+}
+
+/** Adds a Cut tag. The paper will be cut at that position.*/
+function cutPaper() 
+{
+	outputBuffer.append("<@Cut>");
+}
+/** Appends a new line in the report. */
+function addLine(line)
+{
+	if(line != null) {
+		outputBuffer.append(line);
+	}
+	outputBuffer.append("\n");
+}
+
+function addDefaultHeader()
+{
+	var value = rootConfig.Header;
+	if(value != null && value != "") {
+		var lines = String(value).split("\\n");
+		for(var i = 0; i < lines.length; i++) {
+			addLine(center(lines[i]));
+		}
+	}
+
+	var value = rootConfig.StoreAddress;
+	if(value != null && value != "") {
+		var lines = String(value).split("\\n");
+		for(var i = 0; i < lines.length; i++) {
+				addLine(center(lines[i].substring(0,39)));
+		}
+	}
+
+	var value = rootConfig.City;
+	if(value != null && value != "") {
+		var lines = String(value).split("\\n");
+		for(var i = 0; i < lines.length; i++) {
+			addLine(center(lines[i].substring(0,39)));
+		}
+	}
+
+	var value = rootConfig.StoreZipCode;
+	if(value != null && value != "") {
+		var lines = String(value).split("\\n");
+		for(var i = 0; i < lines.length; i++) {
+			addLine(center(lines[i].substring(0,39)));
+		}
+	}
+
+//	var value = rootConfig.Country;
+//	if(value != null && value != "") {
+//		var lines = String(value).split("\\n");
+//		for(var i = 0; i < lines.length; i++) {
+//			addLine(center(lines[i].substring(0,39)));
+//		}
+//	}
+
+	//addLine(" ");
+	addLine(center("! ! ! THANK YOU ! ! !"));
+	//addLine(" ");
+}
+
+/**
+ * Initializes global variables.
+ * @param config configuration xml data (StringBuffer)
+ * @param array of data (StringBuffer[])
+ * @param requiredDataTypes if this optional parameter is set, it will break
+ * if any given required data is not present.
+ */
+function init(config, data, requiredDataTypes, functionName)
+{
+	initGlobalt();
+	rootConfig = new XML(config);
+
+	var bRequiredXML = Array(false, false, false, false, false, false, false, false, false, false, false);
+	var matched = 0;
+	var requiredDataTypesSize = requiredDataTypes != null ? requiredDataTypes.length : 0;
+
+	for(var i = 0; i < data.length; i++) {
+		if(data[i] != null) {
+			var xml = new XML(data[i]);
+			var dataType = xml.@requestDataType.toLowerCase();
+			if("cash" == dataType) {
+				rootCash = xml;
+			}else if("pmix" == dataType) {
+				rootPmix = xml;
+			}else if("view" == dataType) {
+				rootView = xml;
+			}else if("hourlysales" == dataType) {
+				rootHourlySales = xml;
+			}else if("sos" == dataType) {
+				rootSOS = xml;
+				if(rootSOS.StoreTotals.@productionNodeId.length() != 0){
+					//var BOHelper=new BusinessObjectHelper();
+					//var alias=BOHelper.getQueueAlias(rootSOS.StoreTotals.@productionNodeId);
+					if(rootSOSDT==null) {
+						rootSOSDT = (rootSOS.StoreTotals.@productionNodeId == "DT")?rootSOS:null;
+					}
+					if(rootSOSWT==null) {
+						rootSOSWT = (rootSOS.StoreTotals.@productionNodeId == "WT")?rootSOS:null;
+					}
+					if(rootSOSFC==null) {
+						rootSOSFC = (rootSOS.StoreTotals.@productionNodeId == "FC")?rootSOS:null;
+					}
+					if(rootSOSMFY==null) {
+						rootSOSMFY = (rootSOS.StoreTotals.@productionNodeId == "MFY")?rootSOS:null;
+					}
+				}
+			}else if("custom" == dataType) {
+				rootCustom = xml;
+			}else if("prods" == dataType) {
+				rootProduct = xml;
+			}else if("timepunch" == dataType) {
+				rootTimePunch = xml;
+			}
+			for(var j = 0; j < requiredDataTypesSize; j++) {
+				if(requiredDataTypes[j].toLowerCase() == dataType) {
+					matched++;
+					bRequiredXML[j]=true;
+					break;
+				}
+			}
+		}
+	}
+
+	if(matched < requiredDataTypesSize) {
+		var missingTypes="";
+		for(var j = 0; j < requiredDataTypesSize; j++) {
+			if(missingTypes.length != 0) {
+				missingTypes+=" | ";
+			}
+			if(!bRequiredXML[j]) {
+				missingTypes+=requiredDataTypes[j].toLowerCase();
+			}
+		}
+		missingTypes="";
+		for(var j = 0; j < requiredDataTypesSize; j++) {
+			if(!bRequiredXML[j]) {
+				missingTypes+=requiredDataTypes[j].substr(0,1).toUpperCase();
+			}
+		}
+		addLine("ERROR: POS configuration error.\nCall support,  error code = " +  functionName.substr(0,5) + "-" + missingTypes);
+		return -1;
+	}
+	return 0;
+}
+
+//
+// Helper Functions
+//
+/** Parses 'val' to an integer, returning 0 if null or empty*/
+function toInt(val)
+{
+	if(!val || String(val) == "") {
+		return 0;
+	}
+	// Must create a Number first because parseInt will resolve "010" as an octal number
+	return parseInt(Number(val));
+}
+
+/**
+ * PUBLIC
+ * Implements fnMountOrderId
+ * Needed data types: VIEW
+ * @author Celso Fernandes
+ * @signature public java.lang.StringBuffer reportCashInDrawer(java.lang.StringBuffer config, java.lang.StringBuffer []data);
+ */
+function fnMountOrderId(OrderId,Order,Major,Minor){
+
+	return(OrderId=="") ? PosMountOrderIdJS("1",Order,Major,Minor) : OrderId;
+}
+
+/** PosMountOrderIdJS
+ *
+ * @brief - This function implements the BC,Business Component: <b>PosMountOrderIdJS</b>\n
+ * This BC checks if it's possible to void a sale!\n
+ * In a workflow sequence it is called:<b>PosMountOrderIdJS NbrFormat szOrder szMajor szMinor</b>\n
+ * In java script it should be called:<b>PosMountOrderIdJS(NbrFormat,szOrder,szMajor,szMinor)</b>\n
+ * @param - NbrFormat - Number Format
+ * @param - Order - POD + order number
+ * @param - Major - major number
+ * @param - Minor - minor number
+ * Return - rval - OrderId
+ */
+function PosMountOrderIdJS(szNbrFormat,Order,Major,Minor) {
+
+	var OrderId="";
+	gsCurrOrderID = Order;
+	switch(Number(szNbrFormat)) {
+	default:
+	case 1:
+		while(Major.length < 2) {
+			Major="0"+Major;
+		}
+		OrderId=Major.substr(Major.length-2,2);
+		if(toInt(Minor) != 0) {
+			OrderId+="/"+Minor;
+		}
+		break;
+	case 2:
+		while(Major.length < 2) {
+			Major="0"+Major;
+		}
+		OrderId=Number(Order.substr(3,4))+Major.substr(Major.length-2,2);
+		if(toInt(Minor) != 0) {
+			OrderId+="/"+Minor;
+		}
+		break;
+	}
+	return(OrderId);
+}
+
+/**
+ * This function returns the resulting report and executes some memory cleanup.
+ * @return the report response to kernel
+ */
+function getResponse()
+{
+	var response	= outputBuffer;
+	// Make a cleanup so that the garbage collector can free
+	// some memory when the script ends.
+	rootConfig		= null;
+	rootCash		= null;
+	rootPmix		= null;
+	rootHourlySales	= null;
+	rootView		= null;
+	rootSOS			= null;
+	rootCustom		= null;
+	rootProduct		= null;
+
+	rootSOSFC		= null;
+	rootSOSDT		= null;
+	rootSOSWT		= null;
+	rootSOSMFY		= null;
+
+	rootTimePunch	= null;
+
+	outputBuffer	= null;
+	return response;
+}
+
+/**
+ * Receipt for HHOT
+ */
+function receiptHHOT(config, data)
+{
+	if(init(config, data, Array("VIEW"), "RECPT") != 0){
+		return getResponse();
+	}
+	var view = rootView.View;
+	addLine(SEP_UL);
+	addDefaultHeader();
+	addLine(center("TEL# " + rootConfig.StorePhoneNumber + " Store# " + rootConfig.StoreId));
+	addLine();
+	var majorMinor = fnMountOrderId(String(view.@orderId),String(view.@orderKey),String(view.@major),String(view.@minor));
+	var kvsOrder = "Order #" + majorMinor;
+	addLine(center(kvsOrder));
+	addLine();
+	addLine(SEP_UL);
+	return getResponse();
+}
+
+/**
+ * \brief Constructor for a facility to iterate a sale
+ * \param[in] items - Array of items to iterate
+ * \author DPA
+ * \since NPS-8638 
+ */
+function Iterator (items) {
+    this.items   = items;
+    this.current = 0;
+}
+
+/**
+ * \brief Checks if the iterator has reached the end of data stream
+ * \return A boolean
+ * \retval true if end of the iterated container has been reached.
+ * \retval false if end of the iterated container has not been reached.
+ * \author DPA
+ * \since NPS-8638  
+ */
+Iterator.prototype.atEnd = function () {
+    return (this.current >= this.items.length);
+}
+
+/**
+ * \brief Moves the iterator to the next item
+ * \return A boolean
+ * \retval false if reached the end of the items list
+ * \retval true if end of the list was not reached 
+ * \author DPA
+ * \since NPS-8638
+ */
+Iterator.prototype.next = function () {
+    ++this.current;
+    if (! this.atEnd ()) {
+	return true;
+    }
+    return false;
+}
+
+/**
+ * \brief Return the current item from the iterator
+ * \return An instance of whatever is inside the array of items
+ * \retval null if reached the end of the list 
+ * \author DPA
+ * \since NPS-8638
+ */
+Iterator.prototype.get = function () {
+    if (! this.atEnd ()) {
+	return this.items [this.current];
+    }
+    return null;
+}
+
+/**
+ * \brief Resets the iterator, returning it to the first element
+ */
+Iterator.prototype.reset = function () {
+    this.current = 0;
+}
+
+/**
+ * \brief Basic printer functionality
+ */
+Printer.prototype.print  = function (line) {
+    if (line != null) {
+	outputBuffer.append (line);
+    }
+    outputBuffer.append ("\n");
+}
+function Printer (){}
+
+/**
+ * \brief Object describing a sale item, used for output formatting
+ */
+SaleItem.prototype = {		// List of items inside a sale
+    product     : null,		// Sold product
+    levelZeroQty: 0		// Level zero quantities
+}; 
+function SaleItem (item, qty) { 
+    this.product      = item;
+    this.levelZeroQty = qty;
+}
+
+/* Sale object properties */
+Sale.prototype.PC_VALUE_MEAL = 3;	       // Constant. Value meal product class
+Sale.prototype.PC_CHOICE     = 4;	       // Constant. Choice product class
+Sale.prototype.size          = 0;	       // Size of the items list
+Sale.prototype.items         = new Array ();   // List of items
+Sale.prototype.printer       = new Printer (); // Printer for output
+Sale.prototype.config        = {	       // Configuration parameters
+    showAsSinglePrice: false,		       // Show VMs with single price
+    showUpcharge     : false,		       // Show up-charge text
+    upchargeText     : null,		       // Up-charge text to show
+    suppressDiscount : false,		       // Suppress discount
+    showDiscount     : false,		       // Shows discount text
+    discountText     : null,		       // Discount text to show
+    inlineText       : false,		       // inLine text
+    hidePrice        : false                   // NPS-7605: adjustment slip does not show item prices
+};
+
+/**
+ * \brief Adds an item to the sale representation
+ * \param[in] item - Item to add to the sale
+ * \author DPA
+ * \since NPS-8638 
+ */
+Sale.prototype.addItem = function (item, qty) {
+    this.items[this.size] = new SaleItem (item, qty);
+    ++this.size;
+}
+
+/**
+ * \brief Returns an iterator to run over a sale
+ * \author DPA
+ * \since NPS-8638 
+ */
+Sale.prototype.iterator = function () {
+    return new Iterator (this.items);
+}
+
+/**
+ * \brief Calculates price difference for a given item
+ * \param [in] item - Sold item
+ * \return Float
+ * \retval Calculated difference between its price and its reference price
+ */
+Sale.prototype.priceDifference = function (item) {
+    return parseFloat (item.totalPrice) - (parseFloat (item.referencePrice) * (parseFloat(item.quantity)-parseFloat(item.quantityPromo)));
+}
+
+/**
+ * \brief Set of methods to format strings
+ * \author DPA
+ * \since NPS-8638
+ */
+Sale.prototype.formatting = {
+    /**
+     * \brief Create a string containing spaces for padding
+     * \param [in] n - Number of spaces to use for padding
+     */
+    createPadding: function (n) {
+	var str = "";
+	for (; n > 0; --n) {
+	    str = str + " ";
+	}
+	return str;
+    }
+}; 
+
+function removeChar(s, c) {
+
+   var r = "";
+
+   for (var i = 0; i < s.length; i ++) {
+      if (s.charAt(i) != c) r += s.charAt(i);
+   }
+
+   return r;
+}
+
+/**
+ * \brief Prints an item line
+ * \author DPA
+ * \since NPS-8638
+ * \remarks This is a port of addItemLine function which was developed as an
+ * inner function inside original receipt function 
+ */
+Sale.prototype.printItemLine = function (item, qtyLevelZero) {
+    var ident     = "";
+    var level     = toInt(item.level);
+    var itemClass = item.productType.length();
+    if (itemClass != 0 && item.productType == 4) {
+	return;
+    }
+    for(var i=0; i<level; i++) {
+	ident += "  ";
+    }
+    if (item.level == 0) {
+	qtyLevelZero = 1;
+    }
+    var aux   = item.quantity  * qtyLevelZero;
+    var qty   = API.setOnRight(aux, 3);
+    var name  = item.longName;
+    var price = API.formatNumber (Number(item.totalPrice), NUMBER_FORMAT, 8);
+    var lineText = null;
+    if (this.config.showAsSinglePrice) {
+	if (this.PC_VALUE_MEAL == item.productType) {
+	    price = API.formatNumber (item.totalVMPrice, NUMBER_FORMAT, 8);
+	}
+	else if (item.choiceLevel > 0) {
+	    price = "";
+	    ident = ident + "  ";
+	    var diff = this.priceDifference (item);
+
+            if (diff < 0) {
+	        if (! this.config.suppressDiscount) {
+		    if (this.config.showDiscount) {
+			price = API.formatNumber (diff, NUMBER_FORMAT, 8);
+			if (this.config.discountText != undefined) {
+			    if (this.config.inlineText) {
+				price = "<" + this.config.discountText + ">  " + price;
+			    }
+			    else {
+				lineText = "<" + this.config.discountText.substr(0,16) + ">";
+			    }
+			}
+		    }
+	        }
+            } else if (diff > 0) {
+	        if (this.config.showUpCharge) {
+  		    price = API.formatNumber (diff, NUMBER_FORMAT, 8);
+		    if (this.config.upchargeText != undefined) {
+			if (this.config.inlineText) {
+			    price = "<" + this.config.upchargeText + ">  " + price;
+			}
+			else {
+			    lineText = "<" + this.config.upchargeText.substr(0,16) + ">";
+			}
+		    }
+		}
+	    }
+	}
+	if(level > 0 && price == 0) {
+	    price = ""; 
+	}
+    }
+    else {
+	if(level > 0 && price == 0) {
+	    price = ""; 
+	} else {
+		var priceNoComma = removeChar(price,",");
+	    price = API.formatNumber(Number(priceNoComma), NUMBER_FORMAT, 8);
+	}
+    }
+    if (this.config.hidePrice) {
+    	price = "";
+    }
+
+    if(toInt(item.quantityPromo) != 0) {
+        if (this.config.showAsSinglePrice) {
+  	     if (this.PC_VALUE_MEAL == item.productType || item.choiceLevel <= 0 || trim(item.choiceLevel)=="" || item.choiceLevel=="NAN") {
+                price = item.quantityPromo + "P" + price;
+	    }
+        } else {
+            price = item.quantityPromo + "P" + price;
+        }
+    }
+    
+    price = " " + price;
+
+
+    var line = null;
+    if(item.isGrillLine == "true") {
+	line = "    " + ident + getGrillDescription(item, true);
+    } else {
+	line = ident + qty + " " + name;
+    }
+
+    line = API.setOnLeft(line, COLS-price.length) + price;
+
+    this.printer.print (line);
+    
+    if (null != lineText) {
+	var size = 30 - lineText.length;
+	this.printer.print (this.formatting.createPadding (size) + lineText);
+    }
+}
+
+/**
+ * \brief Adjust the view for single price VMs
+ * \author DPA
+ * \since NPS-8638
+ */
+Sale.prototype.adjustViewToSinglePriceVM = function () {
+    var parentVm = null;
+
+    for (var it = this.iterator (); ! it.atEnd (); it.next ()) {
+	var item = it.get ();
+
+	if ((0 == item.product.level) && (this.PC_VALUE_MEAL == item.product.productType)){
+            // This the value meal
+            item.product.totalVMPrice = parseFloat (item.product.totalPrice);
+            parentVm = item;
+        } else if ((0 == item.product.level) && (this.PC_VALUE_MEAL != item.product.productType) && (item.product.choiceLevel <= 0)){
+            parentVm = null;
+	} else if (item.product.choiceLevel > 0) {
+	    // This is a choice
+	    if(parentVm!=null) {
+                var diff = this.priceDifference (item.product);
+	        if(diff>0 && this.config.showUpCharge) {
+                    parentVm.product.totalVMPrice= parseFloat(parentVm.product.totalVMPrice) + (parseFloat (item.product.referencePrice) * (parseFloat(item.product.quantity)-parseFloat(item.product.quantityPromo)));
+	        } else if(diff<0 && (!this.config.suppressDiscount) && (this.config.showDiscount)) {
+                    parentVm.product.totalVMPrice= parseFloat(parentVm.product.totalVMPrice) + (parseFloat (item.product.referencePrice) * (parseFloat(item.product.quantity)-parseFloat(item.product.quantityPromo)));
+	        } else {
+                    parentVm.product.totalVMPrice= parseFloat(parentVm.product.totalVMPrice) + parseFloat(item.product.totalPrice);
+                }
+	    }
+	}
+    }
+}
+
+/**
+ * \brief Prints the sale representation to the printer
+ * \author DPA
+ * \since NPS-8638
+ */
+Sale.prototype.print = function () {
+    if (this.config.showAsSinglePrice) {
+	this.adjustViewToSinglePriceVM ();
+    }
+    for (var it = this.iterator (); ! it.atEnd (); it.next ()) {
+	var item = it.get ();
+	this.printItemLine (item.product, item.levelZeroQty);
+    }
+}
+
+/**
+ * \brief Constructor for the sale object
+ * \author DPA
+ * \since NPS-8638
+ */
+function Sale () {
+    var config = new Config ("ValueMealDisplay", true);
+
+    this.config.showAsSinglePrice = config.getBoolParameter ("VMDisplay_ShowAsSinglePrice");
+    this.config.showUpCharge      = config.getBoolParameter ("VMDisplay_ShowUpCharge");
+    this.config.upchargeText      = config.getParameter     ("VMDisplay_UpChargeText");
+    this.config.showDiscount      = config.getBoolParameter ("VMDisplay_ShowDiscount");
+    this.config.discountText      = config.getParameter     ("VMDisplay_DiscountText");
+    this.config.inlineText        = config.getBoolParameter ("VMDisplay_InLineText");
+    this.config.suppressDiscount  = config.getBoolParameter ("VMDisplay_SuppressDiscount");
+    this.size                     = 0;
+    this.items.length             = 0;
+    this.items                    = new Array()
+}
+
+/**
+ * LOCAL
+ * @brief Consolidates or removes the autocondiment (AC) items from the given view.
+ * @param acDisplayProperty - property which defines where the AC items will be displayed, valid properties: 'receipt' or 'picklist'.
+ * @signature public java.lang.StringBuffer reportCashInDrawer(java.lang.String acDisplayProperty);
+ */
+ function lConsolidateACItems(acDisplayProperty) {
+	try {
+		API.dbg("Reports.nps:lConsolidateACItems() - Consolidating AC items based on display property: [" + acDisplayProperty + "]...");
+		var view 			= rootView.View;
+		var acItemsList 	= new Array();
+
+		// first assert promo quantities
+		assertPromoQuantities(view);
+
+		// Removes all the auto-condiment items from the view.
+		for (var j = 0; j < view.ItemView.length(); ++j) {
+			var isAC 		= view.ItemView[j].AutoCondiment;
+			var acDisplay 	= view.ItemView[j].ACDisplay;
+			if (isAC=='true') {
+				if (canDisplayACItem(acDisplay, acDisplayProperty)) {
+					var acItemView 		= view.ItemView[j];
+					var parentsQty 		= getParentsQuantity(view, j, new Number(acItemView.level));
+					acItemView.quantity *= parentsQty;
+					acItemView.level 	= 0; 	// Auto-condiment must be in the level zero.
+					consolidateACItem(acItemView);
+				}
+				delete view.ItemView[j]; 
+				j--;
+			}
+		} 	
+		// Removes the AC zombie parents.
+		removeACZombieParents(view);
+		// Re-adds the joined auto-condiment items to the view.
+		for (var x=0; x < acItemsList.length; x++) {
+			view.appendChild(acItemsList[x]);
+		}
+	} catch(ex) {
+		API.dbg("Could not consolidate auto-condiments on the view, due to: " + ex);
+	}
+	
+	function assertPromoQuantities(view) {
+		try {
+			var promoId  = 0;
+			var promoQty = 0;
+			for (var j = 0; j < view.ItemView.length(); ++j) {
+				var isAC 	= view.ItemView[j].AutoCondiment;
+				var item  	= view.ItemView[j];
+				var level 	= new Number(item.level);
+				
+				if (level == 0) {
+					// root item
+					// rootItem		= item;
+					rootQtyPromo	= new Number(item.quantityPromo);
+					rootPromoId		= new Number(item.promo.@id);
+				} else if (rootQtyPromo > 0 && isAC == 'true') {
+					// Autocondiment with promo
+					var parentQty		= getLevelQuantity(view, j, level);
+					var	qtyPromo		= rootQtyPromo * parentQty * new Number(item.quantity);
+					var promoxml		= '<promo id="' + rootPromoId + '">' + rootQtyPromo + '</promo>';
+					API.dbg("[assertPromoQuantities] promoxml: [" + promoxml + "]");
+					var promo			= new XML(promoxml);
+					
+					// item.quantity		= getLevelQuantity(view, j, level);
+					API.dbg("[assertPromoQuantities] item.quantity: [" + item.quantity + "]");
+					item.quantityPromo	= qtyPromo;
+					API.dbg("[assertPromoQuantities] item.quantityPromo: [" + item.quantityPromo + "]");
+					delete item.promo;
+					item.appendChild(promo);
+				}
+			}
+		} catch (ex) {
+			API.dbg("FATAL ERROR: Could not fix promo quantities, due to: " + ex);
+		}
+		/*
+		 * Gets the quantity of a given level. 
+		 */	
+		 function getLevelQuantity(view, curIndex, level) {
+			try {
+				var total = 1;
+				for (var x = curIndex; x >=0; x--) {
+					if (new Number(view.ItemView[x].level) < level) {
+						if (view.ItemView[x].level == 0) {
+							return total;
+						} else {
+							total = total * new Number(view.ItemView[x].quantity);
+						}
+					}
+				}
+			} catch (ex) {
+				API.dbg("FATAL ERROR: Could not get the quantity of the previous level, due to: " + ex);
+			}
+			return 1;
+		}	
+	}	
+	
+	
+	/*
+	 * Removes the AC zombie parents.
+	 */
+	function removeACZombieParents(view) {
+		for (var j=0; j<view.ItemView.length(); ++j) {
+			var acDNAPath		= new Number(view.ItemView[j].acDNAPath);
+			var isLastElement 	= (j == view.ItemView.length() - 1);
+			if (acDNAPath==1) {
+				if (!hasChild(j)) {
+					// Has no child and it was linked to an AC item, lets check if it is a zombie parent.
+					if (removeZombieParent(j)) {
+						// Lets reset it and starts again, we dont know if we left the grandparent as a zombie.
+						j=-1;
+					}
+				}
+			}
+		}
+		// Lets remove the DNA information.
+		for (var j = 0; j < view.ItemView.length(); ++j) {
+			var acDNAPath = new Number(view.ItemView[j].acDNAPath);
+			if (acDNAPath == 1) {
+				delete view.ItemView[j].acDNAPath;
+			}
+		}
+		
+		/*
+		 * Verifies if the given item index has children items.
+		 */
+		 function hasChild(curIndex) {
+			var level = new Number(view.ItemView[curIndex].level);
+			var isLastElement = (j == view.ItemView.length() - 1);
+			if ((!isLastElement) && (level < new Number(view.ItemView[curIndex+1].level))) {
+				return true;
+			}
+			return false;
+		}
+
+		/*
+		 * Removes the zombie parent. It will only be preserved if it has at least one of the following characteristics:
+		 * 		1) OPENED CHOICE (MUST SHOW OPENED CHOICES)
+		 * 		2) GRILLED ITEMS (MUST SHOW GRILLED PRODUCTS)
+		 * 		3) NON ZERO PRICE (COST NOT INCLUSE)
+		 *      4) QUANTITY GREATER THAN ZERO (MUST SHOW VOID ITEM)
+		 *		5) PROMO QUANTITY NOT EQUALS TO ZERO (MUST SHOW PROMOTED ITEMS)
+		 */
+		function removeZombieParent(index) {
+			var quantity		= new Number(view.ItemView[index].quantity);
+			var promoQty		= new Number(view.ItemView[index].quantityPromo);
+			var totalPrice		= new Number(view.ItemView[index].totalPrice);
+			var totalPriceBP	= new Number(view.ItemView[index].BPTotalPrice);
+			var isGrillLine		= view.ItemView[index].isGrillLine;
+			var productType		= new Number(view.ItemView[index].productType);	// OPEN CHOICE=4
+			var	level			= new Number(view.ItemView[index].level);
+			var prodAction		= new Number(view.ItemView[index].prodAction);
+			
+			if (	totalPriceBP		== 0		&& 
+					promoQty			== 0		&& 
+					quantity			> 0			&& 
+					productType			!= 4		&& 
+					isGrillLine			== 'false'	&& 
+					totalPrice			== 0		&&
+					level				!= 0		&&
+					prodAction			!= 3
+			) {
+				delete view.ItemView[index]; 
+				return true;
+			} else {
+				return false;
+			}
+		}
+	}
+	
+	/*
+	 * Calculates the parents quantity. 
+	 */	
+	 function getParentsQuantity(view, curIndex, curLevel) {
+		try {
+			var qty = 1;
+			for (var x=curIndex;x>=0;x--) {
+				if (new Number(view.ItemView[x].level) < curLevel) {
+					curLevel = new Number(view.ItemView[x].level);
+					qty *= new Number(view.ItemView[x].quantity);
+					// Creates the AC DNA indicating the genealogy path, so we 
+					// can find the its possible zombie parents.
+					view.ItemView[x].acDNAPath = "1"; 
+					if (curLevel == 0) {
+						break;
+					}
+				}
+			}
+			return qty;
+		} catch (ex) {
+			API.dbg("FATAL ERROR: Could not calculate parents quantity for auto-condiments, due to: " + ex);
+			return 1; // At least keeps the AC default quantity.
+		}
+	}	
+	
+	/*
+	 * Verifies if the ACDisplay tag has the given display property value, such as: 'receipt' or 'picklist'.
+	 */	
+	 function canDisplayACItem(acDisplay, type) {
+		var props = acDisplay.split("|");
+		for (var w=0;w<props.length;w++) {
+			if (props[w]==type) {
+				return true;
+			}
+		}
+		return false;
+	}
+	
+	/*
+	 * Consolidates the incoming order items.
+	 */
+	function consolidateACItem(acItemView) {
+		// Auto-condiment must be in the level zero.
+		acItemView.level 			= 0; 	
+		// Auto-condiment item does not accept non-zero price.
+		acItemView.unitPrice		= 0;	
+		acItemView.netUnitPrice		= 0;
+		acItemView.unitTax			= 0;
+		acItemView.totalPrice		= 0;
+		acItemView.netTotalPrice	= 0;
+		acItemView.totalTax			= 0;
+		acItemView.ADTotalPrice		= 0;
+		acItemView.ADNetTotalPrice	= 0;
+		acItemView.ADTotalTax		= 0;
+		// Is not selected any more.
+		acItemView.currentSelected  = 'false';
+		var sz = acItemsList.length;
+		for (var x=0; x < sz; x++) {
+			var item = acItemsList[x];
+			if (item.productCode == acItemView.productCode) {
+				// By design, does not support grilled quantities. (AC items are not grillable)
+				var promoQty		= (new Number(item.quantityPromo) 	+ new Number(acItemView.quantityPromo));
+				var promoId			= getPromoId(item, acItemView);
+				item.quantity 		= (new Number(item.quantity) 		+ new Number(acItemView.quantity));
+				item.quantityPromo	= promoQty;
+				if (promoQty > 0) {
+					var promoxml = '<promo id="' + promoId + '">' + promoQty + '</promo>';
+					var promo = new XML(promoxml);
+					delete item.promo;
+					item.appendChild(promo);
+				}
+				return;
+			}
+		}
+		// Item was not found in the list, lets add it.
+		acItemsList[sz] = acItemView;
+	}
+
+	function getPromoId(item, acItemView) {
+		if (new Number(item.quantityPromo) > 0) {
+			return item.promo.@id;
+		} else {
+			return acItemView.promo.@id;
+		}
+	}
+}
+
+/** PUBLIC FUNCTION
+ * If exists an item with grillReason PLAIN, applies the logic of PLAIN, modifying first item to PLAIN item and removing the other items with the same grillReason
+ *
+ * @param xml xmlOrderView the item view that will be formatted
+ * @return formated xml
+ */
+ function checkPlainForReceipt(xmlOrderView) {
+	var level = 0;
+	var plainApplied = false;
+	
+	for (var i = 0; i < xmlOrderView.ItemView.length(); i++) {  
+		item=xmlOrderView.ItemView[i];
+
+		if(level != item.level){
+			plainApplied = false;
+		}
+		level = item.level;
+		if(item.grillReason == 1){
+			if(plainApplied == false){
+				item.quantity = 1;
+				item.grilledQuantity = 1;
+				item.componentDefaultQtd = 0;
+				item.componentMinQtd = 0;
+				item.componentMaxQtd = 1;
+				item.specialModifiers = 0;
+				item.productType = 6;
+				item.familyGroup = 8;
+				item.longName = PLAIN;
+				item.dtName = PLAIN;
+				item.formattedGrillQty = PLAIN;
+				item.grillType = "PLAIN";
+				item.description = PLAIN;
+				item.name = PLAIN;
+				item.displayOrder = 0;
+				item.productCode = 0;
+				
+				plainApplied = true;
+			}else{
+				item=null;
+				delete xmlOrderView.ItemView[i];
+				i--;
+			}
+		}
+	}
+
+	return xmlOrderView;
+}
+
+/** PUBLIC FUNCTION
+ * Removes components which contains ForceCompDisplay MONITORS
+ *
+ * @param xml xmlOrderView the item view that will be formatted
+ * @return formated xml
+ */
+ function checkForceCompForReceipt(xmlOrderView) {
+
+	for (var i = 0; i < xmlOrderView.ItemView.length(); i++) {  
+		item=xmlOrderView.ItemView[i];
+
+		if(item.ForceCompDisplay == "MONITORS"){
+			item=null;
+			delete xmlOrderView.ItemView[i];
+			i--;
+		}
+	}		
+
+	return xmlOrderView;
+}
+
+function checkShowChosenItemAsIngredientForReceipt(xmlOrderView) {
+	for (var i = 0; i < xmlOrderView.ItemView.length(); i++) {  
+		var item = xmlOrderView.ItemView[i];
+		
+		if(item.showChosenItemAsIngredient == "true"){
+			var level = Number(item.level) + 1;
+			
+			for(var j=i+1; j < xmlOrderView.ItemView.length(); j++) {
+				var subItem = xmlOrderView.ItemView[j];
+				
+				if(subItem.level == level) {
+					if(subItem.prodAction == "3") { //3- ChoiceProduct
+						subItem.prodAction = "0";
+						//subItem.isGrillLine = "true";
+					}
+				}else {
+					break;
+				}
+			}
+		}
+	}		
+
+	return xmlOrderView;
+}
+
+/** PUBLIC FUNCTION
+ * Removes components which contains grillReason USERACTION
+ *
+ * @param xml xmlOrderView the item view that will be formatted
+ * @return formated xml
+ */
+ function checkSmartGrillForReceipt(xmlOrderView) {
+	for (var i = 0; i < xmlOrderView.ItemView.length(); i++) {  
+		item=xmlOrderView.ItemView[i];
+
+		if(item.grillReason == 2){
+			item=null;
+			delete xmlOrderView.ItemView[i];
+			i--;
+		}
+	}		
+
+	return xmlOrderView;
+}
+
+/** Starts a <B>bold</b> text */
+function startBold() 
+{
+	outputBuffer.append("<@BoldOn>");
+}
+
+/** Ends a <B>bold</b> text */
+function endBold() 
+{
+	outputBuffer.append("<@BoldOff>");
+}
+
+/** Starts a double-sized text*/
+function startSize2() 
+{
+	outputBuffer.append("<@DoubleCharOn>");
+}
+
+/** Ends a double-sized text*/
+function endSize2() 
+{
+	outputBuffer.append("<@DoubleCharOff>");
+}
+
+/** Starts a bold double-sized text*/
+function startBoldSize2() 
+{
+	startBold();
+	startSize2();
+}
+
+/** Ends a bold double-sized text*/
+function endBoldSize2() 
+{
+	endSize2();
+	endBold();
+}
+
+/** Ends a text with inverted color */
+function endInvertedColor() 
+{
+	outputBuffer.append("<@ReverseOff>");
+}
+
+/** Starts a text with inverted color */
+function startInvertedColor() 
+{
+	outputBuffer.append("<@ReverseOn>");
+}
+
+// Detach the choices of the view
+function detachChoice (view, newViewArray, showAsSinglePrice) {
+    // Create array with sale items
+    var itemChoice=new Array();
+    var qtyPromoLevelZero=0;
+    var qtyLevelZero=0;
+    var qtyViewItem=view.ItemView.length();
+	var lastlevel = 0;
+	var accumulatedPromoQty=0;
+    var accumulatedQty=0;
+    
+    for(var i=0; i < qtyViewItem; i++) {
+        var item=view.ItemView[i];
+		var itemLevel = Number(item.level);
+        if(Number(item.level) == 0) {
+            qtyLevelZero=Number(item.quantity);
+            qtyPromoLevelZero=Number(item.quantityPromo);
+			accumulatedQty = qtyLevelZero;
+			accumulatedPromoQty = qtyPromoLevelZero;
+			lastlevel = 0;
+        }
+		
+		if(itemLevel > lastlevel) {
+			accumulatedQty *= Number(item.quantity);
+			// The promo quantity of items in level different from zero need to be calculated according to the quantity 
+			accumulatedPromoQty *= Number(item.quantity);
+		}
+		else {
+			accumulatedQty = qtyLevelZero;
+			accumulatedPromoQty = qtyPromoLevelZero;
+        }
+		
+        // Verify Choice
+        if((Number(item.level) > 0) && (Number(item.prodAction) == 3)) {
+            if(Number(item.productType) != 4) {
+                // This is Choice
+                item.quantityPromo=accumulatedPromoQty;
+                item.quantity=accumulatedQty;
+                var levelChoice=Number(item.level);
+                item.choiceLevel = levelChoice;
+                if(showAsSinglePrice==true) {
+                    newViewArray.push({item:XML(item)});
+                } else {
+					item.level=0;
+                    itemChoice.push({item:XML(item)});
+                }
+                for(var j=i+1; j < qtyViewItem; j++) {
+                    var itemChoiceB=view.ItemView[j];
+                    if(itemChoiceB.level > levelChoice) {
+                        itemChoiceB.level-=levelChoice;
+                        itemChoiceB.quantity*=item.quantity;
+                        if((Number(itemChoiceB.prodAction) == 3) && (Number(itemChoiceB.productType) != 4)) {
+                            break;
+                        }
+                        else {
+                            // This is a grill that should go with the original choice
+                            if(showAsSinglePrice==true) {
+                                newViewArray.push({item:XML(itemChoiceB)});
+                            } else {
+                                itemChoice.push({item:XML(itemChoiceB)});
+                            }
+                        }
+                    }
+                    else {
+                        break;
+                    }
+                }
+                i=(j-1);
+            }
+        }
+        else {
+            // This is not Choice
+            newViewArray.push({item:XML(item)});
+        }
+		lastlevel = itemLevel;
+    }
+    // Put Choice Itens in the finish of the array
+    for(var i=0; i < itemChoice.length; i++) {
+        var iInd=newViewArray.length;
+        newViewArray.push({item:XML(itemChoice[i].item)});
+    }
+}
+
+/** Create a consolidated view*/
+function creatConsView(viewArray,newView,showAsSinglePrice) {
+    //Recreate Original XML
+    var auxXML=new XML("<View/>");
+    for(var i=0; i < viewArray.length; i++) {
+        var ItemXML=XML(viewArray[i].item);
+        auxXML.ItemView+=ItemXML;
+    }
+    
+    // remove Autocondiments to add later
+    var acItems = new Array();
+    for (var ct = 0; ct < auxXML.ItemView.length(); ct++) {
+		var item = auxXML.ItemView[ct];
+		if (item.AutoCondiment == 'true') {
+			acItems.push(item);
+			delete auxXML.ItemView[ct];
+			ct--;
+		}
+    }
+    if(showAsSinglePrice!=true) {
+        var szViewArray=new Array();
+        var szAux="";   
+        var i=0;
+        // Create  line array with the same iItemCode
+        while(i < auxXML.ItemView.length()) {
+            var ItemView=auxXML.ItemView[i];
+            var iItemCode = ItemView.itemCode.toString();
+            szAux =szAux + ItemView.productCode + ItemView.grilledQuantity + ItemView.specialModifiers + ItemView.unitPrice;
+            for(var j=i+1; j < auxXML.ItemView.length(); j++) {     
+                var nextItemView=auxXML.ItemView[j];
+                if((iItemCode!=nextItemView.itemCode) || (nextItemView.level==0)){
+                    break;
+                }
+                szAux=szAux + nextItemView.productCode + nextItemView.grilledQuantity + nextItemView.specialModifiers + nextItemView.unitPrice;
+            }
+        
+            szViewArray.push({id:String(i), item:String(szAux)});
+            szAux="";
+            i=j;
+        }   
+    
+        // Search for equal items
+        for(var i = 0; i < szViewArray.length; i++) {
+            var ItemArray = szViewArray[i].item;
+            var iInd = Number(szViewArray[i].id);
+            for(var j = i+1; j < szViewArray.length; j++) {     
+                if(ItemArray == szViewArray[j].item) {
+                    // Item already used in table   
+                    var jInd = Number(szViewArray[j].id);
+                    szViewArray[j].item = -j;  
+            
+                    // Create a new property in order to hold total VM price
+                    auxXML.ItemView[iInd].totalVMPrice = parseFloat (auxXML.ItemView[iInd].totalPrice);
+                    auxXML.ItemView[iInd].quantity=Number(auxXML.ItemView[iInd].quantity.toString()) + Number(auxXML.ItemView[jInd].quantity.toString());
+                    auxXML.ItemView[iInd].quantityPromo=Number(auxXML.ItemView[iInd].quantityPromo.toString()) + Number(auxXML.ItemView[jInd].quantityPromo.toString());
+                    
+                    auxXML.ItemView[iInd].unitPrice=Number(auxXML.ItemView[iInd].unitPrice.toString()) + Number(auxXML.ItemView[jInd].unitPrice.toString());                    
+                    auxXML.ItemView[iInd].netUnitPrice=Number(auxXML.ItemView[iInd].netUnitPrice.toString()) + Number(auxXML.ItemView[jInd].netUnitPrice.toString());                   
+                    auxXML.ItemView[iInd].unitTax=Number(auxXML.ItemView[iInd].unitTax.toString()) + Number(auxXML.ItemView[jInd].unitTax.toString());                  
+                    auxXML.ItemView[iInd].totalPrice=Number(auxXML.ItemView[iInd].totalPrice.toString()) + Number(auxXML.ItemView[jInd].totalPrice.toString());                 
+                    auxXML.ItemView[iInd].netTotalPrice=Number(auxXML.ItemView[iInd].netTotalPrice.toString()) + Number(auxXML.ItemView[jInd].netTotalPrice.toString());                    
+                    auxXML.ItemView[iInd].totalTax=Number(auxXML.ItemView[iInd].totalTax.toString()) + Number(auxXML.ItemView[jInd].totalTax.toString());                   
+                    auxXML.ItemView[iInd].ADTotalPrice=Number(auxXML.ItemView[iInd].ADTotalPrice.toString()) + Number(auxXML.ItemView[jInd].ADTotalPrice.toString());                   
+                    auxXML.ItemView[iInd].ADNetTotalPrice=Number(auxXML.ItemView[iInd].ADNetTotalPrice.toString()) + Number(auxXML.ItemView[jInd].ADNetTotalPrice.toString());                  
+                    auxXML.ItemView[iInd].ADTotalTax=Number(auxXML.ItemView[iInd].ADTotalTax.toString()) + Number(auxXML.ItemView[jInd].ADTotalTax.toString());                 
+                    
+                    auxXML.ItemView[jInd].quantity=0;
+                }
+            }
+        }
+    }
+    
+    for each (var item in auxXML.ItemView) {
+        if ((Number(item.quantity) > 0) || item.isGrillLine) {
+            newView.ItemView+=item;
+        }
+    }
+    // add AutoCondiment items in the end
+    for each (var item in acItems) {
+		newView.ItemView += item;
+    }    
+}
+
+/** Adds the default header from store-db */
+function addDefaultFooter() 
+{
+	var value = rootConfig.Footer;
+	if(value != null && value != "") {
+		var lines = String(value).split("\\n");
+		for(var i = 0; i < lines.length; i++) {
+			if(lines[i].length < COLS)
+				addLine(center(lines[i]));
+			else { 
+				addLine();
+				addLine(lines[i]);
+			}
+		}
+	}
+}
+
+/* public
+ * Will take a line of text adding it to the outputBuffer.  It respects escape sequences, currently
+ * only the newline (\n) is supported.
+ *
+ */
+function addLineEscSeq(line, centerLine) 
+{
+	var EscOn = false;
+	var CurPos = 0;
+	var TempLine = "";
+	
+	if(line != null) {
+		var LineLength = line.length;
+		var	CurChar;
+		
+		// go through the string one char a time
+		while (CurPos < LineLength) {
+			CurChar = line.charAt(CurPos);
+				
+			// Check to see if we are in an escape sequence
+			if (EscOn == false) {
+				// not currently escaped, do we need to start?
+				if (CurChar != "\\") {
+				    // No, just add the char
+					TempLine += CurChar;
+				} else {
+					// Yes discard the backslash and move on
+					EscOn = true;
+				}		
+			} else {
+				// we are in an escape sequence
+				switch (CurChar) {
+				// This is for a newline
+				case "n":
+						
+					// add the line to the output buffer, centering if requested
+					if (centerLine == true) {
+						outputBuffer.append(center(TempLine));
+					} else {
+						outputBuffer.append(TempLine);
+					}
+					// Clear tempLine and add newline to the buffer
+					TempLine = "";
+					outputBuffer.append("\n");
+					break;
+				// Default behavior just add the char
+				default:
+					TempLine += CurChar;
+					break;
+				}
+				EscOn = false;
+			}
+			CurPos++;
+		}
+	}
+		
+	// add the line to the output buffer, centering if requested
+	if (centerLine == true) {
+		outputBuffer.append(center(TempLine));
+	} else {
+		outputBuffer.append(TempLine);
+	}
+	// Final newline
+	outputBuffer.append("\n");
+}
+
+/**
+ * PUBLIC
+ * Implements the customer receipt
+ * Needed data types: VIEW
+ */
+function receipt(config, data) 
+{
+	// Date format used at customer receipts
+	var RECEIPT_DATE_FORMAT = "MMM.dd''yy (EEE) HH:mm";	
+	
+	// Sale status
+	var SALE_STATUS_CURRENT_SALE_VOIDED	= 1 << 11;
+	var SALE_STATUS_LAST_SALE_VOIDED	= 1 << 12;
+
+	// Transaction kinds
+ 	var TRANS_KIND_SALE				= 0;
+	var TRANS_KIND_REFUND			= 1;
+	var TRANS_KIND_WASTE			= 2;
+	var TRANS_KIND_MANAGER_MEAL		= 3;
+	var TRANS_KIND_CREW_MEAL		= 4;
+	var TRANS_KIND_ALLOWANCE		= 5;
+	var TRANS_KIND_TAB				= 12;
+	var TRANS_KIND_WAVE				= 13;
+	var TRANS_KIND_WAVE_ADJUSTMENT	= 14;
+	
+	// Tender kinds
+	var TENDER_KIND_PAYMENT			= 0;
+	var TENDER_KIND_ALLOWANCE		= 1;
+	var TENDER_KIND_CREW_MEAL		= 2;
+	var TENDER_KIND_MANAGER_MEAL	= 3;
+	var TENDER_KIND_CHANGE			= 4;
+	var TENDER_KIND_KEEP_CHANGE		= 5;
+	var TENDER_KIND_BILLABLEREFUND	= 6;
+	var TENDER_KIND_DISCOUNT_COUPON = 8;
+	var TENDER_KIND_ORIGINAL_PAYMENT= 9;
+	var TENDER_KIND_REVERSAL		= 11;	
+
+    var localconfig = new Config ("ValueMealDisplay", true);
+    var showAsSinglePrice = localconfig.getBoolParameter ("VMDisplay_ShowAsSinglePrice");
+
+    var LIGHT  = 1;
+    var ONLY   = 2;
+    var PODCSO = 8;	
+    if(init(config, data, Array("VIEW"), "RECPT") != 0){
+		return getResponse();
+	}
+	else {
+		// Part of feature PLE-194 : Auto condiment - By KFG
+		lConsolidateACItems("receipt");
+	}
+	
+    // Order information
+    var view		= rootView.View;
+	view = checkPlainForReceipt(view);
+	view = checkForceCompForReceipt(view);
+	view = checkSmartGrillForReceipt(view);
+	view = checkShowChosenItemAsIngredientForReceipt(view);
+	var isRefund		= view.@transactionKind == TRANS_KIND_REFUND;
+	var isTab			= view.@transactionKind == TRANS_KIND_TAB;
+	var isSale			= view.@trxSubKind == TRANS_KIND_SALE;
+	var isWave			= view.@trxSubKind == TRANS_KIND_WAVE;
+	var isAdjustment	= view.@trxSubKind == TRANS_KIND_WAVE_ADJUSTMENT;
+    var isBillableSale	= ((view.ItemTenderView.(code == TENDER_KIND_BILLABLEREFUND)).length() != 0);	
+	var isChangeRound	= ((view.ItemTenderView.(code == TENDER_KIND_CHANGE)).length() == 0);
+	API.dbg("isChangeRound " + isChangeRound);
+    var isWaste		= view.@transactionKind == TRANS_KIND_WASTE;
+    var isOverring	= ((Number(view.@saleStatus) == SALE_STATUS_LAST_SALE_VOIDED) || (Number(view.@saleStatus) == SALE_STATUS_CURRENT_SALE_VOIDED));
+    var isInProgress= (Number(view.@saleStatus) == SALE_STATUS_CURRENT_SALE_VOIDED);
+    var isPromo = 0;
+    for each (i in view.ItemView.quantityPromo) {
+		isPromo+=Number(i);
+    }
+
+    /* Added following for NPS-5064.  RPS 11-19-2008 */
+    if (view.@vmChildrenMultiplied == "true") {
+		// KVS view comes with quantities already multiplied
+		divideItemQuantities(view);
+    }
+    /* end of NPS-5064 */
+
+    var custom 		= rootConfig.CustomData[0];
+    var errKiosk 	= 0;
+    var prnKiosk 	= 0;
+    
+    addLine(SEP_UL);
+    
+    // Print any inverse-bold banner
+    if(!isTab && (isOverring || isPromo)) {	
+		addLine();
+		startInvertedColor();
+		startBoldSize2();
+		if (isOverring) {
+			addLine(" **** OVERRING **** ");
+		}
+		if (isPromo) {
+			addLine("  **** PROMO **** ");
+		}
+		endBoldSize2();
+		endInvertedColor();
+		addLine();	
+    }
+
+    if (!isRefund && isBillableSale) {
+		addLine();
+		startInvertedColor();
+		startBoldSize2();
+		addLine(" ** BILLABLE SALE ** ");
+		endBoldSize2();
+		endInvertedColor();
+		addLine();
+    }
+    
+    startBold(); {
+		// Adds the default receipt header from store-db
+		addDefaultHeader();
+		addLine(center("TEL# " + rootConfig.StorePhoneNumber + " Store# " + rootConfig.StoreId));
+    } endBold();
+
+    if(custom != null) {	
+		var fields = String(custom).split(":");
+		if(fields.length>=1) {
+			errKiosk = fields[0];
+			if(fields.length>=2) {
+				prnKiosk = fields[1];
+				if(prnKiosk==1) {
+					addLine(center("duplicate"));
+				}
+			}
+		}
+    }
+    
+    addLine();
+    if(isRefund) {
+		if(isBillableSale) {
+			var billableSaleRefund = view.ItemTenderView;
+			startInvertedColor();
+			startBold();
+			addLine(center("**** BILLABLE SALE ADJUSTMENT ****"));
+			endBold();
+			addLine();
+			endInvertedColor();
+			startBold(); {
+				addLine(center("*NOTICE * NOTICE * NOTICE * NOTICE*"));
+				addLine(center("This billable sale adjustment is for"));
+				addLine(center("accounting purposes only"));
+				addLine(center("DO NOT GIVE CASH!"));
+				addLine();
+				addLine("Orig. Billable Sale order "+ view.@LSOrderId + "  $"+ API.formatNumber(view.@LSTotAmount, "##0.00", 6));
+			} endBold();
+		}
+		else {
+			startInvertedColor();
+			startBoldSize2();
+			addLine("  **** REFUND **** ");
+			endBoldSize2();
+			endInvertedColor();
+		}
+    }
+	else {
+		var isTaxExempt = (Number(view.@taxMode)==2);
+		var szHeader="";
+		startBold();
+		if(isWaste) {
+			szHeader ="**** WASTE ****";
+			addLine(center(szHeader));
+		}
+		if(isTaxExempt) {
+			szHeader ="**** TAX EXEMPT SALE ****";
+			addLine(center(szHeader));
+		}
+		endBold();
+    }
+    
+    addLine();
+
+	if(isTab && isWave) {
+		if (isOverring) {
+			var TabHeader = "**** OPEN TAB CANCEL WAVE SLIP ****";
+		} else {
+			var TabHeader = "OPEN TAB WAVE SLIP";
+		}
+		
+		addLine(center(TabHeader));
+		addLine();
+	}
+	if(isTab && isAdjustment) {
+		if (isOverring) {
+			var TabHeader = "**** OPEN TAB CANCEL ADJUST SLIP ****";
+		} else {
+			var TabHeader = "OPEN TAB ADJUSTMENT SLIP";
+		}
+		
+		addLine(center(TabHeader));
+		addLine();
+	}
+	
+	var posId = "KS# " + toInt(rootConfig.PosId.substring(3, 7)); // Eg: POS0001:89 - > KS#1
+    var rcpDate = view.@saleDate + " " + view.@saleTime.substring(0,2) + ":" + view.@saleTime.substring(2,4)+ ":" + view.@saleTime.substring(4);
+    
+    var date = API.formatDateTime(rcpDate, RECEIPT_DATE_FORMAT);
+    addLine(posId + API.setOnRight(date, COLS-posId.length));
+    addLine();
+    var mfySide = "";
+    var strSide = String(view.@productionSide);
+    var str_1 = strSide.replace(" ","");
+    if(str_1.length != 0) {
+		if(isRefund) {
+			mfySide = "";
+		}
+		else {
+			var szSide =  (view.@productionSide.substring(0,4) + " " + view.@productionSide.substring(4,5)).toUpperCase();
+			mfySide = "MFY " + szSide + " ";
+		}
+    }
+    
+    var majorMinor = fnMountOrderId(String(view.@orderId),String(view.@orderKey),String(view.@major),String(view.@minor));
+	
+	var kvsOrder = "KVS Order " + majorMinor;
+		
+    if(isWaste || isAdjustment || (isTab && isSale)) {	
+		kvsOrder = "";
+    }
+    var saleTypes	= Array("Eat-In", "Take-Out", "Other");
+    var saleType	= toInt(view.@type);
+	if ((mfySide!="") || (kvsOrder!="")) {
+		addLine("<@BoldOn>" + mfySide + "<@BoldOff> " + kvsOrder);
+		addLine();
+	}
+
+	if(isTab && (isWave || isAdjustment)) {
+		var roomType = String(view.@roomNumber).split(".")[1];
+		var roomText = "       Table = ";
+		if(Number(roomType) === 0) {
+			roomText = "       Party Room = ";
+		}
+		else if(Number(roomType) === 9) {
+			roomText = "       Car = ";
+		}
+		
+		var TabInfo = "Tab# " + view.@tabNumber + roomText + view.@roomNumber;
+		addLine(TabInfo);
+		addLine();
+	}
+	if (isTab && isSale) {
+		addLine("                    Tab# " + view.@tabNumber);
+		var orderNumber = view.@orderKey.toString().substring(view.@orderKey.toString().indexOf(":") + 1);
+		
+		var roomType = String(view.@roomNumber).split(".")[1];
+		var roomText = "       Table = ";
+		if(Number(roomType) === 0) {
+			roomText = "       Party Room = ";
+		}
+		else if(Number(roomType) === 9) {
+			roomText = "       Car = ";
+		}
+		
+		var text = "Tab Order " + orderNumber + roomText + view.@roomNumber;
+		addLine(text);
+		addLine();
+	}
+    var line = "QTY ITEM";
+    if (!isAdjustment) {
+	    line = line + API.setOnRight("TOTAL", COLS-line.length);
+	    addLine(line);
+    }
+                
+    //#############################	
+	if(showAsSinglePrice){
+		try{
+			view = new XML(onAdjustViewForEvmrOverride(view));
+		}catch(ex){
+			API.dbg("Warning: onAdjustViewForEvmr() failed, or it doesn't exists");
+		}
+	}
+	
+	// Detach the choices of the view
+    var newViewArray=new Array();
+    detachChoice(view,newViewArray,showAsSinglePrice);
+    
+    // Create the consolidated view
+    var newViewCons = new XML("<View/>");	
+    creatConsView(newViewArray,newViewCons,showAsSinglePrice);
+    
+    //#############################	
+    var sale = new Sale ();
+    if (isTab && isAdjustment) {
+    	sale.config.hidePrice = true;
+    }
+    
+    // Adds sale items
+    var qtyLevelZero=1;
+    var promoLevelZero=false;
+    var qtyViewItem = newViewCons.ItemView.length();
+    var iItem = -1;
+    var it=0;
+    for each (var item in newViewCons.ItemView) {
+		iItem++;
+		if (item.level == 0) {
+			qtyLevelZero = item.quantity;
+			promoLevelZero = (toInt(item.quantityPromo) != 0);
+		}
+		if((item.quantity != 0) || (item.specialModifiers == LIGHT) 
+		   || (item.specialModifiers == ONLY)) {
+			if (qtyLevelZero != 0) {
+				var childNode = false;
+				for(var i = iItem; i < qtyViewItem; i++) {
+					var childView = newViewCons.ItemView[i];
+					if(promoLevelZero) {
+						childNode = true;
+					}
+					if(item.level > childView.level) {
+						break;
+					}
+					if(childView.isGrillLine == "true") {
+						childNode = true;
+					}
+					if(childView.ForceCompDisplay == "POS" || childView.ForceCompDisplay == "ALL") {
+						childNode = true;
+					}
+				}
+				
+				if(!((item.level != 0) && (item.isGrillLine == "false") 
+		     && (item.productType == 2)) || (childNode == true)) {
+					sale.addItem (item, qtyLevelZero);
+				}
+			}
+		}
+    }
+    sale.print ();
+    addLine();
+    // Adds sub-total, tax an total information
+    var totalAmt	= Number(view.@grossAmount);
+    var taxAmt		= Number(view.@totalTax);
+    var subTotalAmt	= Number(view.@totalAmount);        //totalAmt - taxAmt;
+    var tenders		= view.ItemTenderView;
+    var specialTend = tenders.(kind == TENDER_KIND_MANAGER_MEAL || kind == TENDER_KIND_CREW_MEAL || kind == TENDER_KIND_ALLOWANCE);
+    var discounts	= tenders.(kind == TENDER_KIND_DISCOUNT_COUPON);
+    if(!isAdjustment && specialTend.length() != 0) {
+		// We have special tenders
+		var mgrMeal = tenders.(kind == TENDER_KIND_MANAGER_MEAL)[0];
+		var crwMeal = tenders.(kind == TENDER_KIND_CREW_MEAL)[0];
+		var discount = tenders.(kind == TENDER_KIND_ALLOWANCE)[0];
+		//		var toAdd = (mgrMeal ? +mgrMeal.value : 0) + (crwMeal ? +crwMeal.value : 0) + (discount ? +discount.value : 0);
+		addDetailLine("Subtotal",  Number(view.@BDTotalAmount));
+		if(mgrMeal) {
+			addTenderLine(mgrMeal);
+			delete(tenders.(kind == TENDER_KIND_MANAGER_MEAL)[0]);
+		}
+		if(crwMeal) {
+			addTenderLine(crwMeal);
+			delete(tenders.(kind == TENDER_KIND_CREW_MEAL)[0]);
+		}
+		if(discount) {
+			addTenderLine(discount);
+			delete(tenders.(kind == TENDER_KIND_ALLOWANCE)[0]);
+		}
+		addLine();
+    }
+    if(!isAdjustment && discounts.length() != 0) {
+		// We have discount coupons that must go before Subtotal
+		for each (var tender in discounts) {
+			addTenderLine(tender);
+		}
+		for(var i = discounts.length() - 1; i >= 0; i--) {
+			delete(tenders.(kind == TENDER_KIND_DISCOUNT_COUPON)[i]);
+		}
+    }
+    if (!isAdjustment) {
+    	addDetailLine("Subtotal",	subTotalAmt);
+    }
+
+	if(!isWave && !isAdjustment) {
+		addDetailLine("Tax",		taxAmt);
+	}
+	
+    if(isRefund) {
+		if(isBillableSale)
+			addDetailLine("Billable Sale Adjustment",	totalAmt);
+		else
+			addDetailLine("Total Refund",	totalAmt);
+		addLine();			
+		if(isBillableSale) {
+			startBold(); {
+				addLine(center("DO NOT GIVE CASH!"));
+			} endBold();
+		}
+    } 
+    else if(!isWave && !isAdjustment) {
+		addDetailLine(saleTypes[saleType]+" Total",	totalAmt);
+		addLine();
+    }
+    var hasRvCashoutInProgress = false;
+    var amountRvCashoutInProgress = 0;
+    if(!isAdjustment && (errKiosk!=2) && (!(isRefund && isBillableSale))) {
+		// Adds all tenders
+		if (isChangeRound) {
+			var tenderItems = view.ItemTenderView.(kind == TENDER_KIND_CHANGE);
+			var changeRounding = 0
+			for each (var tender in tenderItems) {
+				changeRounding -= tender.rounding;
+				//API.dbg("changeRounding = " + changeRounding);
+				break;
+			}
+			if (Number(changeRounding) != 0) {
+					addDetailLine("Rounding", Number(changeRounding), true);
+			}
+		}
+		// Adds all tenders
+		var hasChange	= false;
+		var hasCash		= false;
+		if(!isRefund) {
+		    if(isInProgress) {
+		    	var tenderItems = view.ItemTenderView.(kind == "9");
+		    	if(tenderItems.length() == 0) {
+		    		tenderItems = view.ItemTenderView.(seqElectronicTender != "0");
+		    	}
+		    }
+		    else {
+		    	var tenderItems = view.ItemTenderView.(kind != "9");
+		    }
+		    for each (var tender in tenderItems) {
+				addTenderLine(tender);
+		    }
+		}
+		if(!hasChange) { // If we don't have any change add the default 0.00
+			if(!isWave) {
+				if(!hasRvCashoutInProgress) {
+					addDetailLine("Change", 0);
+				}
+				else{
+					addDetailLine("Change", amountRvCashoutInProgress);
+				}
+			}
+		}
+    }
+    
+    addLine();
+    addCashlessInfo(isRefund);
+    if (isTab && isAdjustment) {
+    	addLine(center("***IMPORTANT: THE ITEMS"));
+    	addLine(center("ABOVE WILL BE REDUCED"));
+    	addLine(center("FROM THE FINAL ORDER"));
+    }
+    if(isOverring) {
+		var majorMinor = fnMountOrderId(String(view.@orderId),String(view.@orderKey),String(view.@major),String(view.@minor));
+		if (isTab && isWave) {
+			addLine(center("**** Last Wave # " + majorMinor + " VOIDED****"));
+			addLine();
+			if (isInProgress) {
+				addLine(center("CANCEL WAVE IN PROGRESS"));
+				addLine();
+				addDetailLine("TOTAL TAB REFUND ", 0);
+			} else {
+				addLine(center("CANCEL ASSIGNED WAVE"));
+				addLine();
+				addDetailLine("TOTAL TAB REFUND ", subTotalAmt);
+			}
+		} else if (!isAdjustment) {
+			addLine(center("**** Last Sale # " + majorMinor + " VOIDED****"));
+			addLine(center("ADJUSTMENT NOTE - OVERRING"));
+			if (!isInProgress) {
+				addDetailLine("TOTAL REFUND ", 0);
+			}
+		}
+    }
+    if(isInProgress && !isTab) {
+		addLine();
+		if (hasRvCashoutInProgress){
+			var line = API.setOnLeft("TOTAL REFUND ", 26)
+				+ " "
+				+ API.formatNumber(amountRvCashoutInProgress, NUMBER_FORMAT, 12);
+			addLine(line);				
+		}
+		else {
+			addDetailLine("TOTAL REFUND ", 0);		
+		}
+		var secondCopy = outputBuffer + "";
+		addLine();
+		
+		// Adds default store-DB xml footer to the first copy
+		addDefaultFooter();
+
+		addLine();
+		
+		addLine(SEP_UL);
+		addLine();addLine();addLine();addLine();addLine();addLine();
+		
+		cutPaper();
+		addLine(secondCopy);		
+    }
+    
+    if((isRefund) && (view.Cashless.length() == 0)) {
+		addLine("Authorized");
+		addLine("Signature:_________________________");
+		addLine();
+		addLine("Address");
+		addLine("___________________________________");
+		addLine();
+		addLine("Phone #");
+		addLine("___________________________________");
+		addLine();
+		addLine("Reason");
+		addLine("___________________________________");
+		
+		var secondCopy = outputBuffer + "";
+		
+		addLine();
+		
+		// Adds default store-DB xml footer to the first copy
+		addDefaultFooter();
+		addLine();		
+		addLine(SEP_UL);
+		
+		addLine();addLine();addLine();addLine();addLine();addLine();
+		cutPaper();
+		addLine(secondCopy);
+    }
+    
+    // Add default Receipt Footer from store-DB 
+    addLine();
+    addDefaultFooter();
+
+    addLine();
+	
+	var uniqueCodes=view.uniqueCodes;
+	if(uniqueCodes.length() > 0) {
+		addUniqueCodeLines(uniqueCodes);
+	}
+	
+    addLine(SEP_UL);
+    return getResponse();
+
+    /** Adds Cashless information (if any) and returns true if signature is required */
+    function addCashlessInfo(isRefund)
+	{
+		if(view.Cashless.length() == 0) {
+			return;
+		}
+		var custom = view.Cashless;
+		var lines = String(custom).split("CASHLESS:");
+		var msg="";
+		for(var i = 1; i < lines.length; i++) {
+			var providerSale;
+			var fields = String(lines[i]).split("@");
+			var provider = fields[0].replace("CASHLESS:", ""); // + " SALE";
+			if(isRefund) {
+				providerSale = provider  + " REFUND";
+			}
+			else {
+				providerSale = provider  + " SALE";
+			}
+			var card = " " + fields[1]; // Card #
+			var expires = fields[2];	// Card expiration date
+			var auth = fields[3];		// Authorization code
+			var seq = fields[6];		// Sequence #
+			var mer = fields[7];		// Merchant id
+			var balance = API.formatNumber(Number(fields[8]), NUMBER_FORMAT, 12);	// Balance #
+			var amt = fields[10];		// Operation amount
+			if(fields[12].length!=0) {
+				msg = fields[12];		    // Message
+			}
+			
+			addLine("MER# " + mer);
+			
+			var firstCopy = "";
+			var secondCopy = "";
+			var needsSignature = fields[5] == "1";
+			
+			var line = "CARD ISSUER          ACCOUNT#";
+			firstCopy = firstCopy + line + "\n";
+			
+			if(isRefund) {
+				secondCopy = secondCopy + line + "\n";
+			}
+			else {
+				secondCopy = secondCopy + line + "  EXP DATE" + "\n";
+			}			
+			
+			line = API.setOnLeft(providerSale, 14) + card;
+			firstCopy = firstCopy + line + "\n";
+			if(isRefund) {
+				secondCopy = secondCopy + line + "\n";
+			}
+			else {
+				secondCopy = secondCopy + line + "  " + expires + "\n";
+			}			
+			
+			if(provider == "Gift Card") {
+				line = "TRANSACTION AMOUNT" + API.setOnRight(amt, COLS-18);
+				firstCopy = firstCopy + line + "\n";
+				secondCopy = secondCopy + line + "\n";				
+			}
+			
+			line = "AUTHORIZATION CODE - " + auth + " SEQ# " + seq + "\n";
+			firstCopy = firstCopy + line;
+			secondCopy = secondCopy + line;
+			
+			if(provider == "Gift Card") {
+				var trimBalance="$"+trim(balance)
+				line = "\n<@BoldOn> GIFT CARD BALANCE\n      " + trimBalance + "<@BoldOff>";
+				firstCopy = firstCopy + line;
+				secondCopy = secondCopy + line;
+			}
+			
+			firstCopy = firstCopy + "\n";
+			secondCopy = secondCopy + "\n";
+			if((needsSignature) || (isRefund)) {
+				var auxQutputsecondCopy = outputBuffer + secondCopy;
+				addLine(firstCopy);				
+				if(needsSignature) {
+					//					addLine(msg);  SDE-2140
+					addLineEscSeq(msg, true);
+				}
+				else {				
+					/* Is refund */
+					addLine();addLine();addLine();
+					addLine("Authorized");
+					addLine("Signature:_________________________");
+					addLine();
+					addLine("Address");
+					addLine("___________________________________");
+					addLine();
+					addLine("Phone #");
+					addLine("___________________________________");
+					addLine();
+					addLine("Reason");
+					addLine("___________________________________");
+				}
+				
+				addLine();
+						
+				// Adds default store-DB xml footer to the first copy
+				addDefaultFooter();
+				addLine();		
+
+				addLine(SEP_UL);
+				addLine();addLine();addLine();addLine();addLine();addLine();
+
+				cutPaper();
+				addLine(auxQutputsecondCopy);				
+				if(needsSignature) {
+					addLine();
+					addLine();
+					addLine("___________________________________");
+					addLine("Authorized Signature - (Store copy)");
+					addLine();
+					//					addLine(msg);  SDE-2140
+					addLineEscSeq(msg, true);
+					msg="";
+				}
+				else {
+					/* Is refund */
+					addLine();addLine();addLine();
+					addLine("Authorized");
+					addLine("Signature:_________________________");
+					addLine();
+					addLine("Address");
+					addLine("___________________________________");
+					addLine();
+					addLine("Phone #");
+					addLine("___________________________________");
+					addLine();
+					addLine("Reason");
+					addLine("___________________________________");
+				}			
+			}
+			else {
+				addLine(firstCopy);
+			}
+		}
+		addLineEscSeq(msg, true);
+		//addLine(msg);
+    }
+
+    /** Adds a tender line from an <ItemTenderView> tag */
+    function addTenderLine(tender)
+	{
+		var description = "";
+		var code = toInt(tender.code);
+		var kind = toInt(tender.kind); 
+		var amount = Number(tender.value);
+		if((kind == TENDER_KIND_PAYMENT) || (kind == TENDER_KIND_ORIGINAL_PAYMENT)) {
+			switch (code) {
+			case 0: 
+			description = "Cash Tendered"; 
+			hasCash=true; 
+			break;
+			case 9:
+				addDetailLine("FOREIGN_CUR", Number(tender.fValue));
+				description = "  CNV";
+				break; 
+			case 10: 
+				// Falls thru
+			case 11: 
+				hasCash=true; 
+				// Falls thru
+			default: 
+				description = tender.description + ((toInt(tender.qty) > 1)? " " + tender.qty : " "); 
+				break;
+			}
+		} else if(kind == TENDER_KIND_CHANGE) {
+			description = "Change";
+			hasChange = true;
+		} else if(kind == TENDER_KIND_MANAGER_MEAL) {
+			description = "Manager meal discount";
+			amount = -amount;
+		} else if(kind == TENDER_KIND_CREW_MEAL) {
+			description = "Employee meal discount";
+			amount = -amount;
+		} else if(kind == TENDER_KIND_ALLOWANCE) {
+			description = "Discount";
+			amount = -amount;
+		} else if(kind == TENDER_KIND_DISCOUNT_COUPON) {
+			description = tender.description + ((tender.qty > 1)? " " + tender.qty : " ");
+			amount = amount;
+		} else if(kind == TENDER_KIND_KEEP_CHANGE) {
+			description = "Excess";
+			amount = amount;
+		} else if(kind == TENDER_KIND_REVERSAL) { //NPS-7622
+			var sourceTenders = tender.SourceTenders.SourceTender;
+			if(sourceTenders[0].@sourceCode == tender.code){
+				description = "Reversal - " + tender.description; 
+				amount = -amount;
+			}
+			else {
+				description = "Reversal failure"; 
+				addDetailLine(description, -amount);			
+				description = "Reversal cashOut"; 				
+				if(isInProgress) {
+					amountRvCashoutInProgress += amount;
+					hasRvCashoutInProgress = true;
+				}
+			}
+		} else {
+			return;
+		}
+
+		if(description == "Cash Tendered") {
+			if (amount != 0) 
+				addDetailLine(description, amount);
+		}
+		else {
+			addDetailLine(description, amount);
+		}
+    }
+    /** Adds a detail line given a description (string) and amount (number) */
+    function addDetailLine(description, amount)
+	{
+		var sig = "";
+		var sizeAmount = 12;
+		if(amount < 0) {
+			amount = -amount;
+			var sizeAmount = 10;
+			sig = "- ";
+		}
+		addLine(API.setOnLeft(description, COLS-sizeAmount-sig.length) + sig + API.formatNumber(amount, NUMBER_FORMAT, sizeAmount));
+    }
+	
+	function addUniqueCodeLines(uniqueCodes) {
+		var uniqueCodesList = new XML(uniqueCodes);
+		addLine("<@HideOn>");
+		addLine(center(API.getLocalMsg("MSG_RP_MSG1",null)));
+		addLine(center(API.getLocalMsg("MSG_RP_MSG2",null)));
+		addLine();
+		addLine(center(API.getLocalMsg("MSG_RP_MSG3",null)));
+		addLine(center(API.getLocalMsg("MSG_RP_MSG4",null)));
+		addLine(center(API.getLocalMsg("MSG_RP_MSG5",null)));
+		addLine();
+		addLine(API.getLocalMsg("MSG_RP_MSG6",null));
+		addLine();
+		addLine(API.getLocalMsg("MSG_RP_MSG7",null));
+		addLine();
+		addLine(API.getLocalMsg("MSG_RP_MSG8",null));
+		addLine();
+		addLine(center(API.getLocalMsg("MSG_RP_MSG9",null)));
+		addLine(center(API.getLocalMsg("MSG_RP_MSG10",null)));
+		addLine();
+		addLine(center(API.getLocalMsg("MSG_RP_MSG11",null)));
+		addLine();
+		addLine("=======================================");
+		for each(uniqueCode in uniqueCodesList) {
+			addLine(center(uniqueCode));
+		}
+		addLine("=======================================");
+		addLine(API.getLocalMsg("MSG_RP_MSG12",null));
+		addLine(API.getLocalMsg("MSG_RP_MSG13",null));
+		addLine(API.getLocalMsg("MSG_RP_MSG14",null));
+		addLine(API.getLocalMsg("MSG_RP_MSG15",null));
+		addLine(API.getLocalMsg("MSG_RP_MSG16",null));
+		addLine("<@HideOff>");
+	}
+}
+
+/** Returns a grill line description */
+function getGrillDescription(nodeItemView, typeDescription) 
+{
+	var GRILL_NO = API.getLocalMsg("LMSG_SL_NO",null);
+	var GRILL_ADD = API.getLocalMsg("LMSG_SL_ADD",null);
+	var GRILL_XTRA = API.getLocalMsg("LMSG_SL_MORE",null);
+	var GRILL_LIGHT = API.getLocalMsg("LMSG_SL_QUALIFIER01",null);
+	var GRILL_ONLY = API.getLocalMsg("LMSG_SL_QUALIFIER02",null);
+	var GRILL_ONLYLIGHT = API.getLocalMsg("LMSG_SL_QUALIFIER03",null);
+	var GRILL_LESS = API.getLocalMsg("LMSG_SL_LESS",null);
+	
+	var TYPE_COMMENT	= 6;
+	// Item's description (name)
+	
+	var description = nodeItemView.longName;
+	if (typeDescription == false) {
+		var description = nodeItemView.description;
+	}
+	
+	// Item's special modifiers
+	switch (Number(nodeItemView.specialModifiers)) {
+		case 3: return GRILL_ONLYLIGHT + " " + description;
+		case 2: return GRILL_ONLY + " " + description;
+		case 1: return GRILL_LIGHT + " " + description;
+	}
+	// Default item quantity
+	var defaultQtd = Number(nodeItemView.componentDefaultQtd);
+	// Quantity that the item will have after grill eg.(1 cheese + (-1 cheese) -> zero)
+	var quantity = defaultQtd + Number(nodeItemView.grilledQuantity);
+	// The maximun quantity this item can have
+	var maxQtd = Number(nodeItemView.componentMaxQtd);
+	// Quantity that should be shown to user.
+	var quantityToShow = Math.abs(Number(nodeItemView.grilledQuantity));
+	var productType = nodeItemView.productType;
+
+	if(defaultQtd == quantity) {
+		return "(ERROR " + defaultQtd + ") " + description;
+	}
+	if(quantity == 0) {
+		// If the item will have quantity of zero, we just show the remove sign. eg. "no cheese"
+		return GRILL_NO + " " + description;
+	}
+	if(defaultQtd == 0) {
+		if(maxQtd == 1) {
+			if(productType == TYPE_COMMENT) { // SDO-392
+				return description;	
+			}else {
+				return GRILL_ADD + " " + description;
+			}
+		}else {
+			if(productType == TYPE_COMMENT) { // SDO-392
+				if(nodeItemView.grilledQuantity == (defaultQtd+1)) {
+					return description;	
+				}
+				else {
+					if (quantityToShow == 1) {
+						return GRILL_ADD + " " + description;						
+					} else {
+						return GRILL_ADD + " " + quantityToShow + " " + description;
+					}
+				}
+			}else {
+				if (quantityToShow == 1) {
+					return GRILL_ADD + " " + description;						
+				} else {
+					return GRILL_ADD + " " + quantityToShow + " " + description;
+				}
+				
+			}
+		}
+	}else if(defaultQtd == 1) {
+		if(maxQtd == 2) {
+			return GRILL_XTRA + " " + description;
+		}else {
+			if(productType == TYPE_COMMENT) { // SDO-392
+				if(nodeItemView.grilledQuantity == (defaultQtd+1)) {
+					return description;	
+				}
+				else {
+					if (quantityToShow == 1) {
+						return GRILL_XTRA + " " + description;						
+					} else {
+						return GRILL_XTRA + " " + quantityToShow + " " + description;
+					}
+				}
+			}else {
+				if (quantityToShow == 1) {
+					return GRILL_XTRA + " " + description;						
+				} else {
+					return GRILL_XTRA + " " + quantityToShow + " " + description;
+				}
+			}
+		}
+	}else if(defaultQtd == 2) {
+		if(maxQtd == 3 && quantity == 3) {
+			return GRILL_XTRA + " " + description;
+		}else if(maxQtd > 3 && quantity > 2) {
+			if(productType == TYPE_COMMENT) {// SDO-392
+				if(nodeItemView.grilledQuantity == (defaultQtd+1)) {
+					return description;	
+				}
+				else {
+					if (quantityToShow == 1) {
+						return GRILL_XTRA + " " + description;						
+					} else {
+						return GRILL_XTRA + " " + quantityToShow + " " + description;
+					}
+				}
+			}else {
+				if (quantityToShow == 1) {
+					return GRILL_XTRA + " " + description;						
+				} else {
+					return GRILL_XTRA + " " + quantityToShow + " " + description;
+				}
+			}
+		}else {
+			if (quantityToShow == 1) {
+				return GRILL_LESS + " " + description;						
+			} else {
+				return GRILL_LESS + " " + quantityToShow + " " + description;
+			}
+		}
+	}else {
+		if(maxQtd == (defaultQtd + 1) && quantity == maxQtd) {
+			return GRILL_XTRA + " " + description;
+		}else if(quantity > defaultQtd) { 
+			if(productType == TYPE_COMMENT) { // SDO-392
+				if(nodeItemView.grilledQuantity == (defaultQtd+1)) {
+					return description;	
+				}
+				else {
+					if (quantityToShow == 1) {
+						return GRILL_XTRA + " " + description;						
+					} else {
+						return GRILL_XTRA + " " + quantityToShow + " " + description;
+					}
+				}
+			}else {
+				if (quantityToShow == 1) {
+					return GRILL_XTRA + " " + description;						
+				} else {
+					return GRILL_XTRA + " " + quantityToShow + " " + description;
+				}
+			}
+		}else {
+			if(productType == TYPE_COMMENT) { // SDO-392
+				if(nodeItemView.grilledQuantity == (defaultQtd+1)) {
+					return description;	
+				}
+				else {
+					if (quantityToShow == 1) {
+						return GRILL_LESS + " " + description;						
+					} else {
+						return GRILL_LESS + " " + quantityToShow + " " + description;
+					}
+				}
+			}else {
+				if (quantityToShow == 1) {
+					return GRILL_LESS + " " + description;						
+				} else {
+					return GRILL_LESS + " " + quantityToShow + " " + description;
+				}
+			}
+		}
+	}
+}
+/* signed aut version 9-9076
+ * authority id = coe
+ * authority level = 40
+ * authority name = NewPOS COE developer
+ * group = npi
+ * validity = 2010-04-18
+ * signature type = slash_star
+ * time stamp (GMT) = Wed Jan 31 01:28:45 2018
+ * certificate = 393735312d373934370006df8c1e82674e1b952aa76af0163d69a1cec79d68f92df14ef56002acf9849db967622dafa97a88b5a68acf225a659c011a0010
+ * =================================================================================================================================
+*/

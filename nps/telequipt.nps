@@ -1,0 +1,107 @@
+/**
+ * telequiot.nps
+ * This NPS file implements coin dispenser (everest).
+ *
+ * Copyright - (c) 2005 - Savista LLC-
+ *
+ * $Source - -: /NewPOS/SRC/np61cvs/cvs/___Config61/Posdata/US/nps/telequipt.nps,v $
+ * $Revision: .1.7 $
+ * $Date: 2008/02/18 17:10:19 $ (of revision)
+  * $Author: myokomizo $ (of revision)
+ */
+
+var TelequiptEnabled=true;
+var TelequiptLoaded=false;
+
+/*
+    SetupTelequipt - start or restart coin dispenser (FM: 21.Aug.2001)
+*/
+function EnableTelequipt(state)
+{
+	if(!PosCheckParameter("TCLExtension","telequipt","true")) {
+	    return false;
+	}
+	TelequiptEnabled=state;
+	if(TelequiptLoaded) {
+		return true;
+	}
+}
+
+/*
+    SetupTelequipt - start or restart coin dispenser (FM: 21.Aug.2001)
+*/
+function SetupTelequipt() {
+
+	if(!PosCheckParameter("TCLExtension","telequipt","true")) {
+	    return false;
+	}
+	if(TelequiptLoaded) {
+		return true;
+	}
+	var port=npTCLXmlGetINI("Telequipt","CoinPort");
+	// Eugene.Leykind@mcd.com -- get config from posdb.xml
+	var baud=npTCLXmlGetINI("Telequipt","baudRate");
+	var parity=npTCLXmlGetINI("Telequipt","ParityCode");
+	var stopb=npTCLXmlGetINI("Telequipt","stopBits");
+	var datab=npTCLXmlGetINI("Telequipt","dataBits");
+	if ((port == null) || (port.length == 0)) {
+		PosShowMessage("<POSCoin> enabled but no port#, skipping!");
+		return(false);
+	}
+	if (parseInt(port) < 0) {
+		return(false);
+	}
+	//  default to Telequip
+	if ((baud == null) || (baud.length == 0)) {
+		baud="2400";
+	}
+	if ((parity == null) || (parity.length == 0)) {
+		parity="E";
+	}
+	if ((stopb == null) || (stopb.length == 0)) {
+		stopb="1";
+	}
+	if ((datab == null) || (datab.length == 0)) {
+		datab="7";
+	}
+	var rc=parseInt(npTCLEvalEx("pos_DispenseReset " + port + " " + baud + " " + parity + " " + stopb + " " + datab));
+	
+	// Note: "pos_DispenseReset" function returns 0 for success. Any other value means error.  //code fix - NVS-1558
+	if (rc == 0) { 
+		TelequiptLoaded = true; 
+	} 
+	return(TelequiptLoaded);
+}
+
+/*
+    PosDispenseCoins - call coin dispenser driver entry point (FM: 21.Aug.2001)
+*/
+function PosDispenseCoins(coins) {
+
+	PosDisplayText("",1);
+	if(!PosCheckParameter("TCLExtension","telequipt","true")) {
+		//PosShowMessage("telequipt device not available");
+	    return("00");
+	}
+	if(!TelequiptEnabled) {
+	    return(coins);
+	}
+	if(SetupTelequipt()) {
+		var amount=npTCLEvalEx("pos_DispenseChange " + coins);
+		if(amount != "00") {
+			PosDisplayText("telequipt has dispensed " + amount + "cents",1);
+		}
+	}
+	return(amount);
+}
+/* signed aut version 9-9076
+ * authority id = coe
+ * authority level = 40
+ * authority name = NewPOS COE developer
+ * group = npi
+ * validity = 2010-04-18
+ * signature type = slash_star
+ * time stamp (GMT) = Wed Jan 31 01:28:45 2018
+ * certificate = 393735312d3739343700a9e732f31448b37a6ed058b700027d2c797f6dffcd2dfbfd1e3561def9568f0d203f3dead922f9d94fac421d737bb9dd803f0010
+ * =================================================================================================================================
+*/

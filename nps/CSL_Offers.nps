@@ -1,0 +1,943 @@
+/**
+ * Offers.nps
+ * This NPS file implements Offers solution
+ *
+ * Copyright (C) 2013 McDonald's Corporation
+ *
+ * $Revision: $
+ * $Date: $ (of revision)
+ * $Author:  $ (of revision)
+ */
+
+/**
+ * @brief Set message on offers area on sale panel
+ *		  also set message on Line Display
+ * @param line1 - string - Message to be show on first line on offers area
+ * @param line2 - string - Message to be show on second line on offers area and also on Line Display
+ * @success
+ */
+function PosOffersSetMessage(line1, line2)
+{
+	var cmd = "PosOffersSetMessage";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, [line1, line2]);
+}
+
+/**
+ * @brief Clear message on offers area on sale panel
+ * @success
+ */
+function PosOffersClearMessage()
+{
+	var cmd = "PosOffersClearMessage";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd);
+}
+
+/**
+ * @brief Apply the promotions back from total
+ * @param silentMode - boolean - should not present the message in the sales panel, COD and linedisplay - default false
+ * @success
+ */
+function PosBackFromTotalUndoPromotion(silentMode)
+{
+	var cmd = "PosBackFromTotalUndoPromotion";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd, Array.prototype.slice.call(arguments));
+}
+
+/**
+ * @brief Apply the offers back from total
+ * @param silentMode - boolean - should not present the message in the sales panel, COD and linedisplay - default false
+ * @success
+ */
+function PosBackFromTotalUndoOffer(silentMode)
+{
+	var cmd = "PosBackFromTotalUndoOffer";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd, Array.prototype.slice.call(arguments));
+}
+
+/**
+ * @brief Set tag id reader to start reading info and sening to NP
+ * @success
+ * @see PosTagIdRead, PosTagIdReadStopCaputre
+ */
+function PosTagIdReadStartCapture()
+{
+	var cmd = "PosTagIdReadStartCapture";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd);
+}
+
+/**
+ * @brief Set tag id reader to stop reading info
+ * @success
+ * @see PosTagIdRead, PosTagIdReadStartCapture
+ */
+function PosTagIdReadStopCaputre()
+{
+	var cmd = "PosTagIdReadStopCaputre";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd);
+}
+
+/**
+ * @brief Apply the promotions on total if available
+ * @success
+ */
+function PosPromotionOnTotal()
+{
+	var cmd = "PosReapplyPromotionOnTotal";
+	executeBC(cmd);
+
+	var ret = true;
+
+	var cmd = "PosPromotionOnTotal";
+	ret = executeBC(cmd);
+
+	return ret;
+}
+
+/**
+ * @brief Wait for a connection to offers server finished
+ * @param applyOffer - boolean - true if should try to apply an order
+ * @success
+ */
+function PosOffersOnTotal(applyOffer)
+{
+	var cmd = "PosReapplyPromotionOnTotal";
+	executeBC(cmd);
+	
+	var cmd = "PosOffersOnTotal";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, [applyOffer]);
+}
+
+/**
+ * @brief Function to do offers actions when sale is back from total. Usually removing applied offers
+ *
+ * @success return TRUE if ok
+ */
+function PosOffersBackFromTotal()
+{
+	var cmd = "PosOffersBackFromTotal";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd);
+}
+
+/**
+ * @brief Function to do offers actions when sale was finished
+ * @success return TRUE if ok
+ */
+function PosOffersEndOfSale()
+{
+	var cmd = "PosOffersEndOfSale";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd);
+}
+
+
+/**
+ * @brief This BC shows a print preview screen with the offers details: name, short description and long description
+ * @param script - string - script function that will format the report shown on print preview screen
+ * @success return TRUE if ok
+ * @failure No offer available
+ * @failure No details for selected offer
+ * @failure Error processing script
+ * @remarks This BC calls core BC PosGetOfferDetails which returns an xml with Offer Details, if there is an offer available.
+ * Then it uses this xml to create a report formatted by script function defined in reports.nps. 
+ * This report is shown on Print Preview screen.
+ * 
+ */
+function PosViewOfferDetails(script)
+{
+	if (!executeBC("PosGetOfferDetails"))
+	{
+		return false;
+	}
+	// get result as Encoded xml (some xml symbols are removed to be able to use getLastSuccess)
+	var xmlEncode = getLastSuccess("PosGetOfferDetails");
+	if(xmlEncode == null)
+	{
+		return false;
+	}
+	var xmlDecode = DecodeToXml(xmlEncode.toString());
+	return PosCreateReport("CUSTOMDATA", script, "PREVIEW", xmlDecode);
+}
+
+/**
+ * @brief Function to clearing the selected Offer of the scanned Tag ID#
+ * @success return TRUE if ok
+ */
+function PosDoClearOffer(showMessages)
+{
+	var cmd = "PosDoClearOffer";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	var ret = executeBC(cmd, [showMessages]);
+	if (ret)
+		PosApplyPromotionCoupons();
+    return ret;
+}
+
+/**
+ * @brief Creates the Offers XML report for the given business day and posId
+ * @param businessDay - business day for report
+ * @param posId - pos id for report or 0 for store wide
+ * @return - true if success. getLastSuccess returns the encode XML of offers data. Use DecodeToXml to get xml data
+ * @see - DecodeToXml
+ */
+function PosOffersGetDataForReport(businessDay, posId)
+{
+	var cmd = "PosOffersGetDataForReport";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, [businessDay, posId]);
+}
+
+/**
+ * @brief Creates the Offers report. See PosCreateReport for parameters description
+ * @see - PosCreateReport
+ */
+function PosOffersCreateReport(dataTypes, reportScript, flags, customParam, PODtype, serviceList)
+{
+	// ask date
+	var fmtDate	= rootStoreDB.StoreDB.StoreProfile.Localization.DateFormat;
+	var hlp = new BusinessObjectHelper;
+	var sMsg = hlp.getSysMessage("MSG_BC_ENTER_RPT_DATE", fmtDate);
+
+	// Gets Date System
+	var wdate = new Date();
+	var wyear = setZerosOnLeft(wdate.getFullYear(), 4);
+	var wmonth = setZerosOnLeft(wdate.getMonth() + 1, 2);
+	var wday = setZerosOnLeft(wdate.getDate(), 2);
+	var sdate = wyear + wmonth + wday;
+
+	var storeWideFlag = false;
+	var flagList = flags.split("|");
+	for (var i=0;i<flagList.length;i++) {
+		if (flagList[i]=='CONSOLIDATED') {
+			storeWideFlag = true;
+		}
+	}
+
+	if (!PosAskDate(sdate, sMsg, 2))
+	{
+		return false;
+	}
+	var repDate = getLastSuccess("PosAskDate");
+	flags = flags + "|DATE_SUPPLIED";
+
+	var POSid = 0;
+	if( storeWideFlag == false )
+	{
+		var hlp = new BusinessObjectHelper;
+		var xmlPOS = new XML(hlp.getPOSState());
+		POSid = Number( xmlPOS.@ID.substring(3, 7) );
+	}
+
+	// store wide
+	if( !PosOffersGetDataForReport( repDate, POSid ) )
+	{
+		return false;
+	}
+
+	// get result as Encoded xml (some xml symbols are removed to be able to use getLastSuccess)
+	var xmlEncode = getLastSuccess("PosOffersGetDataForReport");
+	// decode to a "regular" xml
+	var xmlDecode = DecodeToXml(xmlEncode.toString());
+
+	var POSList = "";
+
+	// PUT on custom param
+	return PosCreateReport(dataTypes, reportScript, flags, xmlDecode, PODtype, serviceList, POSList, repDate);
+}
+
+/** DecodeToXml
+ *
+ * @brief - Decode a string returned from getLastSuccess into a XML string
+ * @param - xmlStr - string to be decoded
+ * @return  string decode in xml
+ */
+function DecodeToXml(xmlStr)
+{
+	// replace all 0x7f 0x06 for "'"
+	// replace all 0x7f 0x05 for "&"
+	// replace all 0x7f 0x04 for """
+	// replace all 0x7f 0x03 for "<"
+	// replace all 0x7f 0x02 for ">"
+	// replace all 0x7f 0x01 for 0x7f
+
+	var markString = new RegExp("\x7F\x01", "g");
+	var markStringHigher = new RegExp("\x7F\x02", "g");
+	var markStringLower = new RegExp("\x7F\x03", "g");
+	var markStringQuote = new RegExp("\x7F\x04", "g");
+	var markStringAmpersand = new RegExp( "\x7F\x05", "g" );
+	var markStringApostrophe = new RegExp( "\x7F\x06", "g" );
+ 
+	xmlStr = xmlStr.replace( markStringApostrophe,	"'" );
+	xmlStr = xmlStr.replace( markStringAmpersand,	"&" );
+	xmlStr = xmlStr.replace(markStringQuote, "\"");
+	xmlStr = xmlStr.replace(markStringLower, "<");
+	xmlStr = xmlStr.replace(markStringHigher, ">");
+	xmlStr = xmlStr.replace(markString, "\x7F");
+
+	// replace all 0x7e 0x06 for "'" ("&apos;")
+	// replace all 0x7e 0x05 for "&" ("&amp;")
+	// replace all 0x7e 0x04 for """ ("&quot;")
+	// replace all 0x7e 0x03 for "<" ("&lt;")
+	// replace all 0x7e 0x02 for ">" ("&gt;")
+	// replace all 0x7e 0x01 for 0x7e
+	var markString = new RegExp("\x7E\x01", "g");
+	var markStringHigher = new RegExp("\x7E\x02", "g");
+	var markStringLower = new RegExp("\x7E\x03", "g");
+	var markStringQuote = new RegExp("\x7E\x04", "g");
+	var markStringAmpersand = new RegExp("\x7E\x05", "g");
+	var markStringApostrophe = new RegExp("\x7E\x06", "g");
+
+	xmlStr = xmlStr.replace(markStringApostrophe, "&apos;");
+	xmlStr = xmlStr.replace(markStringAmpersand, "&amp;");
+	xmlStr = xmlStr.replace(markStringQuote, "&quot;");
+	xmlStr = xmlStr.replace(markStringLower, "&lt;");
+	xmlStr = xmlStr.replace(markStringHigher, "&gt;");
+	xmlStr = xmlStr.replace(markString, "\x7E");
+
+	return xmlStr;
+}
+
+/**
+ *
+ * @brief - Decode entity references by illegal XML characters (&,<,>,",')
+ * @param - xmlStr - xml string to decode
+ * @return decoded string
+ */
+function DecodeEntReferencesByChar(xmlStr)
+{
+	var markStringGreaterThan = new RegExp("&gt;", "g");
+	var markStringLowerThan = new RegExp("&lt;", "g");
+	var markStringQuote = new RegExp("&quot;", "g");
+	var markStringAmpersand = new RegExp("&amp;", "g");;
+	var markStringApostrophe = new RegExp("&apos;", "g");
+
+	xmlStr = xmlStr.replace(markStringLowerThan, "<");
+	xmlStr = xmlStr.replace(markStringGreaterThan, ">");
+	xmlStr = xmlStr.replace(markStringAmpersand, "&");
+	xmlStr = xmlStr.replace(markStringApostrophe, "'");
+	xmlStr = xmlStr.replace(markStringQuote, "\"");
+	
+	return xmlStr;
+}
+
+//Removed BC
+function PosOffersSetBlockCustomerLineDisplay(block)
+{
+    return true;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosApplySugestivePromotionQuestion</b>.
+ *
+ * This BC is responsible for applying the promotions with questions that are saved on a session context. 
+ * If there is more thane one promotion of the same id elegible, the quantity is specified in quantity parameter.
+ * The max quantity is specified in maxPromotionQuestionQuantity session context
+ * @param - quantity - number of promotions of the same id to be applied
+ * @return true if promotion was successfully applied, false otherwise
+ * @since 1.23
+ */
+function PosApplySugestivePromotionQuestion(quantity)
+{
+	var cmd = "PosApplySugestivePromotionQuestion";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    if(executeBC(cmd, [quantity]))
+	{
+		return true;
+	}
+	return true;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosShowPromotionQuestion</b>.
+ *
+ * This BC is responsible for displaying the promotion screen. The promotion screen is configured on screen.xml and must be of type 1202. 
+ * The screen number is configured on store-db.xml, configuration store-wide, section Promotion, parameter questionScreen, e.g.:
+ * This BC is called from PosDoTotalJS, or similar, when appliedPromotionsWithQuestion session context is not empty, 
+ * meaning that there is promotion questions to be prompted to the user.
+ * @return true if screen successfully displayed, false otherwise
+ * @since 1.23
+ */
+function PosShowPromotionQuestion(suggestiveSellingProduct)
+{
+	var cmd = "PosShowPromotionQuestion";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, [suggestiveSellingProduct]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosPromotionUndo</b>.
+ *
+ * This BC is responsible for undo the promotion of an item, given its id and count. 
+ * @param id - promotion id of the promotion
+ * @param count - counter of the promotion item
+ * @param updateSalesList - 
+ * @param normalizeSale - defines whether the sale must be normalized
+ * @param silentMode - boolean - should not present the message in the sales panel, COD and linedisplay - default false
+ * @return true if screen successfully displayed, false otherwise
+ */
+function PosPromotionUndo(id, count, updateSalesList, normalizeSale, silentMode) {
+	var cmd = "PosPromotionUndo";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, Array.prototype.slice.call(arguments));
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosHasSalePromotion</b>.
+ *
+ * This BC verifies if the current sale has at least one promotion. If so, it returns true,
+ * @return true if the sale has promotion.
+ */
+function PosHasSalePromotion() {
+	var cmd = "PosHasSalePromotion";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd);
+}
+
+function PosGetPromotionIdByBarcode(barcode) {
+	var cmd = "PosGetPromotionIdByBarcode";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, [barcode]);
+}
+
+function PosStorePromotionCouponOnSale(barcode, id) {
+	var cmd = "PosStorePromotionCouponOnSale";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, [barcode, id]);
+}
+
+function PosApplyPromotionCoupons() {
+	var cmd = "PosApplyPromotionCoupons";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd);
+}
+
+function PosRedeemPromotionBarcode(barcode) {
+	if(!PosGetPromotionIdByBarcode(barcode)) {
+		PosShowMessage(getLastFail("PosGetPromotionIdByBarcode"));
+		return false;
+	}
+	var id = getLastSuccess("PosGetPromotionIdByBarcode");
+	if(!PosStorePromotionCouponOnSale(barcode, id)) {
+		PosShowMessage(getLastFail("PosStorePromotionCouponOnSale"));
+		return false;
+	}
+	if(!PosApplyPromotionCoupons()) {
+		PosShowMessage(getLastFail("PosApplyPromotionCoupons"));
+		return false
+	}
+	return true;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosDoClearBarcode</b>.
+ *
+ * This BC removes all coupons (and their associated promotions that are associated to the current order
+ * @return true if successfull. false otherwise. 
+ */
+function PosDoClearBarcode() {
+	var cmd = "PosDoClearBarcode";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosDoEnterBarcode</b>.
+ *
+ * This BC prompts a calculator to user allowing a numeric barcode to be inputted.
+ * Then, if a valid number is entered, PosRedeemPromotionBarcode is called
+ * @return true if successfull. false otherwise. 
+ */
+function PosDoEnterBarcode()
+{
+	var barcode = PosShowCalculator("MSG_BC_INFORM_BARCODE", "", 1, 0, "99999999999999999", "", "", 17);
+	if(barcode == "")
+	{
+		return false;
+	}
+	return PosRedeemPromotionBarcode(barcode);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosGetPromotionBarcode</b>.
+ *
+ * This BC gets a barcode from a barcode reader
+ * @return true if successfull. false otherwise. 
+ */
+function PosGetPromotionBarcode() 
+{
+	var cmd = "PosGetPromotionBarcode";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosDoEnterBarcode</b>.
+ *
+ * This BC prompts a calculator to user allowing a numeric barcode to be inputted.
+ * Then, if a valid number is entered, PosRedeemPromotionBarcode is called
+ * @return true if successfull. false otherwise. 
+ */
+function PosRedeemCheckoutCouponOnServer() {
+	var cmd = "PosRedeemCheckoutCouponOnServer";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosGenerateCheckoutCoupon</b>.
+ *
+ * This BC prompts a calculator to user allowing a numeric barcode to be inputted.
+ * Then, if a valid number is entered, PosRedeemPromotionBarcode is called
+ * @return true if successfull. false otherwise. 
+ */
+function PosGenerateCheckoutCoupon() {
+	var cmd = "PosGenerateCheckoutCoupon";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosCancelCheckoutCoupon</b>.
+ *
+ * This BC sends a request to checkout coupon server to cancel one or more coupons of the last sale.
+ * This BC must be used to cancel a coupon of the last sale and must be called when performing an overring
+ * @return true if successfull. false otherwise. 
+ */
+function PosCancelCheckoutCoupon() {
+	var cmd = "PosCancelCheckoutCoupon";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosCanApplyOffersOrPromotions</b>.
+ *
+ * This BC checks if it is still possible to apply an offer or promotion, i.e., if the max number of promotion and offers has not yet been reached.
+ * @return true if it possible to apply an offer or promotion. false otherwise. 
+ */
+function PosCanApplyOffersOrPromotions() {
+	var cmd = "PosCanApplyOffersOrPromotions";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosIsOfferApplied</b>.
+ *
+ * This BC checks if the current order has an offer applied or overridden
+ * @return true if there is an offer applied, false otherwise
+ */
+function PosIsOfferApplied() {
+	var cmd = "PosIsOfferApplied";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosCanApplyOffersOrPromotions</b>.
+ *
+ * This BC checks if it is still possible to apply an offer or promotion, i.e., if the max number of promotion and offers has not yet been reached.
+ * @return true if it possible to apply an offer or promotion. false otherwise. 
+ */
+function PosCanApplyOffersOrPromotions() {
+	var cmd = "PosCanApplyOffersOrPromotions";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosToggleOfferOnOff</b>.
+ *
+ * This BC toggles the "Offers On/Off" functionalilty the customer notifies crew that an Offer will be redeemed.
+ *
+ * @return true if successfull. false otherwise.
+ *
+ * @remarks If the toggle button is on "On" position, NP will suspend application of promotions during order taking when the number 
+ * of promotions applied reaches MaximumNumberOfOffersAndPromotionsPerOrder parameter value minus one.
+ * If the button is on "OFF" position, the application will evaluate the order at that moment to see if it is eligible 
+ * for any promotions that have not yet been applied and apply the promotion(s) according to existing functionality.  
+ * This would occur if the customer changed their mind and no longer wants the offer. 
+ */
+ function PosToggleOffersOnOff() {
+	var cmd = "PosOffersGetOnOff";
+    executeBC(cmd);
+	var offerState = getLastSuccess("PosOffersGetOnOff");
+	var newState = (String(offerState) == "on" ? "off" : "on");
+		
+	if(newState == "on") {
+		if(!PosCanApplyOffersOrPromotions()) {
+			PosShowMessage("MSG_BC_OFFERS_TOGGLEOFFERSON");
+			return false;
+		}
+		cmd = "PosOffersSetOnOff";
+		executeBC(cmd, [newState]);
+		
+	} else if(newState == "off") {
+		if(PosIsOfferApplied() && !PosDoClearOffer()) {
+			return false;
+		}
+		cmd = "PosOffersSetOnOff";
+		executeBC(cmd, [newState]);
+		
+		cmd = "PosPromotionOnItemSold";
+		CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+		executeBC(cmd,[0]);
+	}
+	PosRefreshButtons();
+	return true;
+}
+
+function PosOffersGetOnOff() {
+	if(!executeBC("PosOffersGetOnOff"))
+		return false;
+	var offerState = String(getLastSuccess("PosOffersGetOnOff"));
+	return offerState == "on" ? true : false;
+}
+ 
+/**
+ * @brief This function implements the BC,Business Component: <b>PosOfferRefused</b>.
+ *
+ * This BC remove the offer and apply any eligible promotions when an offer has been applied 
+ * but the customer prefers a general promotion.
+ *
+ * @return true if offer was removed and promotions applied. false otherwise.
+ * @remarks This BC should be used on tender screen
+ */
+function PosOfferRefused() {
+	if(!PosIsOfferApplied()) {
+		PosShowMessage("MSG_BC_OFFERS_NO_OFFER_TO_REFUSE");
+		return false
+	}
+	if(!PosDoClearOffer()) {
+		return false;
+	}
+	PosSetSessionProperty("offersOnOff", "off");
+	var cmd = "PosPromotionOnTotal";
+	var ret = executeBC(cmd);
+	return ret;
+}
+
+/**
+ * @brief Wait for a connection to offers server finished
+ * @param applyOffer - boolean - true if should try to apply an order
+ * @success
+ */
+function PosOffersOnItemSold(applyOffer)
+{
+	var cmd = "PosOffersOnItemSold";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    return executeBC(cmd, [applyOffer]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosDoVoidPromotionAndItems</b>.
+ *
+ * This BC removes the promotion or offer and all its pertaining items from the order.
+ * @param id - promotion ID
+ * @param counter - promotion counter
+ * @return true, if the promotion/offer was successfully removed; false, otherwise.
+ * @since 1.30, SDO-14803
+ */
+function PosDoVoidPromotionAndItems(id, counter)
+{
+	var cmd = "PosDoVoidPromotionAndItems";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd, [id, counter]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosReleaseReservedPromotions</b>.
+ *
+ * This BC releases reserved promotions given by their IDs.
+ * @param ids - pipe-separated list of reserved promotion IDs to be released, or empty string to clear contents
+ * @return true, if ids is correctly formatted; false, otherwise.
+ * @since 1.30
+ */
+function PosReleaseReservedPromotions(ids)
+{
+	var cmd = "PosReleaseReservedPromotions";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd, [ids]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosReleaseReservedOffers</b>.
+ *
+ * This BC releases reserved offers, if any
+ * @return true, if the offer was correctly removed; false, otherwise.
+ * @since 1.30
+ */
+function PosReleaseReservedOffers()
+{
+	var cmd = "PosReleaseReservedOffers";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosRemovePromotion</b>.
+ *
+ * This BC displays a pop-up screen for the user to choose which promotion to remove.
+ * @param silentMode - boolean - should not present the message in the sales panel, COD and linedisplay - default false
+ * @return True if the promotion was successfully removed. False if the user presses "Cancel" or if there is no sale created.
+ * @remarks This pop-up screen shows a list of promotion and two buttons: "Remove" and "Cancel".
+ * Once the user selected the desired promotions and presses the "Remove" button, the current
+ * rules for removing promotions will be applied.
+ */
+ function PosRemovePromotion(silentMode) {
+ 	var cmd = "PosRemovePromotion";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+    var ret = executeBC(cmd, Array.prototype.slice.call(arguments));
+	if (ret)
+		PosApplyPromotionCoupons();
+    return ret;
+ }
+
+ /**
+ * @brief This function implements the BC,Business Component: <b>PosApplyByRandomCode</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * The PosApplyByRandomCode is responsible for handle a call from tag id reader (barcode, keyboard, nfc, rfid, etc).
+ * In java script it should be called:<b>PosApplyByRandomCodeJS(randomValue)</b>
+ * @param RandomCode - String - contains the value read from the keyboard
+ * @success Adaptor not loaded.
+ * @success Ivalid state.
+ * @since offers pilot
+ */
+function PosApplyByRandomCode(randomValue)
+{
+    return executeBC("PosApplyByRandomCode", [randomValue]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosApplyByMobileCode</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * The PosApplyByMobileCode is responsible for handle a call from tag id reader (barcode, keyboard, nfc, rfid, etc).
+ * In java script it should be called:<b>PosApplyByMobileCodeJS(randomValue)</b>
+ * @param RandomCode - String - contains the value read from the keyboard
+ * @success Adaptor not loaded.
+ * @success Ivalid state.
+ * @since offers pilot
+ */
+function PosApplyByMobileCode(mobileValue)
+{
+    return executeBC("PosApplyByMobileCode", [mobileValue]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosApplyByMonopolyCode</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * The PosApplyByMonopolyCode is responsible for applying a Monopoly offer to the sale.
+ * In java script it should be called:<b>PosApplyByMonopolyCodeJS(prizeCodes)</b>
+ * @param prizeCodes - String - comma-separated list of scanned coupon codes
+ * @since NPS-23549
+ */
+function PosApplyByMonopolyCode(prizeCodes)
+{
+    return executeBC("PosApplyByMonopolyCode", [prizeCodes]);
+}
+
+var countOfferRedeemRetries;
+function resetCountOfferRedeemRetries( ) {
+	countOfferRedeemRetries = "0";
+}
+function hasReachedMaxOfferRedeemRetries( )
+{
+	var hlp = new BusinessObjectHelper;
+	var maxRetry = hlp.findParamInSectionWide( "offersCodeMaximumRetriesKeyboard", "Offers" );
+
+	if(( maxRetry === null )
+	|| ((!isNaN(parseFloat(maxRetry.toString())) && isFinite(maxRetry.toString())) == false)
+	|| (parseInt( maxRetry.toString() ).toString() != parseFloat( maxRetry.toString() ).toString())
+	|| (parseInt( maxRetry.toString() ) < 0 ) ) { 
+		maxRetry = new BigDecimal( "3" );
+	} else {
+		maxRetry = new BigDecimal( maxRetry );
+	}
+	
+	if( maxRetry != 0 ) {
+		var count = new BigDecimal( countOfferRedeemRetries );
+		if( count >= maxRetry )	{
+			PosShowMessage( "MSG_ERR_OFFERS_CODE_MAXIMUM_RETRIES_KEYBOARD" );
+			return true;
+		}
+	}
+	
+	return false;
+}
+
+function incCountOfferRedeemRetries( ) {
+	var count = new BigDecimal( countOfferRedeemRetries );
+	count++;
+	countOfferRedeemRetries = count.toString();
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosPromotionGetZeroAmountAuthorization</b>.
+ *
+ * Persistence:<b>Persisted</b>\n
+ * The PosPromotionGetZeroAmountAuthorization is responsible for get authorization if the order has amount
+ * equal to zero and all items have promotion
+ * In java script it should be called:<b>PosPromotionGetZeroAmountAuthorization()</b>
+ * @success Authorized or not authorized and all promotions removed
+ * @remarks
+ *
+ *
+ * @since 1.23-
+ */
+function PosPromotionGetZeroAmountAuthorization() {
+	var cmd = "PosPromotionGetZeroAmountAuthorization";
+	CSL_dbglog(7, SRC_BC_TOTAL, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/**
+ * @brief Apply the promotions on item sold if available
+ * @param productCode - int - contains the product code of 
+ * @success
+ */
+function PosPromotionOnItemSold(productCode, slotsForActive){
+	cmd = "PosPromotionOnItemSold";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd, [productCode, slotsForActive]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosOfferPromotionUndoIfPresentOnSelectedItem</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * The PosOfferPromotionUndoIfPresentOnSelectedItem is responsible for undoing offer or promotion if present on selected item.
+ * In java script it should be called:<b>PosOfferPromotionUndoIfPresentOnSelectedItem(quantity)</b>
+ * @param normalizeSale - defines whether the sale must be normalized
+ */
+function PosOfferPromotionUndoIfPresentOnSelectedItem(normalizeSale)
+{
+	if(PosHasPromotionSaleItem() == false) {
+		return 0;
+	}
+	if (!PosCheckSessionProperty("POD","CSO")) {
+		if(!PosYesNoMessage("MSG_BC_PROMOTION_CANCEL")) {
+			return -1;
+		}	
+	}
+	var idCounter = getLastSuccess("PosHasPromotionSaleItem").split("|");
+	if(!PosPromotionUndo(idCounter[0], idCounter[1], true, normalizeSale)) {
+		return -2;
+	}
+	return 1;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosOfferPromotionOnItemSold</b>.
+ *
+ * Persistence:<b>Not Persisted</b>\n
+ * The PosOfferPromotionOnItemSold is responsible for run the promotion and offer "on item sold".
+ * In java script it should be called:<b>PosOfferPromotionOnItemSold(quantity)</b>
+ */
+function PosOfferPromotionOnItemSold(productCode) {
+	PosOffersOnItemSold("true");
+	PosPromotionOnItemSold(productCode);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosSetCustomerInfoOnSale</b>.
+ *
+ * This BC is used to set customer information on sale
+ * 
+ *
+ * @success Returns "true" if the information was succesfully inserted on sale
+ * @false   
+ * @hook
+ * @remarks
+ * @since 1.28
+ */
+function PosSetCustomerInfoOnSale(customerId, customerNickName, greetings) {
+	var cmd = "PosSetCustomerInfoOnSale";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+
+	return executeBC(cmd,[customerId, customerNickName, greetings]);
+}
+
+/**
+ * @brief Apply the active promotions on total if available
+ * @success
+ */
+function PosActivePromotion(activePromotionIds)
+{
+	var cmd = "PosActivePromotion";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	var ret = executeBC(cmd, [activePromotionIds]);
+	var rejections = getLastSuccess("PosActivePromotion");
+	if (rejections != null && rejections != "") API.dbg("[PosActivePromotion] Rejections: " + DecodeToXml(rejections.toString()));
+	return ret;
+}
+
+/**
+ * @brief Wait for a connection to offers server finished
+ * @param applyOffer - boolean - true if should try to apply an order
+ * @success
+ */
+function PosActiveOffers()
+{
+	var cmd = "PosActiveOffers";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	var ret = executeBC(cmd);
+	var rejection = getLastSuccess("PosActiveOffers");
+	if (rejection != null && rejection != "") API.dbg("[PosActiveOffers] Rejection: " + rejection.toString());
+	return ret;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosUpdateBestFitOfferAndPromotionLanguages</b>.
+ *
+ * This BC is used to update the offers and promotions language
+ * 
+ * @success Returns "true" if the information was succesfully updated on sale
+ * @hook
+ * @remarks
+ * @since 1.29
+ */
+function PosUpdateBestFitOfferAndPromotionLanguages(language, countryId, variant) {
+	executeBC("PosUpdateBestFitOfferAndPromotionLanguages", Array.prototype.slice.call(arguments));
+}
+
+function PosOfferPrizeRedemption(ticket) {
+	var cmd = "PosOfferPrizeRedemption";
+
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd, [ticket]);
+}
+
+function PosOfferPrizeGetTickets() {
+	var cmd = "PosOfferPrizeGetTickets";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+
+	return executeBC(cmd);
+}
+
+function PosOfferPrizeCleanTickets() {
+	var cmd = "PosOfferPrizeCleanTickets";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+
+	return executeBC(cmd);
+}
+/* signed aut version 9-9076
+ * authority id = builder
+ * authority level = 10
+ * authority name = NewPOS release level
+ * group = npi
+ * validity = 2010-04-18
+ * signature type = slash_star
+ * time stamp (GMT) = Fri Jan 26 16:27:04 2018
+ * certificate = 393735312d3739343700fc3b0b4a53ed53d4702105e910ce0a5a660d065279c0836673f45efb9bb24c10594796199daf196932aa1407f50d6c70db0f0010
+ * =============================================================================================================================
+*/

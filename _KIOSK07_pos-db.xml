@@ -1,0 +1,212 @@
+<?xml version="1.0"?>
+<PosDB xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="/usr/local/jboss-3.2.2/server/default/deploy/webrfmNP61_14.war/rfmdata/pos-db.xsd" version="1.0" name="POS07">
+  <StoreDB imports="all">
+    <StoreProfile>
+      <BusinessLimits>
+        <DisableAutomaticTimeOfDayTransition>true</DisableAutomaticTimeOfDayTransition>
+        <DefaultTimeOfDayValue>BREAKFAST_MENU</DefaultTimeOfDayValue>
+      </BusinessLimits>
+    </StoreProfile>
+  </StoreDB>
+  <ColorDB imports="default" />
+  <Configuration imports="Store.wide">
+    <Section name="Messaging">
+      <Parameter name="networkAdaptorBaseIp" value="127.0.0.1" />
+      <Parameter name="serverPort" value="" />
+    </Section>
+    <Section name="OperationMode">
+      <Parameter name="DTStoreMode" value="REGULAR" />
+      <Parameter name="applyUpdateOperationMode" value="1" />
+      <Parameter name="dualPointDoubleBumpActive" value="true" />
+         <Parameter name="smartGrillLogicActive" value="false"/>
+    </Section>
+    <Section name="CODRouting">
+      <Parameter name="Mapping" value="COD0012=1|COD0014=2" />
+         <Parameter name="Routing" value="POS0012=NCOD0012|POS0013=NCOD0012|POS0014=NCOD0014|POS0001=NCOD0012|POS0002=NCOD0012"/>
+    </Section>
+    <Section name="NPScripts">
+      <Parameter name="scriptCommands" value="BusinessComponentsCSO.nps" />
+      <Parameter name="scriptCommandsLocal" value="BusinessComponentsCSOLocal.nps" />
+    </Section>
+    <Section name="PrintFromKioskOnCounter">
+      <Parameter name="PrinterAliases" value="NGK Cashless Printer" />
+    </Section>
+      <Section name="RMHCDonation">
+         <Parameter name="enableRMHCdonation" value="true"/>
+      </Section>
+      <Section name="Promotion">
+         <Parameter name="enableComponentsOnIdentifiedSalesForOffers" value="true"/>
+      </Section>
+      <Section name="SmartRouting">
+         <Parameter name="podBlackList" value="DT"/>
+      </Section>
+      <Section name="BVS">
+         <Parameter name="isEnabled" value="true"/>
+         <Parameter name="routeToBvsByOrderType" value="CURBSIDE|TABLE_MOBILE|TABLE_EI|DELIVERY"/>
+      </Section>
+  </Configuration>
+  <Services>
+    <Service type="RPR" classname="com.ngpos.arch.services.printer.core.PrinterController" startonload="true" quitOnFail="true" name="07">
+      <Adaptors>
+        <Adaptor name="npAdpRpr" imports="npAdpRpr" startonload="true">
+          <Section name="main">
+            <Parameter name="drivername" value="virtualPrinter.dll" />
+            <Parameter name="escSeq" value="ZebraKR403printerControlChar.properties" />
+            <Parameter name="portname" value="..\RPR_1__KIOSK07_pos-db.xml.txt" />
+            <Parameter name="AutoCutter" value="true" />
+            <Parameter name="fileAppend" value="true" />
+            <Parameter name="flush" value="false" />
+            <Parameter name="overwrite" value="false" />
+          </Section>
+        </Adaptor>
+      </Adaptors>
+    </Service>
+    <Service type="POS" classname="com.ngpos.pos.NewPOS" startonload="true" quitOnFail="true" name="07">
+      <UsedServices>
+        <UsedService serviceType="WAY">
+          <Member name="300" alias="" />
+        </UsedService>
+        <UsedService serviceType="PSW">
+          <Member name="300" alias="" />
+        </UsedService>
+        <UsedService serviceType="PST">
+          <Member name="8002" alias="" />
+          <Member name="8013" alias="" />
+        </UsedService>
+        <UsedService serviceType="RPR">
+          <Member alias="" name="07" />
+          <Member alias="NGK Cashless Printer" name="01" />
+          <Member alias="" name="01" />
+               <Member alias="" name="02"/>
+               <Member alias="" name="03"/>
+        </UsedService>
+        <UsedService serviceType="KVS">
+               <Member name="3110" alias="MFY 1 Initiator"/>
+               <Member name="3120" alias="MFY 2 Initiator"/>
+               <Member name="3210" alias="MFY Side 1"/>
+               <Member name="3220" alias="MFY Side 2"/>
+          <Member name="3310" alias="Front Counter Expo 1" />
+          <Member name="3320" alias="Drive Thru Expo - HLZ" />
+          <Member name="3410" alias="Drive Thru Expo - Present" />
+               <Member name="3420" alias="CBB"/>
+          <Member name="3510" alias="FC Double Bump 1" />
+               <Member name="3520" alias="Drinks/Coffee"/>
+               <Member name="3610" alias="Fry"/>
+               <Member name="3620" alias="Dessert"/>
+               <Member name="6710" alias="Generic Grill"/>
+        </UsedService>
+      </UsedServices>
+      <Configuration imports="POS">
+            <Section name="CSO.UserInterface">
+               <Parameter name="payAtCounter.enabled" value="true"/>
+            </Section>
+        <Section name="UserInterface">
+          <Parameter name="frameWidth" value="800" />
+          <Parameter name="frameHeight" value="600" />
+          <Parameter name="imagesResolution" value="1024,768" />
+          <Parameter name="DDTsupport" value="true" />
+          <Parameter name="salePanelFont" value="Arial-BOLD-16" />
+          <Parameter name="showCursor" value="true" />
+          <Parameter name="showCloseButton" value="true" />
+          <Parameter name="doNotShowInGrillScreen" value="" />
+        </Section>
+        <Section name="Cashless3">
+          <Parameter name="Active" value="false" />
+          <!-- 			
+					<Parameter name="PEDip" value="10.2.3.105"/>
+					<Parameter name="laneClosedMessage" value="Reg Closed"/>
+					<Parameter name="ListenerIP" value="10.2.3.105"/>
+					<Parameter name="ListenerPort" value="5155"/>
+					<Parameter name="UpdateStatusCheckInterval" value="10"/>
+					<Parameter name="UpdateMaxWaitTime" value="1800"/>
+					<Parameter name="UpdateLostComMaxTime" value="300"/>
+					<Parameter name="DiagnosticBusyRetries" value="10"/>
+ -->
+        </Section>
+        <Section name="PosType">
+          <Parameter name="POD" value="CSO" />
+          <Parameter name="RemPOD" value="FRONT_COUNTER" />
+        </Section>
+        <Section name="OperationMode">
+          <Parameter name="restartAfterOpen" value="false" />
+          <Parameter name="autoRecall" value="false" />
+               <Parameter name="DisplayPrinterListOnError" value="false"/>
+        </Section>
+        <Section name="Cash">
+          <Parameter name="OverringBehaviour" value="0" />
+        </Section>
+        <Section name="Report">
+          <Parameter name="PrintSurveyCode" value="true" />
+        </Section>
+            <Section name="PeriodicScriptExecution">
+               <Parameter name="enable" value="true"/>
+               <Parameter name="scriptName" value="PrinterStatusOnKVS@BusinessComponentsCSOLocal.nps"/>
+               <Parameter name="frequency" value="300"/>
+            </Section>
+        <Section name="Account">
+          <Parameter name="SaveXMLFiles" value="true" />
+        </Section>
+      </Configuration>
+      <Adaptors>
+        <Adaptor name="xmlrpccli" imports="xmlrpccli" startonload="true" />
+        <Adaptor name="tlog" imports="tlog" startonload="true" />
+        <Adaptor name="standard.ui" startonload="true">
+          <Section name="main">
+            <Parameter name="drivername" value="npGUIExt.dll" />
+            <Parameter name="actionPort" value="888" />
+            <Parameter name="eventPort" value="999" />
+            <Parameter name="cmdTPUI" value="../NGK/npKiosk.exe" />
+          </Section>
+        </Adaptor>
+        <Adaptor name="standard.account" imports="standard.account" startonload="true">
+          <Section name="main">
+            <Parameter name="drivername" value="npAccTax.dll" />
+          </Section>
+          <Section name="tax">
+            <Parameter name="drivername" value="npAccTax.dll" />
+          </Section>
+        </Adaptor>
+        <Adaptor name="npCLayer" imports="npCLayer" startonload="false">
+  <!--         <Section name="Everest">
+            <Parameter name="SerialPort" value="2" />
+            <Parameter name="IMenable" value="1" />
+            <Parameter name="IMpath" value="E:\Verifone\" />
+          </Section>
+          <Section name="ESocket">
+            <Parameter name="HostIP" value="10.141.29.130" />
+            <Parameter name="HostPort" value="30004" />
+            <Parameter name="SequenceIP" value="10.141.29.130" />
+            <Parameter name="SequencePort" value="30003" />
+            <Parameter name="PED_COMM" value="tcp" />
+            <Parameter name="PED_IP" value="10.141.29.137" />
+            <Parameter name="PED_PORT" value="9001" />
+            <Parameter name="MerchantID" />
+            <Parameter name="MsgTimeOut" value="2" />
+            <Parameter name="contact" value="For gift card balance call 1-877-458-2200" />
+            <Parameter name="extname" value="eSocketDrv.dll" />
+            <Parameter name="Terminal_ID" value="007" />
+          </Section> -->
+        </Adaptor>
+        <Adaptor imports="opos.scanner" name="opos.scanner" startonload="false" />
+        <Adaptor name="npAdpPrd" imports="npAdpPrd" startonload="true">
+          <Section name="main">
+            <Parameter name="SendOrder" value="ONPAID" />
+          </Section>
+        </Adaptor>
+        <Adaptor name="nps.extension" imports="nps.extension" startonload="false" />
+        <Adaptor name="DSLDevDrv.linedisplay" imports="DSLDevDrv.linedisplay" startonload="false" />
+        <Adaptor name="DSLDevDrv.cash" imports="DSLDevDrv.cash" startonload="false" />
+        <Adaptor name="virtual.cashdrawer" imports="virtual.cashdrawer" startonload="false" />
+        <Adaptor name="virtual.linedisplay" imports="virtual.linedisplay" startonload="false" />
+      </Adaptors>
+    </Service>
+    <Service type="STO" classname="npUpdtRcv.dll" startonload="true" quitOnFail="true" name="07">
+      <Configuration imports="STO">
+        <Section name="main">
+          <Parameter name="NodeType" value="POS" />
+          <Parameter name="WayNode" value="300" />
+        </Section>
+      </Configuration>
+    </Service>
+  </Services>
+</PosDB>

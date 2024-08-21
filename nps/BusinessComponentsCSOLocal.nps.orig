@@ -1,0 +1,2700 @@
+/** 
+* NP6majorversion=6.1.16
+* NP6build=B76
+* NP6scriptversion=2.04.03
+* CreationDate=19.04.2010
+*
+* Copyright (C) 2011 McDonalds Corp. All rights reserved. 
+*
+* BusinessComponentsCSOLocal.nps
+* This NPS file implements the local CSO Business Componentes.
+*
+* SOTEC History Changes
+*
+* Version		Date			Name			Detail Description
+* 2.04.00		01.02.2010	Olga Illenseer		Cleanup history.
+*/
+
+executeScript("BusinessComponentsLocal.nps",true);
+executeScript("BCEventsCSO.nps",true);
+executeScript("BCPrinterStatus.nps",true);
+
+var GLOBAL_CSO_CHK_CYCLES			= 0;
+var GLOBAL_CSO_REQ_SRVS				= 0;
+var GLOBAl_CSO_NET_TIMEOUT			= 0;
+var GLOBAL_CSO_CUSTOMER_MSG_CYCLES	= 0;
+
+var GLOBAL_CSO_CHK_CYCLES_COUNTER   		= 0;														// NPS-5801 : Counter controller. 
+var GLOBAL_CSO_CUSTOMER_MSG_CYCLES_COUNTER	= 0;														// NPS-5801 : Counter controller.
+var GLOBAL_CSO_IS_BLOCK						= false;
+
+var GLOBAL_CSO_PRINTER_BLOCK = false;
+
+/**
+ *
+ *
+ */
+function setupCSO() {
+	GLOBAL_CSO_CHK_CYCLES			= getParameterInt("networkCheckPeriod", 1); 					// NPS-5801 : Number of cyclos (of 10 seconds) to check the required services, i.e.: 1 means 10seconds, 6 means 1 minute
+	GLOBAL_CSO_REQ_SRVS				= getParameterStr("networkCheckServices", null); 				// NPS-5801 : Required services for Kiosk, if NULL it is always unblocked.
+	GLOBAl_CSO_NET_TIMEOUT			= getParameterInt("networkCheckTimeout", 3); 					// NPS-5801 : Timeout to query the required service, default it 3 seconds.
+	GLOBAL_CSO_CUSTOMER_MSG_CYCLES	= getParameterInt("networkCheckCustomerMessagePeriod", 3); 		// NPS-5801 : Number of cyclos (of 10 seconds) to keep showing the block message to the customer when detected that a required services is not available (used only for orders in progress).
+	API.dbg("[setupCSO] - Global CSO variables successfully intialized");
+}
+
+
+/**
+ *
+ * @brief - This BC perform PosCreateReport with appropriate type of receipt
+ * Return - true if ok
+ */
+function PosCSODoTenderCreateReceiptJS(kioskDup,szDataType,szScript,szFlags,szCustParams,szPODtype,szServiceList,szPOSList) {
+	
+	
+	var hlp = new BusinessObjectHelper;
+	var vatNumber = hlp.findParamInSectionWide("VatNumber","VAT");
+	if(undefined == szCustParams) {
+		szCustParams="";
+	}
+
+	if( hlp.findParamInSectionWide("FirstReceiptEmpty", "PrintFromKioskOnCounter") == "1")
+	{
+		PosSetSessionProperty("FirstReceiptEmpty", "1", false);
+	}
+	// Kiosk receipt - 18-08-2008 - Removed str ":0:" - This is used by NewKiosk
+	// NVS-3148 - msilva
+	PosSetSessionProperty("SecondCopyOfReceipt", "false");
+	PosCreateReport(szDataType,"receiptkioskTPUI@reports.nps",szFlags,szCustParams+""+vatNumber+""+"|FirstPass",szPODtype,szServiceList,szPOSList);
+	PosSetSessionProperty("FirstReceiptEmpty", "0", false)
+
+	//print receipts from Kiosk on a printer in the network.
+	var PrinterList = hlp.findParamInSectionWide("PrinterList", "PrintFromKioskOnCounter");
+	var PrinterAliases = hlp.findParamInSectionWide("PrinterAliases", "PrintFromKioskOnCounter");
+	// ask for a barcode on the second receipt
+	if(hlp.findParamInSectionWide("DuplicateReceiptWithBarCode", "PrintFromKioskOnCounter") == "1")
+	{
+		PosSetSessionProperty("SecondPrintOutWithBarCode", "1", false);
+	}
+	//print the second receipt
+	if(hlp.findParamInSectionWide("DuplicateReceiptOnSecondPrinter", "PrintFromKioskOnCounter") == "1")
+	{
+		// NVS-3148 - msilva
+		PosCreateReport(szDataType,"receiptkioskTPUI@reports.nps",szFlags+"|ALIAS",szCustParams+""+vatNumber+""+"|SecondPass", PrinterAliases, PrinterList);
+	}
+	//Reset the Bar Code
+	PosSetSessionProperty("SecondPrintOutWithBarCode", "0", false);
+	
+	//ask for a bar code on the picklist
+	if(hlp.findParamInSectionWide("PicklistWithBarCode", "PrintFromKioskOnCounter") == "1")
+	{
+		PosSetSessionProperty("SecondPrintOutWithBarCode", "1", false);
+	}
+	//print a picklist on a printer in the network
+	if(hlp.findParamInSectionWide("PicklistOnSecondPrinter", "PrintFromKioskOnCounter") == "1")
+	{
+		PosSetSessionProperty("PickListForORB", "1", false);
+		PosCreateReport(szDataType,"reportPickList@reports.nps",szFlags+"|ALIAS",szCustParams+""+vatNumber, PrinterAliases, PrinterList);
+		PosSetSessionProperty("PickListForORB", "0", false);
+	}
+
+	//Reset the Bar Code
+	PosSetSessionProperty("SecondPrintOutWithBarCode", "0", false);
+
+	// NVS-1420: Print second cashless receipt (for signing) at alternate location (FC)
+	var ctx = new SessionContext;
+	var kioskSecondCashlessReceipt = ctx.get("kioskSecondCashlessReceipt");
+	ctx.set("kioskSecondCashlessReceipt", "", true);
+	if (kioskSecondCashlessReceipt != null && kioskSecondCashlessReceipt != "") {
+		PosCreateReport("CUSTOMDATA", "receiptCustomData@reports.nps", "NOPREVIEW|ALIAS", kioskSecondCashlessReceipt, PrinterAliases);
+	}
+
+	// PLE-279 - (Eduardo Navikas) Salad Claim Receipt needed for German D10 (new Kiosk GUI) - ACSP6384396
+	if(PosCheckParameter("UserInterface","PrintLocalSaladClaim","true")) {
+		PosCreateReport(szDataType,"reportSaladWrapClaim@reports.nps","NOPREVIEW",szCustParams,szPODtype,szServiceList,szPOSList);
+	}
+	// PLE-279 - (Eduardo Navikas) Salad Claim Receipt needed for German D10 (new Kiosk GUI) - ACSP6384396
+	if(PosCheckParameter("UserInterface","PrintRemoteSaladClaim","true")) {
+		PosCreateReport(szDataType,"reportSaladWrapClaim@reports.nps","NOPREVIEW|ALIAS",szCustParams,"SALADREC",szServiceList,szPOSList);
+	}	
+
+	// NVS-3148 - msilva
+	PosSetSessionProperty("SecondCopyOfReceipt", "false");
+		
+	return (true);
+}
+
+/**
+ * @since - NPS-8550 - Kiosk GUI - Rerouting of Kiosk orders to the front counter queue.
+ */
+function PosCSOCreateReportJS(dataType, script, flags) {
+	
+	var hlp 	= new BusinessObjectHelper;
+	
+	var vatNumber = hlp.findParamInSectionWide("VatNumber","VAT");
+		
+	PosCreateReport(dataType, script, flags, vatNumber);
+	
+	return true;
+}
+
+/** lcreateBlockUnblock
+ *
+ * @brief - Creates the XML UI block / unblock message, command message sample:
+ *
+ *			<Event type="ASYNC" name="UI_BLOCK"/>
+ *	   			<Parameter name="Code" value="6969"/>
+ *	  			<Parameter name="Msg" value="The message"/>
+ *			</Event>	 
+ *
+ * @param - none.
+ * @return - TRUE when at least one service is unavailable, otherwise returns FALSE.
+ * @since - NPS-5801
+ * @author - Kalil
+ */
+function lcreateBlockUnblock(evtName, code, msg) {
+	var xml = new StringBuffer();
+	xml.append(GLOBAL_UTF8_PROLOG_XML);
+	xml.append("<Event ");
+	{
+		xml.append(" type=\"ASYNC\"");
+		xml.append(" name=\"" + evtName + "\"");
+		xml.append(">\n");
+		if (code != null && msg != null) {
+			xml.append("\t<Parameter name=\"Code\" value=\"" + code + "\" />\n");
+			xml.append("\t<Parameter name=\"Msg\"  value=\"" + msg  + "\" />\n");
+		}
+	}
+	xml.append("</Event>");
+	return xml.toString();
+}	
+
+/** PosCSOBlockJS
+ *
+ * @brief - Sends the block message.
+ * @param - msgCode - Message code which explains the reason for blocking the UI.
+ * @return - none.
+ * @since - NPS-5801
+ * @author - Kalil
+ */
+ function PosCSOBlockJS(msgCode) {
+	var hlp	= new BusinessObjectHelper;
+	var msgText = hlp.getSysMessage(msgCode);					
+	PosSendUICmd(lcreateBlockUnblock("UI_BLOCK", msgCode, msgText));
+	API.dbg("INFO_CSO : Kiosk UI has been BLOCKED - msg: [" + msgText + "]");
+}
+
+/** PosCSOUnBlockJS
+ *
+ * @brief - Sends the unblock message.
+ * @param - none.
+ * @return - none.
+ * @since - NPS-5801
+ * @author - Kalil
+ */
+ function PosCSOUnBlockJS() {
+	PosSendUICmd(lcreateBlockUnblock("UI_UNBLOCK"));	
+	API.dbg("INFO_CSO : Kiosk UI has been UNBLOCKED.");
+}
+
+/**PosCSOCheckPrinterStatusJS
+ *
+ * @brief - Checks the printer status, status sample: out of paper, paper jammed, paper near end and etc. 
+ *          This function has been designed to block the NewPOS application process if any problem 
+ *          is detected in the printer.
+ *	     The bScriptCall is used to determine if the function is called from an workflow or from the scripts.
+ *          If called from the scripts the method will return the status and not only true.
+ * @return - always TRUE.
+ * @since - PLE-446 - Generic implementation to detect the printer status.
+ */
+function PosCSOCheckPrinterStatusJS() {
+	const BIT_0=0;
+	const BIT_1=64;
+	const BIT_2=32;
+	const BIT_3=16;
+	const BIT_4=8;
+	const BIT_5=4;
+	const BIT_6=2;
+	const BIT_7=1;
+	
+	const STATUS_OK=0;
+	const STATUS_NOT_AVAILABLE=1;
+	const STATUS_PAPER_NEAR_END=2;
+	const STATUS_PAPER_OUT=3;
+	const STATUS_DOOR_OPEN=4;
+	const STATUS_PAPER_JAM=5;
+	const STATUS_USER_INTERVENTION=6;
+	const STATUS_ERROR_UNKNOWN=7;
+	const STATUS_API_UNAVAILABLE=8;
+	
+	const CLASS_PRINTER_STATUS=String.fromCharCode(0x01);
+	const CLASS_BUSY_STATUS=String.fromCharCode(0x02);
+	const CLASS_ERROR_STATUS=String.fromCharCode(0x03);
+	const CLASS_PAPER_SENSOR_STATUS=String.fromCharCode(0x04);
+	
+	try {
+		API.dbg("INFO : Checking default printer status.");
+		while (true) {
+			// Sends the real-time status transmission command.
+			var rc1=0;	// printer status
+			var rc2=0;	// paper sensor status
+			var rc3=0;	// busy status
+			var rc4=0;	// error status
+			
+			rc1 = sndRcvPrnCmd(CLASS_PRINTER_STATUS);			
+			if ((rc1!=STATUS_API_UNAVAILABLE) && (rc1!=STATUS_NOT_AVAILABLE)) {
+				rc2 = sndRcvPrnCmd(CLASS_PAPER_SENSOR_STATUS);
+				rc3 = sndRcvPrnCmd(CLASS_BUSY_STATUS);
+				rc4 = sndRcvPrnCmd(CLASS_ERROR_STATUS);
+			}			
+			if ((rc1+rc2+rc3+rc4)!=STATUS_OK) {
+				var msg = "";
+				msg=mountMsg(decodeMessage(rc1), msg);
+				msg=mountMsg(decodeMessage(rc2), msg);
+				msg=mountMsg(decodeMessage(rc3), msg);
+				msg=mountMsg(decodeMessage(rc4), msg);
+				API.dbg("INFO : Printer is NOT ready to work: " + msg);
+				PosCSOBlockJS(msg);
+				GLOBAL_CSO_PRINTER_BLOCK = true;
+				break;
+			} else {
+				API.dbg("INFO : Printer is ready to work.");
+				if (GLOBAL_CSO_PRINTER_BLOCK)
+				{
+					PosCSOUnBlockJS();
+					GLOBAL_CSO_PRINTER_BLOCK = false;
+				}
+				break;
+			}
+		}
+	} catch (ex) {
+		PosShowMessage("Could not check printer status, due to: " + ex);
+	}
+	return true;
+		
+	/** decodeMessage
+	 * 
+	 * @brief - Decodes the message.
+	 * @return - Error message.
+	 * @since - PLE-446 - Generic implementation to detect the printer status.
+	 */
+	function decodeMessage(rc) {
+		if (STATUS_OK==rc) {
+			return null;
+		} else if (STATUS_NOT_AVAILABLE==rc){
+			return "Printer is offline or not available in the network.";
+		} else if (STATUS_PAPER_NEAR_END==rc){
+			return "Paper is near end in the printer.";
+		} else if (STATUS_PAPER_OUT==rc){
+			return "Printer is out of paper.";
+		} else if (STATUS_DOOR_OPEN==rc){
+			return "Printer cover is opened.";
+		} else if (STATUS_PAPER_JAM==rc){
+			return "Paper is jammed in the printer.";
+		} else if (STATUS_USER_INTERVENTION==rc){
+			return "Printer error, human intervention is required.";
+		} else if (STATUS_API_UNAVAILABLE==rc) {
+			return "This feature is not available for the configured printer driver.";
+		}
+		return "Unknown printer error.";
+	}
+	
+	/** sndRcvPrnCmd
+	 * 
+	 * @brief - Sends and receives the printer command. 
+	 * @return - Encoded status.
+	 * @since - PLE-446 - Generic implementation to detect the printer status.
+	 */
+	 function sndRcvPrnCmd(class) {
+		const cmd = createCmd(class);						// Class command.
+		const rc = PosSendPrinterCmd(cmd); 					// Sends the escape command to the default printer.
+		if (rc == "-1") {
+			// This kind of RC is created by NewPOS
+			return STATUS_API_UNAVAILABLE; 					// This API is not implemented in this printer driver.
+		} else if ((rc == null) || (rc.length == 0)) {
+			return STATUS_NOT_AVAILABLE; 					// Printer is disconnected or offline.
+		} else {
+			//
+			// ALL CHECKS BELOW MAY DEPEND ON THE PRINTER DRIVER IMPLEMENTATION
+			//
+			const charCode = rc.charCodeAt(0);
+			if (charCode == 0) {
+				return STATUS_NOT_AVAILABLE; 				// Printer is disconnected or offline.
+			} else {
+				// Perfect status sequence tested using printer model: BT-T080 is: 22 18 18 18
+				if (class == CLASS_PRINTER_STATUS) {
+					if (charCode != 22) {
+						return STATUS_NOT_AVAILABLE;
+					}
+				} else if (class == CLASS_BUSY_STATUS) {
+					if (charCode & BIT_5) {
+						return STATUS_DOOR_OPEN;
+					} else if (charCode != 18) {
+						return STATUS_USER_INTERVENTION;
+					}
+				} else if (class == CLASS_ERROR_STATUS) {
+					if (charCode & BIT_2 || charCode & BIT_4) {
+						return STATUS_PAPER_JAM;
+					} else if (charCode & BIT_5) {
+						return STATUS_ERROR_UNKNOWN;
+					} else if (charCode != 18) {
+						return STATUS_USER_INTERVENTION;
+					}
+				} else if (class == CLASS_PAPER_SENSOR_STATUS) {
+					if ((charCode & BIT_2) && (charCode & BIT_3)) {
+						return STATUS_PAPER_NEAR_END;
+					} else if ((charCode & BIT_5) && (charCode & BIT_6)) {
+						return STATUS_PAPER_OUT;
+					} else if (charCode != 18) {
+						return STATUS_USER_INTERVENTION;
+					}
+				}
+			}
+			return STATUS_OK;
+		}
+	}
+	
+	/** createCmd
+	 * 
+	 * @brief - Creates the real time status transmission command. The command sequence has been extracted 
+	 *          from the programming guide manual of the printers: Wincor TH230 and BT-T080 both models were 
+	 *          used in the Europen kiosk solution.
+	 * @return - real time status command.
+	 * @since - PLE-446 - Generic implementation to detect the printer status.
+	 */
+	 function createCmd(class) {
+		var DLE 		= 0x10;
+		var EOT 		= 0x04;
+		var END_OF_CMD 	= 0x00;
+		var cmd = new StringBuffer();
+		
+		cmd.append(String.fromCharCode(DLE));
+		cmd.append(String.fromCharCode(EOT));
+		cmd.append(class);
+		cmd.append(String.fromCharCode(END_OF_CMD));
+		
+		return cmd.toString();
+	}
+	
+	/** getPrnId
+	 * 
+	 * @brief - Gets the first PRN id.
+	 * @return - Service id, -1 when the service type has not been found.
+	 */
+	function getFirstServiceId(srvType) {
+		var hlp 			= new BusinessObjectHelper;
+		var prolog			= "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n";
+		var posDataPath		= hlp.PosGetDataDir();
+		var posDbName		= hlp.PosGetPosDbName();
+		var posDbFullName	= (posDataPath + "/" + posDbName);
+		var xmlBuffer 		= hlp.PosReadFile(posDbFullName);
+		if (xmlBuffer != null) {
+			xmlBuffer = xmlBuffer.replace("<?xml","<!-- bug_336551"); //spidermonkey bugzilla 336551
+			xmlBuffer = xmlBuffer.replace("?>","bug_336551 -->");
+			var posDb = new XML(xmlBuffer);
+			var srvId = 0;
+			for each(service in posDb.Services.Service) {
+				if ((service.@type == srvType) && (service.@startonload == "true")) {
+					for each(adaptor in service.Adaptors.Adaptor) {
+						if ((adaptor.@name == "npAdpRpr") && (adaptor.@startonload == "true")) {
+							return srvId;
+						}
+					}
+				}
+				srvId++;
+			}
+		}
+		return -1;
+	}
+	
+	/**mountMsg
+	 *
+	 * @brief - This function is required for not show the message twice.
+	 * @return - unique message.
+	 * @since - PLE-446 - Generic implementation to detect the printer status.
+	 */	
+	function mountMsg(inMsg, outMsg) {
+		if ((inMsg != null) && (outMsg.indexOf(inMsg)<0)) {
+			return (outMsg + "\n" + inMsg);
+		}
+		return outMsg;
+	}	
+}
+
+ /** PosCheckCSOCanOperate
+ *
+ * @brief - 
+ * 	
+ * @param - none.
+ * @return - TRUE if the CSO can operate.
+ * @since - SDO-4751
+ * @author - 
+ */
+function PosCSOCheckCanOperateJS()
+{
+	if (!isOpLogged()) {
+		// SDO-4804 CSO - Wrong message is displayed, when starting Kiosk with closed business day.
+		sndBlock("MSG_BC_NOTOPENFORSALE"); // POS is closed.  Please check if the current business day has been opened and login a crew person. 
+		GLOBAL_CSO_IS_BLOCK = true;
+		return false;
+	}
+	if (GLOBAL_CSO_IS_BLOCK) {
+		GLOBAL_CSO_IS_BLOCK = false;
+		sndUnBlock();
+	}	
+    return true;
+	
+    function sndBlock(msgCode) {
+	  var hlp	= new BusinessObjectHelper;
+	  var msgText = hlp.getSysMessage(msgCode);					
+	  
+	  PosSendUICmd(createBlockUnblock("UI_BLOCK", msgCode, msgText));
+	  API.dbg("INFO_CSO : Kiosk UI has been BLOCKED - msg: [" + msgText + "]");
+	}
+	function sndUnBlock() {
+		PosSendUICmd(createBlockUnblock("UI_UNBLOCK"));	
+		API.dbg("INFO_CSO : Kiosk UI has been UNBLOCKED.");
+	}
+	function isOpLogged() {
+				  var hlp=new BusinessObjectHelper;
+				  var xmlPOS = new XML(hlp.getPOSState());
+				  var state   = Number(xmlPOS.@state);
+				  API.dbg("+++isDayOpened POS_STA_OPENED["+POS_STA_OPLOGGED+"] state["+state+"]");
+				  return(POS_STA_OPLOGGED==state);
+	}
+	function createBlockUnblock(evtName, code, msg) {
+		var xml = new StringBuffer();
+		xml.append(GLOBAL_UTF8_PROLOG_XML);
+		xml.append("<Event ");
+		{
+			xml.append(" type=\"ASYNC\"");
+			xml.append(" name=\"" + evtName + "\"");
+			xml.append(">\n");
+			if (code != null && msg != null) {
+				xml.append("\t<Parameter name=\"Code\" value=\"" + code + "\" />\n");
+				xml.append("\t<Parameter name=\"Msg\"  value=\"" + msg  + "\" />\n");
+			}
+		}
+		xml.append("</Event>");
+		return xml.toString();
+	}	
+}
+
+ /** PosCheckRequiredCSOServicesJS
+ *
+ * @brief - Verifies if all configured services (as required) are available on the network (on-line). If at least one 
+ *          of the required services is not available, this function sends a block command message to the third part 
+ *          UI application (Kiosk UI). An unblock command message is sent, as soon as, all the required services become 
+ *          available again.
+ *
+ *          Background: During daily operations, the Customer Self Order (CSO) Kiosk or a normal POS register can 
+ *          lose network connectivity to other services in the store, if this occurs, the POS or CSO Kiosk cannot 
+ *          send any order to the production area kitchen video monitors for assembly. 
+ *
+ * @param - none.
+ * @return - Always TRUE.
+ * @since - NPS-5801
+ * @author - Kalil
+ */
+function PosCheckRequiredCSOServicesJS() {
+
+	setupCSO();
+	
+	if (++GLOBAL_CSO_CHK_CYCLES_COUNTER >= GLOBAL_CSO_CHK_CYCLES) {
+		GLOBAL_CSO_CHK_CYCLES_COUNTER = 0;
+		handleChk();
+	} else {
+		//API.dbg("INFO_CSO : Still not the cycle (MAIN): " + GLOBAL_CSO_CHK_CYCLES_COUNTER + ", conf: " + GLOBAL_CSO_CHK_CYCLES);
+	}
+	
+	if (GLOBAL_CSO_IS_BLOCK) {
+		if ((GLOBAL_CSO_CUSTOMER_MSG_CYCLES_COUNTER != -1)) {
+			if (++GLOBAL_CSO_CUSTOMER_MSG_CYCLES_COUNTER > GLOBAL_CSO_CUSTOMER_MSG_CYCLES) {
+				var hlp = new BusinessObjectHelper;
+				GLOBAL_CSO_CUSTOMER_MSG_CYCLES_COUNTER = -1;
+				API.dbg("INFO_CSO : Unblocking UI to change the messsage to default language.");
+				sndUnBlock();
+				// NPS-11723 - DA - NP6.1.21RC8HF6 - Kiosk receipts printed without text - ACSI1374634
+				PosCSOSetDefaultLanguageJS();
+				sndBlock("MSG_CSO_BLOCKED"); // This Kiosk is blocked because of local network issues.
+			} else {
+				//API.dbg("INFO_CSO : Still not the cycle (defaul_language): " + GLOBAL_CSO_CUSTOMER_MSG_CYCLES_COUNTER + ", conf: " + GLOBAL_CSO_CUSTOMER_MSG_CYCLES);
+			}
+		}
+	}
+
+	return true;
+	
+	/** sndBlock
+	 *
+	 * @brief - Sends the unblock message.
+	 * @param - msgCode - Message code which explains the reason for blocking the UI.
+	 * @return - none.
+	 * @since - NPS-5801
+	 * @author - Kalil
+	 */
+	 function sndBlock(msgCode) {
+		var hlp	= new BusinessObjectHelper;
+		var msgText = hlp.getSysMessage(msgCode);					
+		PosSendUICmd(createBlockUnblock("UI_BLOCK", msgCode, msgText));
+		API.dbg("INFO_CSO : Kiosk UI has been BLOCKED - msg: [" + msgText + "]");
+	}
+	
+	/** sndUnBlock
+	 *
+	 * @brief - Sends the unblock message.
+	 * @param - none.
+	 * @return - none.
+	 * @since - NPS-5801
+	 * @author - Kalil
+	 */
+	 function sndUnBlock() {
+		PosSendUICmd(createBlockUnblock("UI_UNBLOCK"));	
+		API.dbg("INFO_CSO : Kiosk UI has been UNBLOCKED.");
+	}
+
+	/** handleChk
+	 *
+	 * @brief - Handles the check mechanism of the required services and its basic functionalities, 
+	 *          such as: the creation of the block and unblock command messages.
+	 * @param - none.
+	 * @return - none.
+	 * @since - NPS-5801
+	 * @author - Kalil
+	 */
+	function handleChk() {
+		if (areAllReqSrvsAvailable() && isOpLogged()) {
+			if (GLOBAL_CSO_IS_BLOCK) {
+				GLOBAL_CSO_IS_BLOCK = false;
+				sndUnBlock();
+			}
+		} else {
+			var msgCode = null;
+			var hlp 	= new BusinessObjectHelper;
+			if (!GLOBAL_CSO_IS_BLOCK) {
+				GLOBAL_CSO_IS_BLOCK = true;
+				var hlp				= new BusinessObjectHelper;
+				var isInProgress 	= (!PosNotATransactionInProgress("true"));
+				
+				if ((GLOBAL_CARD_READER_EVT == 1) || (GLOBAL_CARD_READER_EVT == 3) || (isInProgress)) {
+					msgCode = "MSG_CSO_BLOCKED_INPROGRESS";			// Dear customer, your order has been cancelled because of local network issues. Please remove your credit card and go to the front counter.
+					if (isInProgress) {
+						if (hlp.isGrilling()) {
+							API.dbg("INFO_CSO : Finalizing grill mode...");
+							PosDoGrillEnd('2');
+						}
+						API.dbg("INFO_CSO : Voiding in progress order...");
+						PosDoVoidSale('false','false');
+					}
+					API.dbg("INFO_CSO : In progress order has been CANCELLED.");
+				} else {
+					msgCode = "MSG_CSO_BLOCKED";					// This Kiosk is blocked because of local network issues.
+				}
+				sndBlock(msgCode);				
+				GLOBAL_CSO_CUSTOMER_MSG_CYCLES_COUNTER = 0;
+			}
+		}
+
+		/** isOpLogged
+		 *
+		 * @brief - Verifies the POS state and returns true if operator is logged
+		 * @param - none.
+		 * @return - TRUE if operator is logged.
+		 * @since - NPS-6409
+		 * @author - JMarrara
+		 */
+		function isOpLogged() {
+                      var hlp=new BusinessObjectHelper;
+                      var xmlPOS = new XML(hlp.getPOSState());
+                      var state   = Number(xmlPOS.@state);
+
+                      return(POS_STA_OPLOGGED==state);
+		}
+	}
+	
+	/** createBlockUnblock
+	 *
+	 * @brief - Creates the XML UI block / unblock message, command message sample:
+	 *
+	 *			<Event type="ASYNC" name="UI_BLOCK"/>
+	 *	   			<Parameter name="Code" value="6969"/>
+	 *	  			<Parameter name="Msg" value="The message"/>
+	 *			</Event>	 
+	 *
+	 * @param - none.
+	 * @return - TRUE when at least one service is unavailable, otherwise returns FALSE.
+	 * @since - NPS-5801
+	 * @author - Kalil
+	 */
+	function createBlockUnblock(evtName, code, msg) {
+		var xml = new StringBuffer();
+		xml.append(GLOBAL_UTF8_PROLOG_XML);
+		xml.append("<Event ");
+		{
+			xml.append(" type=\"ASYNC\"");
+			xml.append(" name=\"" + evtName + "\"");
+			xml.append(">\n");
+			if (code != null && msg != null) {
+				xml.append("\t<Parameter name=\"Code\" value=\"" + code + "\" />\n");
+				xml.append("\t<Parameter name=\"Msg\"  value=\"" + msg  + "\" />\n");
+			}
+		}
+		xml.append("</Event>");
+		return xml.toString();
+	}	
+}
+
+/** areAllReqSrvsAvailable
+ *
+ * @brief - Sends a ping command to the configured services.
+ * @param - none.
+ * @return - TRUE when at least one service is unavailable, otherwise returns FALSE.
+ * @since - NPS-5801
+ * @author - Kalil
+ */
+function areAllReqSrvsAvailable() {
+	if ((GLOBAL_CSO_REQ_SRVS == null) || (ltrim(rtrim(GLOBAL_CSO_REQ_SRVS)).length == 0)) {
+		API.dbg("INFO_CSO : Required services for Kiosk are not configured, services availability can not be performed.");
+	} else {
+		API.dbg("INFO_CSO : Looking up services: [" + GLOBAL_CSO_REQ_SRVS + "]");
+		var srv = GLOBAL_CSO_REQ_SRVS.split("|");
+		for (var i=0;i<srv.length;i++) {
+			if (!PosCheckConnectivity(srv[i], GLOBAl_CSO_NET_TIMEOUT)) {
+				API.dbg("INFO_CSO : Required service [" + srv[i] + "] for Kiosk is UNAVAILABLE.");
+				return false;
+			}
+		}
+		API.dbg("INFO_CSO : All required services are available.");
+	}
+	return true;
+}
+
+/**
+ * @brief - Checks to see if the services that are required by the Kiosk are available.
+ * Note: The services that will be checked in this function are configured inside the store-db.xml inside the sample CSO section below.
+ *	<Document>
+ *	[...]
+ *		<Configurations>
+ *		[...]
+ *			<Configuration type="POS">
+ *			[...]
+ * 				<Section name="CSO">
+ *					<Parameter name="networkCheckPeriod" value="3"/>
+ *					<Parameter name="networkCheckCustomerMessagePeriod" value="3"/>
+ *					<Parameter name="networkCheckServices" value="KVS8017|QUE8017"/>
+ *				</Section>
+ * @returns - True if all the required services are available, otherwise returns false.
+ * @since - SDO-4672 - KIOSK V4 - When the production is offline it is possible to finish an order.
+ * @author - Felipe Armoni
+ */
+function PosCSOCheckRequiredServicesAvailableJS() {
+	
+	setupCSO();
+
+	if (++GLOBAL_CSO_CHK_CYCLES_COUNTER >= GLOBAL_CSO_CHK_CYCLES) 
+		{ 
+		GLOBAL_CSO_CHK_CYCLES_COUNTER = 0; 
+		if (areAllReqSrvsAvailable())
+		{ 
+			if (GLOBAL_CSO_IS_BLOCK)
+			{ 
+				GLOBAL_CSO_IS_BLOCK = false; 
+				sndUnBlock(); 
+			} 
+		} 
+		else 
+		{ 
+			if (!GLOBAL_CSO_IS_BLOCK) 
+			{ 
+				GLOBAL_CSO_IS_BLOCK = true; 
+				// This Kiosk is blocked because of local network issues. 
+				var msgCode = "MSG_CSO_BLOCKED"; 
+				if (!isOpLogged()) 
+				{ 
+					API.dbg(-"INFO_CSO : This Kiosk will be blocked because the business day is not open or crew is not logged."); 
+					// Please check if the current business day has been opened and login a crew person. 
+					msgCode = "MSG_BC_NOTOPENFORSALE"; 
+				} 
+				else 
+				{ 
+					cleanupOrder();
+				}
+				sndBlock(msgCode); 
+			}
+		}
+	}
+
+	function cleanupOrder() { 
+		var hlp = new BusinessObjectHelper; 
+		var isInProgress = (!PosNotATransactionInProgress("true")); 
+		if ((GLOBAL_CARD_READER_EVT == 1) || (GLOBAL_CARD_READER_EVT == 3) || (isInProgress)) 
+		{
+			msgCode = "MSG_CSO_BLOCKED_INPROGRESS"; 
+			// The order has been cancelled because due local network issues. 
+			if (isInProgress) 
+			{ 
+				if (hlp.isGrilling())
+				{ 
+					API.dbg("INFO_CSO : Finalizing grill mode..."); 
+					PosDoGrillEnd('2'); 
+				} 
+				API.dbg("INFO_CSO : Voiding in progress order..."); 
+				PosDoVoidSale('false','false'); 
+			} 
+			API.dbg("INFO_CSO : The order in progress has been CANCELLED due local network issues."); 
+		}
+		PosNGKDoGoHomeJS(); 
+		API.dbg("INFO_CSO : This Kiosk is blocked because of local network issues."); 
+	}
+
+	function sndUnBlock() { 
+		PosSendUICmd(lcreateBlockUnblock("UI_UNBLOCK")); 
+		cleanupOrder();
+		API.dbg("INFO_CSO : Kiosk UI has been UNBLOCKED."); 
+	} 
+
+	function sndBlock(msgCode) { 
+		var hlp = new BusinessObjectHelper; 
+		var msgText = hlp.getSysMessage(msgCode); 
+		PosSendUICmd(lcreateBlockUnblock("UI_BLOCK", msgCode, msgText)); 
+		API.dbg("INFO_CSO : Kiosk UI has been BLOCKED - msg: [" + msgText + "]"); 
+	}
+
+	function isOpLogged() { 
+		var hlp=new BusinessObjectHelper; 
+		var xmlPOS = new XML(hlp.getPOSState()); 
+		var state = Number(xmlPOS.@state); 
+		return(POS_STA_OPLOGGED==state); 
+	} 
+}
+
+/** PosSetDefaultCSOLanguageJS
+ *
+ * @brief - Sets the default language for the Kiosk (CSO) based on the store-db configured localization.
+ * @param - none
+ * @return - Always TRUE.
+ * @since - NPS-5801
+ * @author - Kalil
+ */
+ function PosSetDefaultCSOLanguageJS() {
+	var storeDB 	= new XML(API.getStoredb());
+	var countryId 	= storeDB.StoreDB.StoreProfile.Localization.CountryId;
+	var language 	= storeDB.StoreDB.StoreProfile.Localization.Language;
+	var variant		= "KIOSK"; // default variant for CSO.
+	API.dbg("INFO_CSO : Reseting to the default language: [" + countryId + "_" + language + "_" + variant + "]");
+	PosSetLanguage(countryId, language, variant);
+	return true;
+}
+/** getParameterStr
+ *
+ * @brief - Gets the literal value of a given CSO parameter name.
+ * @param - name - name of the parameter.
+ * @param - defaultValue - default value in case of not finding the configuration.
+ * @return - Value for the parameter name.
+ * @since - NPS-5801
+ * @author - Kalil
+ */
+function getParameterStr(name, defaultValue) {
+	var hlp 	= new BusinessObjectHelper;
+	var data 	= hlp.findParamInSectionConfig(name, "CSO");
+	var rc 		= (data == null ? defaultValue : data);
+	API.dbg("INFO_CSO : Kiosk parameter [" + name + "] has been set to [" + rc + "]");
+	return rc;
+}
+/** getParameterInt
+ *
+ * @brief - Gets the integer value of a given CSO parameter name.
+ * @param - name - name of the parameter.
+ * @param - defaultValue - Default value in case of not finding the configuration.
+ * @return - Value for the parameter name.
+ * @since - NPS-5801
+ * @author - Kalil
+ */
+function getParameterInt(name, defaultValue) {
+	var hlp 	= new BusinessObjectHelper;
+	var data 	= hlp.findParamInSectionConfig(name, "CSO");
+	var rc 		= defaultValue;
+	if (data != null) {
+		rc = Number(data);
+		if (isNaN(rc)) { 
+			rc = defaultValue;
+			API.dbg("INFO_CSO: Parameter [" + name + "] has NOT been correctly configured [" + data + "], integer value was expected instead, default value will be considered.");
+		}
+	}
+	API.dbg("INFO_CSO : Kiosk parameter [" + name + "] has been set to [" + rc + "]");
+	return rc;
+}
+
+/**PosNGKCheckPrinterStatusJS
+ *
+ * @brief - Checks the printer status, status sample: out of paper, paper jammed, paper near end and etc. 
+ *          This function has been designed to block the NewPOS application process if any problem 
+ *          is detected in the printer.
+ * @return - always TRUE.
+ * @since - NVS-1420 - Detect the printer status under NGK.
+ */
+function PosNGKCheckPrinterStatusJS() {
+	var hlp = new BusinessObjectHelper;
+	var iSrv = hlp.getServiceIndex();
+	API.dbg("[PosNGKCheckPrinterStatusJS] Calling PosPrinterStsJS");
+	var status = PosPrinterStsJS(iSrv);
+	API.dbg("[PosNGKCheckPrinterStatusJS] status=" + status);
+	if (Number(status) != 0) {
+		if ((status & PRINTER_STATUS_PAPER_NEAR_END) ||
+			(status & PRINTER_STATUS_PRINTING)) {
+			// Ignore these conditions
+		} else {
+			var msg = PosGetPrinterErrorJS(status);
+			API.dbg("INFO : Printer is NOT ready to work: " + msg);
+			PosCSOBlockJS(msg);
+			GLOBAL_CSO_PRINTER_BLOCK = true;
+			return false;
+		}
+	}
+	API.dbg("INFO : Printer is ready to work.");
+	if (GLOBAL_CSO_PRINTER_BLOCK) {
+		PosCSOUnBlockJS();
+		GLOBAL_CSO_PRINTER_BLOCK = false;
+	}
+	return true;
+}
+
+/** PosSwitchCSOUIJS
+ *
+ * @brief - Switches the UI driver between "npDrvGui.dll" and "npGUIExt.dll".
+ * @return - true when the action was successfully performed.
+ * @author - Kalil
+ */
+function PosSwitchCSOUIJS() {
+	try {
+		var hlp 			= new BusinessObjectHelper;
+		var prolog			= "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n";
+		var posDataPath		= hlp.PosGetDataDir();
+		var posDbName		= hlp.PosGetPosDbName();
+		var driverDefault 	= "npDrvGui.dll";
+		var driverTPUI 		= "npGUIExt.dll";
+		var posDbFullName	= (posDataPath + "/" + posDbName);
+		var xmlBuffer 		= hlp.PosReadFile(posDbFullName);
+		
+		if (xmlBuffer != null) {
+			// <?xml version="1.0" encoding="utf-8"?> ---> spidermonkey bugzilla 336551
+			xmlBuffer = xmlBuffer.replace("<?xml","<!-- bug_336551");
+			xmlBuffer = xmlBuffer.replace("?>","bug_336551 -->");
+			var posDb = new XML(xmlBuffer);
+			for each(service in posDb.Services.Service) {
+				if ((service.@type == "POS") && (service.@startonload == "true")) {
+					var posName = service.@type + API.formatNumber(Number(service.@name), "0000", 4);
+					for each(adaptor in service.Adaptors.Adaptor) {
+						if ((adaptor.@name == "standard.ui") && (adaptor.@startonload == "true")) {
+							for each(parameter in adaptor.Section.Parameter) {
+								if (parameter.@name == "drivername") {
+									if (parameter.@value == driverDefault) {
+										// From NPGUI to Kios kGUI
+										parameter.@value = driverTPUI;
+									} else {
+										if(PosCheckSessionProperty(posName + "CanLogin", "true")) {
+											// From Kiosk GUI to NPGUI
+											parameter.@value = driverDefault;
+										} else {
+											// kiosk can not access to manager menu the McD logo is disabled.
+											return false;
+										}
+									}
+									hlp.PosWriteFile(posDbFullName, prolog + posDb.toString());
+									return true;
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	} catch(ex) {
+		PosShowMessage("Failed to switch UI, reason: " + ex);
+		hlp.PosWriteFile(posDataPath + "/" + "pos-db_failed.xml", xmlBuffer);
+	}
+	return false;
+}
+
+/** PosGetNIFJS
+ *
+ * @brief - Validate NIF for Portugal
+ * @return - True when NIF is valid
+ * @author - Fabricio Gabrielli da Silva
+ * @since - NPS-13328 - PT- CR for RFM1: NGK-Vat number to print on a receipt. - 7565669
+ */
+function PosGetNIFJS() {
+
+	var hlp = new BusinessObjectHelper;
+	var saleView = new XML(hlp.getCurrentView());
+	var orderTotal = new BigDecimal("0.00");
+	orderTotal = orderTotal.setScale(2, BigDecimal.ROUND_HALF_EVEN);
+	orderTotal = orderTotal.add(new BigDecimal(saleView.@totalAmount));
+	
+	var nifAmoutLimit = lGetCSOUserInterfaceIntegerParameter("nifAmoutLimit", 0);
+	var nifLimitNumber = new BigDecimal("0.00");
+	nifLimitNumber = nifLimitNumber.setScale(2, BigDecimal.ROUND_HALF_EVEN);
+	nifLimitNumber = nifLimitNumber.add(new BigDecimal(nifAmoutLimit));
+	
+	//Checks the order limit for the customer to insert the NIF number on store-db.xml
+	
+	//If NIF limit is zero or invalid (less than zero), we skip NIF process
+	if (nifLimitNumber.compareTo(BigDecimal.ZERO) <= 0)
+	{
+		return true;
+	}
+	
+	//Order total is equal or greater then nifAmoutLimit, so we just show a message and skip NIF process too
+	if (orderTotal.compareTo(BigDecimal.ZERO) > 0 && orderTotal.compareTo(nifLimitNumber) >= 0)
+	{
+		PosShowMessage(PosCSOI18nGetMessageJS("NGK_MSG_NIF_LIMIT_REACHED", nifLimitNumber.toString()));
+		return true;
+	}
+	
+	while(true)
+	{
+		var nif = PosShowNumericPad("NGK_MSG_NIF_ENTER_NUMBER", "NGK_MSG_NIF_INFO", 9);
+		
+		API.dbg("NIF result: [" + nif + "]");
+		
+		// CSO-183 - [NGKv5.7.2] NGK gets permanently stuck on "Do you wish to continue screen" when NIF number is not entered within timeout period - EQA-1584
+		if (nif == null || nif == undefined || nif == "" || nif == "-1") 
+		{
+			// Timeout
+			return false;
+		}
+		else if (nif == "-2")
+		{
+			// Cancel button clicked
+			return true;
+		}
+		else if (lIsValidNIF(nif))
+		{
+			// Save the NIF number for further use
+			PosDoSetCustomInfo("NIF", nif);
+			return true;
+		}
+		else
+		{
+			// Message: "NIF Number not valid. Please insert a valid NIF number."
+			PosShowMessage(PosCSOI18nGetMessageJS("NGK_MSG_NIF_VALIDATION", nif));
+		}
+	}
+	
+	return true;
+	
+	function lIsValidNIF(NIF) {
+		var caracter, checkDigit;
+		var NIFARR = NIF.split('');
+
+		if ((!isNaN(NIF) && NIF.length == 9) && NIF != "123456789") {
+			//Get the first number of NIF
+			caracter = NIFARR[0];
+
+			if (caracter == "1" || caracter == "2" || caracter == "5" || caracter == "6" ||
+				caracter == "7" || caracter == "8" || caracter == "9") {
+				//Perform CheckDigit calculations
+				checkDigit = parseInt(caracter) * 9;
+				
+				for (i = 2; i <= 8; i++) {
+					checkDigit += parseInt(NIFARR[i - 1]) * (10 - i);
+				}
+				checkDigit = 11 - (checkDigit % 11);
+				
+				//if checkDigit is higher than ten, set it to zero
+				if (checkDigit >= 10) {
+					checkDigit = 0;
+				}
+				
+				//Compare checkDigit with the last number of NIF, if equal the NIF is Valid.
+				if (checkDigit == parseInt(NIFARR[8])) {
+					return true;
+				}
+			}
+			return false;
+		}
+		return false;
+	}
+}
+
+/** PosNGKGetLocatorNumber
+ *
+ * @brief - Validate locator number for US CYT
+ * @return - True when locator number is valid
+ * @author - Andreas Ortloff
+ * @since - Downer's Grove CYT Pilot
+ */
+function PosNGKGetLocatorNumber() {
+	/*NVS-4342 - msilva*/
+	if (!PosNGKIsTableServiceAvailableJSLocal()) {
+		return true;
+	}
+
+	var maximumLocators = lGetCSOUserInterfaceIntegerParameter("tableService.maximumLocators", 0);
+	if (maximumLocators <= 0) {
+		return true;
+	}
+
+	while(true) {
+		var locatorNumber = PosShowNumericPad("NGK_ENTER_LOCATOR_TITLE", "NGK_ENTER_LOCATOR_TEXT", 2);
+
+		if (locatorNumber == null || locatorNumber == undefined || locatorNumber == "" || locatorNumber == "-1") {
+			// Timeout
+			return false;
+		} else if (locatorNumber == "-2") {
+			// Cancel button clicked
+			return true;
+		} else if (locatorNumber >= "1" && locatorNumber <= maximumLocators) {
+			// Save the locator number for further use (ex. receipts)
+			PosDoSetCustomInfo("locatorNumber", locatorNumber);
+			PosSetSessionProperty("NGK_TABLE_SERVICE_SELECTED_ZONE", locatorNumber);
+
+			/*
+			 * WWR-3274: Don't show locator number in cell header on expo monitors.
+			if (typeof(PosSetTableServiceArea) == "function") 
+			{
+				// Set the locator number to expo monitors
+				PosSetTableServiceArea(locatorNumber);
+			}
+			 */
+			
+			// Add locator tag "product" into order
+			var locatorTag = (Number(locatorNumber) + 99900).toString();
+			PosCSODoSaleJS(locatorTag);
+			return true;
+		}
+		else {
+			PosShowMessage(PosCSOI18nGetMessageJS("NGK_ENTER_LOCATOR_ERROR", locatorNumber, maximumLocators));
+		}
+	}
+}
+
+/**
+ * @brief  - Finishes the sale process and set the sale's order number
+ * @return - True when sale's order number is set successfully.
+ * @author - Jorge Olimpia
+ * @since  - SQC-6696 - [CYT Phase 2] Order Numbers that are sent by NGK via Pay At Counter are not correctly incremented
+ */
+function PosNGKEndOfSaleExit() {
+	var hlp = new BusinessObjectHelper();
+	var view = new XML(hlp.getCurrentView());
+	
+	if (view == null || view + "" == "")
+	{
+		API.dbg("onEndOfSaleExit: empty current view");
+		view = new XML(hlp.getLastSaleView());
+	}
+	
+	// CSO-131 - CSO v5 - The order number displayed in the finalizing screen must be configurable
+	var majorMinor = "";
+	if (sessionSale.get("IS_NGK") == "true")
+	{
+		/* majorMinor = view.@major; */
+		/* 2015-03-04 Felipe Ramas SWU-329 */
+		majorMinor = fnMountOrderId(String(view.@orderId),String(view.@orderKey),String(view.@major),String(view.@minor));
+	}
+	else
+	{
+		majorMinor = fnMountOrderId(String(view.@orderId),String(view.@orderKey),String(view.@major),String(view.@minor));
+	}
+	
+	PosSetSessionProperty("orderNumber", majorMinor);
+	//NVS-4046 08-08-2016 John Brancaleon -- Reset the PED's display when the sale is completed on the Kiosk
+	PosDisplayLaneOpenMessage();
+<<<<<<< HEAD
+	
+=======
+
+>>>>>>> FETCH_HEAD
+	return true;
+}
+
+
+/**
+ * @brief  - Check if the order has a CYT item to show or not the Table Service/Tag ID request
+ * @return - True when order has an CYT item.
+ * @author - Lindomar Araujo Filho
+ * @since  - SQC-6696 - [CYT Phase 2] Order Numbers that are sent by NGK via Pay At Counter are not correctly incremented
+ */
+function PosNGKOrderHasCYTItemCheck () {
+	var hlp = new BusinessObjectHelper();
+	var view = new XML(hlp.getCurrentView());
+	
+	if (view == null || view + "" == "") {
+		API.dbg("PosNGKOrderHasCYTItemCheck: empty current view");
+		view = new XML(hlp.getLastSaleView());
+	}
+	
+	for each (var item in view.ItemView) {
+		if (item.isCYT == "true") {
+			return true;
+		}
+	}
+	return false;
+}
+
+/*NVS-4118 - msilva*/
+function localPosNGKSetZoneNumberKVS() 
+{ 
+
+	var valueZoneNumberSelected = sessionSale.get("ZoneValueSelected"); 
+
+	if (valueZoneNumberSelected <= 0) 
+	{ 
+		/* NVS-2854 - 2015/08/24 - Felipe Ramas/ Marcelo Silva/ Lindomar Araujo */
+		if(valueZoneNumberSelected == "-3"){
+			/* PosSetSessionProperty("NGK_TABLE_SERVICE_SELECTED_ZONE", ""); */
+			PosRemoveSessionProperty("NGK_TABLE_SERVICE_SELECTED_ZONE");
+			/* sessionSale.set("ZoneValueSelected", "" ); */
+		}
+		return true;
+	} 
+	 
+	if (typeof(PosAssociateTagId) == "function") 
+	{ 
+		PosAssociateTagId(valueZoneNumberSelected); 
+	} 
+	else 
+	{ 
+		if (typeof(PosSetTableServiceArea) == "function") 
+		{ 
+			PosSetTableServiceArea(valueZoneNumberSelected); 
+		} 
+	} 
+	 
+	return true; 
+} 
+
+/**
+ * @brief - Check if the Table Service is available
+ * @author - Marcelo Silva
+ *             NVS-4342 - Local localization: Not to show table service for MFY and Take Out orders on Kiosk
+ */
+function PosNGKIsTableServiceAvailableJSLocal() {
+
+	var hlp = new BusinessObjectHelper;
+
+	// CSO-215 - NGK - CYT - enable Table Service for take out orders - 7809875
+	// CSO-230 - NGK Support Table Service for Pay At Counter Orders - 7826872
+	var enableEatIn = lGetParameterStr("tableService.eatIn", "ONLY_PAY_HERE");
+	if (enableEatIn != "NEVER" &&
+		enableEatIn != "ALWAYS" &&
+		enableEatIn != "ONLY_PAY_HERE" &&
+		enableEatIn != "ONLY_PAY_AT_COUNTER" &&
+		enableEatIn != "ONLY_WITH_CYT")
+	{
+		enableEatIn = "ONLY_PAY_HERE";
+	}
+
+	var enableTakeOut = lGetParameterStr("tableService.takeOut", "");
+	if (enableTakeOut == "" ||
+		(enableTakeOut != "NEVER" &&
+		 enableTakeOut != "ALWAYS" &&
+		 enableTakeOut != "ONLY_PAY_HERE" &&
+		 enableTakeOut != "ONLY_PAY_AT_COUNTER" &&
+		 enableTakeOut != "ONLY_WITH_CYT"))
+	{
+		enableTakeOut = lGetParameterStr("tableService.enableForTakeOut", "NEVER");
+		if (enableTakeOut.toUpperCase() == "TRUE")
+		{
+			enableTakeOut = "ALWAYS";
+		}
+		else
+		{
+			enableTakeOut = "NEVER";
+		}
+	}
+
+	// NPS-17354 - (Kiosk 5.0-b35-RC10-QR5) - Table locator screen prompts with cancelled CYT VM in order. - ACSI2893306
+	var kioskOrderView = new XML(getKioskView(hlp.getCurrentView()));
+
+	// CSO-230 - NGK Support Table Service for Pay At Counter Orders - 7826872
+		var saleType = hlp.getSaleType();
+	switch(saleType) {
+		// Eat In
+		case 0: 
+			if (!IsSaleTypeEnablesTableService(kioskOrderView, enableEatIn)) {
+				return false;
+			}
+			break;
+
+		// Take Out	
+		case 1:
+
+			//NVS-4342 - not to display up table service for MFY only and Take Out on Kiosk
+			var hasCYTTakeOut = kioskOrderView..Item.(@voided == "false")..Product.(@isCYT == "true" && Number(@qty) > 0).length() > 0;
+			if((!hasCYTTakeOut) && sessionSale.get("NGK_ORDER_REROUTE") == "PAY_AT_COUNTER")
+			{
+				return false;
+			}		
+
+			if (!IsSaleTypeEnablesTableService(kioskOrderView, enableTakeOut)) {
+				return false;
+			}
+
+			break;
+		// Other
+		default:
+			return false;
+	}
+
+	// SQC-4670 - Kiosk V4RC12 - Table Service avaiable when minimumPurchaseAmount is defined as blank
+	var minimumPurchaseAmount = trim(lGetCSOUserInterfaceStringParameter("tableService.MinimumPurchaseAmount", null));
+
+	if ((minimumPurchaseAmount == null) || (minimumPurchaseAmount == "") || isNaN(Number(minimumPurchaseAmount)) ||
+		(Number(minimumPurchaseAmount) > Number(kioskOrderView.Order.@totalAmount)) || (Number(minimumPurchaseAmount) == -1)) {
+		return false;
+	}
+
+	return true;
+	/**
+	 * @brief    - Check if table service is available for the selected sale type
+	 * @author   - Jorge Olimpia
+	 * @since    - CSO-230 - NGK Support Table Service for Pay At Counter Orders - 7826872
+	 * @modified - NPS-17354 - (Kiosk 5.0-b35-RC10-QR5) - Table locator screen prompts with cancelled CYT VM in order. - ACSI2893306
+	 */
+	function IsSaleTypeEnablesTableService(kioskOrderView, enableForSaleType) {
+		if (enableForSaleType == undefined || enableForSaleType == null || enableForSaleType == "") {
+			return false;
+		}
+		switch(enableForSaleType.toString().toUpperCase()) {
+			case "NEVER":
+				return false;
+			case "ALWAYS":
+				return true;
+			case "ONLY_PAY_HERE":
+				if (sessionSale.get("NGK_ORDER_REROUTE") == "PAY_HERE" || sessionSale.get("NGK_ORDER_REROUTE") == "PAY_MOBILE") {
+					return true;
+				}
+				else {
+					return false;
+				}				
+			case "ONLY_PAY_AT_COUNTER":
+				if (sessionSale.get("NGK_ORDER_REROUTE") == "PAY_AT_COUNTER") {
+					return true;
+				}
+				else {
+					return false;
+				}
+			case "ONLY_WITH_CYT":
+				// NPS-17354 - (Kiosk 5.0-b35-RC10-QR5) - Table locator screen prompts with cancelled CYT VM in order. - ACSI2893306
+				var hasCYT = kioskOrderView..Item.(@voided == "false")..Product.(@isCYT == "true" && Number(@qty) > 0).length() > 0;
+				return hasCYT;
+			default:
+				return false;
+		}
+	}
+}
+
+//NVS-3217  Table locator number should not accept 0, 00 and 000 on Kiosk.
+function PosNGKCheckTableServiceValue()
+{
+	var valueZoneNumberSelected = sessionSale.get("ZoneValueSelected");
+	var cancelButton = sessionSale.get("NGK_ORDER_CANCEL"); //NVS-4979
+	if ((new BigDecimal(valueZoneNumberSelected)).compareTo(BigDecimal.ZERO) <= 0)
+	{
+		//NVS-4979
+		if(!cancelButton){
+		PosCSOSendSyncMessageJS("DLG_NGK_SIMPLE_MSG", new Array(PosCSOI18nGetMessageJS("MSG_OK")), ["true", "false"], PosCSOI18nGetMessageJS("CSO_INVALID_NUMBER_TABLE_SERVICE_PUCK"));
+		}
+		return false;		
+	}
+
+	return true;
+} 
+
+// WWR-3976 - Fix for partial payment issue - Felipe Ramas/Marcelo Silva/Diogenes Arruda/Francisco Guimaraes - GSS-190
+function PosNGKDoTenderJSUS(tenderId, amount, showAnimation)
+{
+	API.dbg("PosNGKDoTenderJSUS Started");
+	var hlp = new BusinessObjectHelper;
+	var ViewXml = hlp.getCurrentView();
+	var view = new XML(ViewXml);
+	//Getting totalDue before the payment
+	var TotalDueBefore = Number(view.@totalDue);
+	var TotalDueOriginal = TotalDueBefore;
+	// CSO-144 - NGK - Mobile Order Check-In At Kiosk - 7473775
+	if(showAnimation == null) {
+		// default is show
+		showAnimation=true;
+	}
+	
+	if (tenderId == null) {
+		return false;
+	}
+	if (amount == null) {
+		amount = '-1';
+	}
+	// Clears info area
+	PosDisplayText("",1);
+
+	API.dbg("PosNGKDoTenderJSUS: Processing cashless for tender id=" + tenderId);
+	
+	//SSU-70 - Move the EFT retry max numbers from the WF to the store-db file.
+	//
+	//  Also moved the remaining configurations to storedb.xml. Below is a summary of the used format:
+	//    retryTitle - Format: I18N_KEY|COLOR|COLOR|COLOR|IMAGE_KEY
+	//    retryConfirm - Format: I18N_KEY|COLOR|COLOR|COLOR|IMAGE_KEY
+	//    retryCancel - Format: I18N_KEY|COLOR|COLOR|COLOR|IMAGE_KEY
+	var retryDeclined = lGetCSOUserInterfaceStringParameter("tender.retryDeclined30", null);
+	var retryZeroAmount = lGetCSOUserInterfaceStringParameter("tender.retryZeroAmount30", null);
+	var retryInactiveArchCard = lGetCSOUserInterfaceStringParameter("tender.retryInactiveArchCard30", null);
+	var retryCancelledByCustomer = lGetCSOUserInterfaceStringParameter("tender.retryCancelledByCustomer30", null);
+	var retryTitle = lGetCSOUserInterfaceStringParameter("tender.retryTitle30", null);
+	var retryConfirm = lGetCSOUserInterfaceStringParameter("tender.retryConfirm30", null);
+	var retryTryAgain = lGetCSOUserInterfaceStringParameter("tender.retryTryAgain30", null);
+	var retryCancel = lGetCSOUserInterfaceStringParameter("tender.retryCancel30", null);
+	var retryPayAtCounter = lGetCSOUserInterfaceStringParameter("tender.retryPayAtCounter30", null);
+	var continueToPayHere = lGetCSOUserInterfaceStringParameter("tender.continueToPayHere30", null);
+	var payAtCounterTitle = lGetCSOUserInterfaceStringParameter("tender.payAtCounterTitle30", null);
+	var payAtCounterEnabled = lGetCSOUserInterfaceStringParameter("payAtCounter.enabled", "true").toLowerCase(); // Felipe Ramas - NVS-4557 - cashless only verification
+	var NgkTmpOK = lGetCSOUserInterfaceStringParameter("tender.NgkTmpOK", null);
+	
+//	if ((typeof EFTSimLoaded != "undefined") && EFTSimLoaded == true && showAnimation)  //Commneted out for NVS-3836
+//		PosNGKStartMessageJS("2", "NGK_MSG_TENDER_START_TRANSACTION");
+	
+	if (PosCheckParameter("TCLExtension","esocket","true") || PosCheckParameter("Cashless3", "Active", "true")) //Kalpesh - NVS-3836
+	{
+		var msgText = PosCSOI18nGetMessageJS("NGK_MSG_TENDER_START_TRANSACTION");		
+		PosNGKDoShowImageMessageJSCOE(PosNGKGetLocalizedImageFromStoreDB("PinPadScreen"), "5", "", "", "", msgText);
+	}
+
+	//NVS-4561 - msilva - Let cashless device handle the timeout during payment process
+	PosNGKStopTimeoutJS();
+	
+	// Amount equals '-1' performs an exact tender.
+	var bEndOfSale = false;
+	try {	
+		bEndOfSale = PosDoTender(tenderId, amount);
+	}catch(ex){
+		API.error("PosDoTender error: " + ex.toString());	
+	}
+
+	PosNGKStartTimeoutJS();
+
+	PosNGKStopMessageJS();
+
+	API.dbg("PosNGKDoTenderJSUS bEndOfSale: " + bEndOfSale);	
+	
+	//SSU-70 - Move the EFT retry max numbers from the WF to the store-db file.
+	var remainingRetries = Number(lGetCSOUserInterfaceStringParameter("tender.retryAttempts", "0"));
+
+	while ((!bEndOfSale) && (remainingRetries > 0))
+	{
+		API.dbg("PosNGKDoTenderJSUS remainingRetries: " + remainingRetries);
+		remainingRetries--;
+		var ViewXml = hlp.getCurrentView();
+		var view = new XML(ViewXml);
+		
+		var TotalDueAfter = Number(view.@totalDue);
+		
+		API.dbg("PosNGKDoTenderJSUS TotalDueBefore: " + TotalDueBefore);
+		API.dbg("PosNGKDoTenderJSUS TotalDueAfter: " + TotalDueAfter);
+		
+		var cashlessTenderId = sessionSale.get("CASHLESS_TENDERID");
+		var cashlessCancelledByCustomer = sessionSale.get("CASHLESS_CANCELLED_BY_CUSTOMER");
+	
+		if (cashlessCancelledByCustomer == "true")
+		{
+			var tmpTitle = retryCancelledByCustomer;
+			var tmpConfirm = retryTryAgain;
+			
+		}else if (cashlessTenderId == "11"){
+			// Arch card
+			if (TotalDueAfter == TotalDueBefore){
+				PosDisplayLaneOpenMessage();
+				
+				var archCardInactive = sessionSale.get("CASHLESS_CARD_INACTIVE");
+				if (archCardInactive == "true") // arch card inactive
+				{
+					var tmpTitle = retryInactiveArchCard;
+					var tmpConfirm = retryTryAgain;
+				}
+				else // arch card has zero balance
+				{
+					var tmpTitle = retryZeroAmount;
+					var tmpConfirm = retryConfirm;
+				}
+			}else{
+				var tmpTitle = retryTitle;
+				var tmpConfirm = retryConfirm;
+			}
+		}
+		else
+		{
+			// Credit card
+			if (TotalDueAfter == TotalDueBefore) // Transaction has been declined.
+			{
+				var tmpTitle = retryDeclined;
+				var tmpConfirm = retryTryAgain;
+			}
+			else
+			{
+				var tmpTitle = retryTitle;
+				var tmpConfirm = retryConfirm;
+			}
+		}
+		
+		// Felipe Ramas - NVS-4557 - cashless only verification
+		
+		//No Pay at Counter option
+		if(payAtCounterEnabled == "false" || payAtCounterEnabled == false || payAtCounterEnabled == 'false'){
+			
+			API.dbg("PosNGKDoTenderJSUS: No Pay at Counter option");
+			var result = PosNGKShowDialogLocalTwoOptions(tmpTitle, tmpConfirm, retryCancel);
+		
+		//Pay at Counter option
+		}else{
+				
+			API.dbg("PosNGKDoTenderJSUS: Pay at Counter option");
+			var result = PosNGKShowDialogLocal(tmpTitle, tmpConfirm, retryPayAtCounter, retryCancel);
+		
+		}
+		
+		//Retry Pay Here selected
+		if (result == PosCSOI18nGetMessageJS(tmpConfirm.split("|")[0]))
+		{
+			API.dbg("PosNGKDoTenderJSUS:Retry Pay at Counter selected");
+
+//			if ((typeof EFTSimLoaded != "undefined") && EFTSimLoaded == true && showAnimation) //Commneted out for NVS-3836
+//				PosNGKStartMessageJS("2", "NGK_MSG_TENDER_START_TRANSACTION");
+
+			if (PosCheckParameter("TCLExtension","esocket","true") || PosCheckParameter("Cashless3", "Active", "true"))  //Kalpesh - NVS-3836
+			{
+					var msgText = PosCSOI18nGetMessageJS("NGK_MSG_TENDER_START_TRANSACTION");
+					PosNGKDoShowImageMessageJSCOE(PosNGKGetLocalizedImageFromStoreDB("PinPadScreen"), "5", "", "", "", msgText);
+			}
+		
+			//NVS-4561 - msilva - Let cashless device handle the timeout during payment process
+			PosNGKStopTimeoutJS();
+			try {	
+				bEndOfSale = PosDoTender(tenderId, amount);
+			}catch(ex){
+				API.error("PosDoTender error: " + ex.toString());	
+			}
+
+			PosNGKStartTimeoutJS();
+
+			TotalDueBefore = Number(view.@totalDue);
+			PosNGKStopMessageJS();
+		
+		//Pay at Counter selected
+		}else if (result == PosCSOI18nGetMessageJS(retryPayAtCounter.split("|")[0])){ 
+			
+			API.dbg("PosNGKDoTenderJSUS: Pay at Counter selected");
+
+			// Lindomar Araujo: 2016/06/03 - NVS-4121 - Reversal Payment
+			if (TotalDueAfter == TotalDueOriginal) {
+					
+				API.dbg("PosNGKDoTenderJSUS: Pay at Counter TotalDueAfter == TotalDueOriginal");
+				//NVS-4743 - msilva - Removed duplicated code
+				return routeOrderToFC();
+				
+			}
+			
+			var payAtCounterResult = PosNGKShowDialogLocal(payAtCounterTitle, NgkTmpOK, continueToPayHere, retryCancel);
+			
+			//Partial Payment detected, selected Pay At Counter
+			if (payAtCounterResult == PosCSOI18nGetMessageJS(NgkTmpOK.split("|")[0])){
+				//Pay at Counter 
+				
+				API.dbg("PosNGKDoTenderJSUS: Partial Payment detected, selected Pay At Counter");
+
+				//NVS-4743 - msilva - Removed duplicated code					
+				return routeOrderToFC();
+					
+			
+			//Cancel Selected
+			}else if (payAtCounterResult == PosCSOI18nGetMessageJS(retryCancel.split("|")[0])){
+				
+				API.dbg("PosNGKDoTenderJSUS: Partial Payment detected, selected cancel.");
+				/*NVS-4248 - msilva*/
+				//NVS-4743 - msilva - Removed duplicated code
+				return cancelOrder();
+				
+			}else{
+				//NVS-4743 05-AUG-2016 John Brancaleon --> If the customer continues to pay at the Kiosk, increment the remaining retries
+				remainingRetries++;
+			}
+			
+		// Cancel order
+		}else{ 
+		
+			//Cancel order by Time Out
+			if (sessionSale.get("NGK_POPUP_TIMEOUT") == "true")	{
+				
+				API.dbg("PosNGKDoTenderJSUS: Cancelling time out order");
+				//NVS-3975 - Felipe Ramas
+				/*NVS-4248 - msilva*/
+				/*NVS-4527 - msilva */
+				//NVS-4743 - msilva - Removed duplicated code
+				return cancelOrder();
+				
+			//Cancel order by Customer choice
+			}else{
+				
+				API.dbg("PosNGKDoTenderJSUS: Confirming order cancellation");
+				
+				//Cancel confirmation Screen Yes / No
+				/* NVS-4684 - msilva - [Yes] and [No] options are not displaying on the kiosk confirmation message */ 
+				if(PosShowConfirmationMessage("NGK_MSG_TENDER_YOUR_ORDER_WILL_BE_CANCELLED_CONFIRM_30","MSG_YES","MSG_NO")){
+					
+					API.dbg("PosNGKDoTenderJSUS: Order cancellation confirmed");
+					//NVS-3948 - msilva
+					//NVS-4743 - msilva - Removed duplicated code
+					return cancelOrder();
+					
+				}else{
+					// NVS-4743 05-AUG-2016 John Brancaleon --> if NO is selected, increment the remainingtries so the customer has the correct number of retries.  
+					remainingRetries++;
+					API.dbg("PosNGKDoTenderJSUS: Order cancellation: NO selected by user"); //NO option selected!  NVS-4743 John Brancaleon 05-AUG-2016
+				}
+				
+			}
+		}
+	}
+	
+	if (bEndOfSale)
+	{
+		API.dbg("PosNGKDoTenderJSUS: Cashless process SUCCEEDED.");
+		
+		sessionSale.set("NGK_PINPAD_TIMEDOUT", "false");
+		// CSO-123 - NGK Implementation of Promotion Engine Digital Offers Component - 7360967
+		// This is necessary to consume the offer
+		if (typeof(PosOffersEndOfSale) == "function")
+		{
+			PosOffersEndOfSale();
+		}
+		PosDisplayLaneOpenMessage();
+		return PosDoEndOfSale(true);
+	
+		// NVS-3325 KAD: We ran out of retries
+	}else{
+			
+		API.dbg("PosNGKDoTenderJSUS: bEndOfSale failed");
+		
+		sessionSale.set("NGK_PINPAD_TIMEDOUT", "false");
+		// Felipe Ramas - NVS-4557 - cashless only verification
+		if(payAtCounterEnabled == "false" || payAtCounterEnabled == false || payAtCounterEnabled == 'false'){
+			
+			API.dbg("PosNGKDoTenderJSUS: bEndOfSale failed, no pay at counter option, cancelling order message");
+			if(remainingRetries == 0){
+				PosShowMessage("NGK_MSG_TENDER_MAX_ATTEMPTS_REACHED_30");
+			}else{
+				PosShowMessage("NGK_MSG_TENDER_YOUR_ORDER_WILL_BE_CANCELLED_30");
+			}
+			//NVS-3948 - msilva
+			//NVS-4743 - msilva - Removed duplicated code
+			return cancelOrder();
+			
+		}else{
+			
+			API.dbg("PosNGKDoTenderJSUS: bEndOfSale failed, pay at counter option, retry or cancel message");
+			
+			//Retry Pay At Counter message
+			if (PosNGKAskConfirmationMessageJS("NGK_MSG_TENDER_MAX_ATTEMPTS_REACHED_30", retryPayAtCounter, retryCancel))
+			{
+					
+				API.dbg("PosNGKDoTenderJSUS: bEndOfSale failed, pay at counter option selected");
+				//NVS-4421 John Brancaleon 18-JUL-2016 Check for partial payment. Don't show Partial payment reversal message if no partial payment was received
+				
+				if(hasPartialPayment()) 
+				{
+					if (PosNGKAskConfirmationMessageJS("NGK_MSG_TENDER_PAY_AT_COUNTER_TITLE_30", NgkTmpOK, retryCancel)){
+						
+						API.dbg("PosNGKDoTenderJSUS: bEndOfSale failed, pay at counter option confirmed");
+						//NVS-4743 - msilva - Removed duplicated code
+						return routeOrderToFC();
+						
+					}else{
+						
+						API.dbg("PosNGKDoTenderJSUS: bEndOfSale failed, pay at counter option cancelled, cancelling order");
+						if(remainingRetries == 0){
+<<<<<<< HEAD
+							PosShowMessage("NGK_MSG_TENDER_YOUR_ORDER_WILL_BE_CANCELLED_CARD_REACHED_MAXIMUM_30");
+=======
+							//PosShowMessage("NGK_MSG_TENDER_YOUR_ORDER_WILL_BE_CANCELLED_CARD_REACHED_MAXIMUM_30"); //Commented out for NVS-4971 fix
+							//Kalpesh - NVS-4971 - start
+								PosShowMessage("NGK_MSG_TENDER_YOUR_ORDER_WILL_BE_CANCELLED_30");									
+								API.dbg("PosNGKDoTenderJSUS: maximum tender option reached, order is going to be cancelled");
+							//Kalpesh - NVS-4971 - end
+>>>>>>> FETCH_HEAD
+						}else{
+							PosShowMessage("NGK_MSG_TENDER_MAX_ATTEMPTS_REACHED_30");
+						}
+						/*NVS-4248 - msilva*/
+						//NVS-4743 - msilva - Removed duplicated code
+						return cancelOrder();
+						
+					}
+				}else{
+					//NVS-4421 John Brancaleon 18-JUL-2016 Route to FC if no payment amount was processed
+					//NVS-4791 - Fix side effect from NVS-4421 -Finalizing order before routing to FC
+					API.dbg("PosNGKDoTenderJSUS: bEndOfSale failed, pay at counter option no payment was processed");
+					return routeOrderToFC();
+				}
+			//Cancel selected
+			}else{
+					
+				API.dbg("PosNGKDoTenderJSUS: bEndOfSale failed, no pay at counter option, cancel selected");
+				PosShowMessage("NGK_MSG_TENDER_YOUR_ORDER_WILL_BE_CANCELLED_30");
+				//NVS-3948 - msilva
+				//NVS-4743 - msilva - Removed duplicated code
+				return cancelOrder();
+				
+			}
+		}
+	}
+	
+	return(false);
+	
+	/* 2016/07/12 - msilva - Removed duplicated route order code
+	 * Route NGK order to FC and do the reversal payment when required
+	 */
+	function routeOrderToFC(){
+		
+		//NVS-4702 - msilva
+		sessionSale.set("NGK_PINPAD_TIMEDOUT", "false");
+		
+		if(hasPartialPayment()){
+			API.dbg("PosNGKDoTenderJSUS: Partial payment detected on order routing to FC");
+			reversePartialTrans();	
+		}
+		
+		PosDoBackFromTotal();
+		PosSetSessionProperty("NGK_ORDER_REROUTE", "PAY_AT_COUNTER");
+		PosSetSessionProperty("NGK_ORDER_EFT_FAILED", "true");
+		PosDisplayLaneOpenMessage();
+		
+		return false;
+	}
+	
+	/* 2016/07/12 - msilva - Removed duplicated cancel order code
+	 * Cancel NGK Order and do the reversal when required
+ 	 */
+	function cancelOrder(){
+		
+		sessionSale.set("NGK_ORDER_CANCEL", "true");
+		sessionSale.set("NGK_PINPAD_TIMEDOUT", "false");
+		if(hasPartialPayment()){
+			//NVS-4677 - msilva
+			API.dbg("PosNGKDoTenderJSUS: Partial payment detected on order cancellation");
+			reversePartialTrans();	
+		}else{
+			API.dbg("PosNGKDoTenderJSUS: No Partial payment detected on order cancellation");
+			PosDoVoidSale(false,true);	
+		}		
+		PosDisplayLaneOpenMessage();
+		
+		return false;
+	}
+	
+	/* 2016/07/12 - msilva - Check when partial payment was performed
+	 * Cancel NGK Order
+	 * Result - true or false:
+	 * true: Partial payment performed
+	 * false: No partial payment performed
+	 */	
+	function hasPartialPayment()
+	{
+		//No Partial Payment performed
+		if ((Number(view.@totalDue) == TotalDueOriginal) && !bEndOfSale) {
+			return false;
+		}else{
+			//Partial payment performed.
+			return true;
+		}			
+	}
+	
+}
+ 
+// Localization for NGK5.13 - Felipe Ramas - GSS-306
+function PosNGKNifInformation(){
+	var hlp = new BusinessObjectHelper;
+	// If newpos version does not supports NIF
+	if (!hlp.getTinInfoFromSale || !nifInfos || !setNifInformation) {
+		API.dbg("NGK - PosNGKNifInformation: The current version of NewPOS does not support NIF.");
+		return true;
+	}
+	var isModified = hlp.getWasModified();
+	var saleView = new XML(hlp.getCurrentView());
+	var orderTotal = new BigDecimal("0.00");
+	orderTotal = orderTotal.setScale(2, BigDecimal.ROUND_HALF_EVEN);
+	orderTotal = orderTotal.add(new BigDecimal(saleView.@totalAmount));
+	//Checks the order limit for the customer to insert the NIF number on store-db.xml
+	var storedbPath = "Configurations.Configuration.(@type==\"Store.wide\").Section.(@name==\"OperationMode\").Parameter.(@name==\"TINThreshold	Amount\").@value";
+	var posdbPath ="Configuration.(@imports==\"Store.wide\").Section.(@name==\"OperationMode\").Parameter.(@name==\"TINThresholdAmount\").@value";
+	var nifAmoutLimit = getConfigValue(storedbPath , posdbPath);
+	if (!Number(nifAmoutLimit)){
+		API.dbg("NGK - PosNGKNifInformation: The TINThresholdAmount value '" + nifAmoutLimit + "' is not valid.");
+		return true;
+	}
+	var nifLimitNumber = new BigDecimal("0.00");
+	nifLimitNumber = nifLimitNumber.setScale(2, BigDecimal.ROUND_HALF_EVEN);
+	nifLimitNumber = nifLimitNumber.add(new BigDecimal(nifAmoutLimit));
+	//If NIF limit is zero or invalid (less than zero), we skip NIF process
+	if (nifLimitNumber.compareTo(BigDecimal.ZERO) <= 0) {
+		return true;
+	}
+	//Order total is equal or greater then nifLimitNumber, so we check if it is a mobile order to set the NIF data.
+	if (orderTotal.compareTo(BigDecimal.ZERO) > 0 && orderTotal.compareTo(nifLimitNumber) >= 0) {
+		if (sessionSale.get("NGK_MOA_ORDER") == "false"){
+			return true;
+		}
+		var xmlIn = null;
+		xmlIn = new XML(hlp.getTinInfoFromSale());
+		var infos = new nifInfos(xmlIn);
+		//If the order has not been modified and all NIF data has come from the mobile order, we just set the data without showing the form at the screen.
+		if (!isModified && infos && infos.tin && infos.name && infos.address && infos.ZIP){
+			lSetNIFInfo(infos);
+			return true;
+		}
+			return lGetNif(infos);
+	} else {
+		if (!isModified && infos && infos.tin){
+		setNifInformation(infos.tin, 'tin');
+		return true;
+		}
+		return lGetNif(null);
+	}
+	return true;
+	function lGetNif(nifInfo){
+		var nif = null;
+		do {
+			if (!nifInfo){
+				nif = PosShowNumericPad('NGK_POPUPMSG_FILL_TIN_TITLE', 'NGK_POPUPMSG_FILL_TIN_INFORMATION', 9, "", "", "NGK_DYNAMIC_FORM_NO_THANKS");
+				if (nif == "-1") {
+					// Timeout
+					return false;
+				}
+				if (nif == "-2") {
+					// Cancel button clicked
+					return true;
+				}
+			} else {
+				var str = PosBuildDynamicFormString('NGK_POPUPMSG_FILL_TIN_NUMBER', nifInfo.tin, true);
+				str += PosBuildDynamicFormString('NGK_POPUPMSG_FILL_TIN_NAME', nifInfo.name, true);
+				str += PosBuildDynamicFormString('NGK_POPUPMSG_FILL_TIN_ADDRESS', nifInfo.address, true);
+				str += PosBuildDynamicFormString('NGK_POPUPMSG_FILL_TIN_ZIPCODE', nifInfo.ZIP, true);
+				var dynamicFormResult = PosShowDynamicForm("NGK_POPUPMSG_FILL_TIN_TITLE","NGK_POPUPMSG_FILL_TIN_INFORMATION", str);
+				if (dynamicFormResult == "-1") {
+					// Timeout
+					return false;
+				}
+				if (dynamicFormResult == "-2") {
+					// Cancel button clicked
+					return true;
+				}
+				if (dynamicFormResult){
+					nif = PosGetValueFromDynamicFormResult("NGK_POPUPMSG_FILL_TIN_NUMBER", dynamicFormResult);
+					nifInfo.tin = PosGetValueFromDynamicFormResult("NGK_POPUPMSG_FILL_TIN_NUMBER", dynamicFormResult);
+					nifInfo.name = PosGetValueFromDynamicFormResult("NGK_POPUPMSG_FILL_TIN_NAME", dynamicFormResult);
+					nifInfo.address = PosGetValueFromDynamicFormResult('NGK_POPUPMSG_FILL_TIN_ADDRESS',
+					dynamicFormResult);
+					nifInfo.ZIP = PosGetValueFromDynamicFormResult("NGK_POPUPMSG_FILL_TIN_ZIPCODE", dynamicFormResult);
+				} else {
+					nif = dynamicFormResult;
+				}
+			}
+			if (nif && lIsValidNIF(nif)) {
+				if (!nifInfo){
+					setNifInformation(nif, 'tin');
+				} else {
+					lSetNIFInfo(nifInfo);
+				}
+				return true;
+			}
+			PosNGKSimpleMessageJS(PosCSOI18nGetMessageJS("NGK_POPUPMSG_FILL_TIN_VALIDATION", nif), 'MSG_OK')
+			if (PosCheckSessionProperty('NGK_POPUP_TIMEOUT', 'true')){
+				return false;
+			}
+		} while (true);
+	}
+	function lSetNIFInfo(info){
+		for (var inf in info) {
+			if (typeof(info[inf]) == 'function') {
+				continue;
+			}
+			setNifInformation(info[inf], inf);
+		}
+	}
+	function lIsValidNIF(NIF) {
+		var caracter, checkDigit;
+		var NIFARR = NIF.split('');
+		if ((!isNaN(NIF) && NIF.length == 9) && NIF != "123456789") {
+			//Get the first number of NIF
+			caracter = NIFARR[0];
+			if (caracter == "1" || caracter == "2" || caracter == "5" || caracter == "6" ||caracter == "7" || caracter == "8" || caracter == "9") {
+				//Perform CheckDigit calculations
+				checkDigit = parseInt(caracter) * 9;
+				for (i = 2; i <= 8; i++) {
+					checkDigit += parseInt(NIFARR[i - 1]) * (10 - i);
+				}
+				checkDigit = 11 - (checkDigit % 11);
+				//if checkDigit is higher than ten, set it to zero
+				if (checkDigit >= 10) {
+					checkDigit = 0;
+				}
+				//Compare checkDigit with the last number of NIF, if equal the NIF is Valid.
+				if (checkDigit == parseInt(NIFARR[8])) {
+					return true;
+				}
+			}
+			return false;
+		}
+		return false;
+	}
+}
+// Felipe Ramas - NPO-6434 - Closing screens changes
+function PosNGKClosingScreenJS(step)
+{
+	var ctx = new SessionContext;
+	var hlp = new BusinessObjectHelper;
+	var view = new XML(hlp.getLastSaleView());
+	var flow = 0;
+	var isCYT = PosNGKOrderHasCYTItemCheck(true);
+	var isTableService = view.@tableTagId;
+	var saleType = sessionSale.get("NGK_SALE_TYPE");
+	var isEatIn = (saleType == "0");
+	var paymentType = PosCheckSessionProperty("NGK_ORDER_REROUTE" , "PAY_AT_COUNTER");
+	var tableServiceEatIn = hlp.findParamInSectionConfig("tableService.eatIn","CSO.UserInterface");
+	var tableServiceTakeOut = hlp.findParamInSectionConfig("tableService.takeOut","CSO.UserInterface");
+	var whereToPay = sessionSale.get("NGK_ORDER_REROUTE");
+	var collectmyself = PosCheckSessionProperty("TABLE_SERVICE_REQUIRED_BY_THE_CUSTOMER", "notrequired"); // NVS-5094
+	var saleTypeDescr = "Eat in";
+	var parameterName = "tableServiceEatIn";
+	var parameterValue = tableServiceEatIn;
+
+	// Eat In
+	if(saleType == "0") {
+		if(tableServiceEatIn == "NEVER" || tableServiceEatIn == "ONLY_PAY_AT_COUNTER") {
+			// NVS-5094
+			if(!collectmyself){
+			if (!paymentType) {
+				flow = 1
+				}
+			} else {
+				flow = 7
+			}
+		}
+		if(tableServiceEatIn == "ALWAYS" || tableServiceEatIn == "ONLY_PAY_HERE") {
+			// NVS-5094
+			if (!collectmyself) {
+			if (!paymentType) {
+				if (isCYT) {
+					flow = 5;
+				} else {
+					flow = 2;
+					}
+				}
+			} else {
+				flow = 7;
+			}
+		}
+		if(tableServiceEatIn == "ONLY_WITH_CYT") {
+			// NVS-5094
+			if(!collectmyself){
+			if (!paymentType) {
+				if (isCYT) {
+					flow = 5
+				} else {
+					flow = 1
+					}
+				}
+			} else {
+				flow = 7
+			}
+		}
+	}
+	
+	// Take out
+	if(saleType == "1") {
+		saleTypeDescr = "Take out";
+		parameterName = "tableServiceTakeOut";
+		parameterValue = tableServiceTakeOut;
+		if(tableServiceTakeOut == "NEVER" || tableServiceTakeOut == "ONLY_PAY_AT_COUNTER") {
+			// NVS-5094
+			if(!collectmyself){
+			if (!paymentType) {
+				flow = 3
+				} 
+			} else {
+				flow = 7
+			}
+		}
+		if(tableServiceTakeOut == "ALWAYS" || tableServiceTakeOut == "ONLY_PAY_HERE") {
+			// NVS-5094
+			if(!collectmyself){
+			if (!paymentType) {
+				if (isCYT) {
+					flow = 6
+				} else {
+					flow = 4
+				}
+				} 
+			} else {
+				flow = 7
+			}
+		}
+		if(tableServiceTakeOut == "ONLY_WITH_CYT") {
+			// NVS-5094
+			if(!collectmyself){
+			if (!paymentType) {
+				if (isCYT) {
+					flow = 6
+				} else {
+					flow = 3
+				}
+				} 
+			} else {
+				flow = 7
+			}
+		}
+	}
+
+	// Lindomar Araujo: 2016/05/06 - NVS-4168 - Fix for the closing screen to work with multi language
+	var curLangCode = sessionSale.get("LANGUAGE");
+	var screen = hlp.findParamInSectionWide("flow" + flow + ".NGKClosingScreen"+ step, "ImageDB_"+curLangCode);
+	if (screen == null) {
+		API.dbg("INFO_CSO : The closing closing screen image file not defined or invalid for the current language " + curLangCode + " !!"); 
+		var screen = hlp.findParamInSectionWide("flow" + flow + ".NGKClosingScreen"+ step, "ImageDB_en_US");
+	}
+	var msg = hlp.findParamInSectionConfig("closingScreen.flow" + flow + "msg"+ step, "CSO.UserInterface");
+	/* var timeout = hlp.findParamInSectionConfig("closingScreenDisplayTime", "CSO.UserInterface"); */
+	/* lindomarLogFile(" \"Sale Type\" = " +  saleTypeDescr + " --> Parameter \"" + parameterName + "\" Value = " + parameterValue + " --> \"whereToPay\" = " + whereToPay + " --> \"FLOW\" = " + flow + " --> \"isCYT\" = " + isCYT + " --> Closing Screen Logic = " + screen); */
+	/* ctx.set("ScreenStep" + step, screen, true);
+	ctx.set("ScreenMsgStep" + step, msg, true); */
+	if(screen == "null" || screen == undefined || screen == "" || msg == "null" || msg == undefined || msg == ""){
+		return false;
+	}
+	PosNGKDoShowImageMessageJSCOE(screen, "5", "", "", "", msg);
+
+	/* return true; */
+}
+// Felipe Ramas - NPO-6434 - Closing screens changes
+function PosNGKDoShowImageMessageJSCOE(screen, timeout, soundName, value, position, msg){
+	
+	var parameters = new Array();
+	parameters.push(new Array("ImageName", screen));
+	parameters.push(new Array("Timeout", timeout));
+	parameters.push(new Array("SoundName", soundName));
+	parameters.push(new Array("Value", value));
+	parameters.push(new Array("Position", position));
+
+	
+	PosCSOSendSyncMessageJS("DLG_SYS_SHOW_IMAGE", parameters, new Array(1, 2, 3, 4, 5), msg);
+	
+	
+    return true;
+}
+
+/**
+ * @brief Function to ask to remove card
+ * @param workflow - workflow to be called by the ui when the card is removed
+ * @return - false when card is inserted
+ * @author - Vladimir Dobroff
+ * @since - NGK v1.0 (French pilot)
+ */
+function PosNGKAskRemoveCard_COEJS(workflow)
+{
+	var routeOrderBefore = sessionSale.get("NGK_ORDER_REROUTE");
+	var removeCard = PosNGKAskRemoveCardJS(workflow);
+	sessionSale.set("NGK_ORDER_REROUTE", routeOrderBefore);
+	
+	return removeCard;
+}
+
+
+/**
+ * CSO-255 NGK Improvements to Table service - PUCK system - 7861541
+ * @brief Function to ask which Zone should be used for the Table Service Puck
+ * @return - true if a zone is selected, if the table service is not available or if it is not desired
+ * @author - Leandro Pereira
+ * @since - NGK V5.0
+ */
+function PosNGKAskTableServicePuck_COEJS() {
+
+	var selectedValue = null;
+	var puckNumMaxValue = null;
+
+	if (sessionSale.get("NGK_ORDER_REROUTE") == "PAY_AT_COUNTER") {
+		return true;
+	}
+	selectedValue = PosNGKBuildControlTableServicePuckJS();
+	puckNumMaxValue = lGetCSOUserInterfaceStringParameter("tableService.puck.maxNumberValue", "");
+
+	if ( puckNumMaxValue != "" && (parseInt(selectedValue) > parseInt(puckNumMaxValue)) )
+	{
+		var result = PosCSOSendSyncMessageJS("DLG_NGK_SIMPLE_MSG", new Array(PosCSOI18nGetMessageJS("MSG_OK")), ["true", "false"], PosCSOI18nGetMessageJS("CSO_INVALID_NUMBER_TABLE_SERVICE_PUCK"));
+		//SDO-10777 - NGK 5.10 - Timeout on PUCK warning screen does not cancel the order when the customer chooses not to continue
+		if (result === null){
+			return false;
+		}
+
+		PosNGKAskTableServicePuck_COEJS();
+	}
+	else
+	{
+		//SDO-11057 - PUCK is being displayed as -3 on the NGK order number screen
+		if (parseInt(selectedValue) >= 0)
+		{
+			//CSO-378 - NGK 5.10 - The word 'puck' at the end of the kiosk order for table locator is not configurable - EQA-1995
+			var puckText = "Puck " + selectedValue;
+			if (PosCSOI18nGetMessageJS("CSO_MSG_TABLE_SERVICE_PUCK") != "CSO_MSG_TABLE_SERVICE_PUCK")
+			{
+				puckText = PosCSOI18nGetMessageJS("CSO_MSG_TABLE_SERVICE_PUCK", selectedValue);
+			}
+			
+			PosSetSessionProperty("NGK_TABLE_SERVICE_SELECTED_ZONE", puckText);
+			sessionSale.set("ZoneValueSelected", selectedValue);
+		}
+	}
+	
+	// SQC-6783 - NGK 5.10 - Button cancel in the NIF screen stopped working
+	//In case of timeout or cancel
+	if ((selectedValue == null) ||
+		(selectedValue == "") ||
+		(selectedValue == "-1") ||
+		(selectedValue == "-2"))
+	{
+		return false;
+	}
+	
+	// SQC-6783 - NGK 5.10 - Button cancel in the NIF screen stopped working
+	//In case of NoThanks
+	if (selectedValue == "-3")
+	{
+		return true;
+	}
+	
+	return (true)
+}
+
+/** PosNGKAskBagsJS
+ *
+ * @brief NGK method. This BC shows a popup asking whether the customer wants to add a bag to the sale
+ *  (when charging for the bag is required). If the customer
+ * chooses yes, it automactally sells a configured product that represents the bag.
+ * @return always true
+ * @since TSE-617
+ * @remarks
+ * It checks for the following parameters:
+ *		<Configuration type="Store.wide">
+ *			<Section name="AutoBagSale">
+ *				<Parameter name="enabled" value="true"/> 
+ *				<Parameter name="bagProductCode" value="10492"/>
+ * 				<Parameter name="promptBagAtEnd" value="true"/>
+ *				...
+ *			</Section>
+ *			<Section name="ImageDB_xx_XX">
+ *				<Parameter name="CSOBagImage" value="bag.png"/>
+ *				<Parameter name="CSONoBagImage" value="no_bag.png"/>
+ *				...
+ *			</Section>
+ *			...
+ *		</Configuration>
+ */
+function PosNGKAskBagsJS(bIsPositionAtEnd){
+	var hlp = new BusinessObjectHelper;
+	var bagsEnabled = hlp.findParamInSectionWide("enabled", "AutoBagSale");
+	var bagProductCode = hlp.findParamInSectionWide("bagProductCode", "AutoBagSale");
+	var noBagsProductCode = hlp.findParamInSectionWide("noBagsProductCode", "AutoBagSale");
+	var promptBagAtEnd = hlp.findParamInSectionWide("promptBagAtEnd", "AutoBagSale");
+
+	if ( (bIsPositionAtEnd+"" === "true" && promptBagAtEnd+"" === "true") || (bIsPositionAtEnd+"" !== "true" && promptBagAtEnd+"" !== "true")) {
+		var productPrice = "0.00";
+		var curProdDescr=hlp.getProductDescr(bagProductCode);
+		if(curProdDescr != null) {
+			var prDescr=new XML(curProdDescr);
+			if(prDescr != null) {
+				productPrice = prDescr.PriceList.Pricing.(@priceCode == "TAKEOUT").@price;
+			}
+		}
+		var msgBag = (PosCSOI18nGetMessageJS("MSG_CSO_AUTO_BAG_SALE_BAG") + "" + productPrice);
+		if (bagsEnabled === "true" && hlp.getSaleType() === 1 && bagProductCode+"" !== "") { // sale type 1 => take out
+			var optionChosen = PosNGKAskBagsConfirmationMessage("MSG_CSO_AUTO_BAG_SALE_QUESTION", msgBag.toString()+"|WHITE|GREEN|GREEN|CSOBagImage", "MSG_CSO_AUTO_BAG_SALE_NO_BAG|WHITE|GREEN|GREEN|CSONoBagImage") ;
+			// Lindomar Araujo - April/28/2016 - Protection to handle the return of the function when it has a time out
+			if (optionChosen == null && sessionSale.get("NGK_CANCEL") == null) {
+				return false;
+			}
+			if ( optionChosen == "BAG") {
+				PosCSODoSaleJS(bagProductCode, "", 1);
+			}
+			//NVS-4036 - Felipe Ramas
+			if( optionChosen == "NOBAG"){
+				PosCSODoSaleJS(noBagsProductCode, "", 1);
+			}
+		}
+	}
+	return true;
+}
+/**
+ * @brief  - Function to do not allow the system to close the sale with Bag/No Bag only in the sale(based on a parameter configuration)
+ * @return - True when allow to close the sale with an Bag or No Bag item only in the sale.
+ * @author - Lindomar Araujo Filho - April/18/2016
+ * @since  - NVS-4041 - [DRM] KIOSK C3P5 HF1: The bag selection screen is displayed after the order review screen on KIOSK. As per requirement, it should be displayed before order review screen
+ */
+ function PosNGKBlockSaleWithBackOnly(){
+	var hlp = new BusinessObjectHelper;
+	var kioskOrderView = new XML(getKioskView(hlp.getCurrentView()));
+	var storedbPathBag = "Configurations.Configuration.(@type==\"Store.wide\").Section.(@name==\"AutoBagSale\").Parameter.(@name==\"bagProductCode\").@value";
+	var posdbPathBag = "Configuration.(@imports==\"Store.wide\").Section.(@name==\"AutoBagSale\").Parameter.(@name==\"bagProductCode\").@value";
+	var codeBag = getConfigValue(storedbPathBag , posdbPathBag);
+
+	var storedbPathNoBag = "Configurations.Configuration.(@type==\"Store.wide\").Section.(@name==\"AutoBagSale\").Parameter.(@name==\"noBagsProductCode\").@value";
+	var posdbPathNoBag = "Configuration.(@imports==\"Store.wide\").Section.(@name==\"AutoBagSale\").Parameter.(@name==\"noBagsProductCode\").@value";
+	var codeNoBag = getConfigValue(storedbPathNoBag , posdbPathNoBag);
+
+	var storedbPathNoBag = "Configurations.Configuration.(@type==\"Store.wide\").Section.(@name==\"AutoBagSale\").Parameter.(@name==\"allowSaleWithBagOnly\").@value";
+	var posdbPathNoBag = "Configuration.(@imports==\"Store.wide\").Section.(@name==\"AutoBagSale\").Parameter.(@name==\"allowSaleWithBagOnly\").@value";
+	var allowSaleWithBagOnly = getConfigValue(storedbPathNoBag , posdbPathNoBag);
+	if (allowSaleWithBagOnly != "true") {
+		allowSaleWithBagOnly = "false";
+	}
+	var otherProductsNotBag = 0;
+		
+	for each (var Item in kioskOrderView.Order.Item){
+		var isVoided = Item.@voided.toString()
+		var productCode = Item.Product.@code.toString();
+		if(productCode != codeBag && productCode != codeNoBag) {
+			if(isVoided == "false") {
+				otherProductsNotBag++;
+			}
+		}
+	}
+	if(allowSaleWithBagOnly === "false" && otherProductsNotBag <= 0) {
+		PosShowMessage(PosCSOI18nGetMessageJS("NGK_MSG_BAG_ONLY_NOT_ALLOWED"));
+		return false;
+	}
+	return true;
+}
+
+/**
+ * @brief  - Check if the order has a Bag or NoBag item to ask for a Bag at end of sale if it's removed
+ * @return - True when order has an Bag or No Bag item in the sale.
+ * @author - Lindomar Araujo Filho - April/18/2016
+ * @since  - NVS-4170 - [DRM] KIOSK C3P5 HF2 - Bag Fee is automatically applied to the order when the user remove the No Bag item from the order basket. As per the requirement, the User should be prompted to add Bag/No Bag again and not added automatically
+ */
+ function PosNGKVerifyBagSelection(){
+	var hlp = new BusinessObjectHelper;
+	var kioskOrderView = new XML(getKioskView(hlp.getCurrentView()));
+	var storedbPathBag = "Configurations.Configuration.(@type==\"Store.wide\").Section.(@name==\"AutoBagSale\").Parameter.(@name==\"bagProductCode\").@value";
+	var posdbPathBag = "Configuration.(@imports==\"Store.wide\").Section.(@name==\"AutoBagSale\").Parameter.(@name==\"bagProductCode\").@value";
+	var codeBag = getConfigValue(storedbPathBag , posdbPathBag);
+
+	var storedbPathNoBag = "Configurations.Configuration.(@type==\"Store.wide\").Section.(@name==\"AutoBagSale\").Parameter.(@name==\"noBagsProductCode\").@value";
+	var posdbPathNoBag = "Configuration.(@imports==\"Store.wide\").Section.(@name==\"AutoBagSale\").Parameter.(@name==\"noBagsProductCode\").@value";
+	var codeNoBag = getConfigValue(storedbPathNoBag , posdbPathNoBag);
+		
+	var hasBagNoBag = false;
+	for each (var Item in kioskOrderView.Order.Item){
+		var isVoided = Item.@voided.toString()
+		var productCode = Item.Product.@code.toString();
+		if((productCode == codeBag && isVoided == "false") || (productCode == codeNoBag && isVoided == "false")) {
+			hasBagNoBag = true;
+			break;
+		}
+	}
+	return hasBagNoBag;
+}
+
+function PosNGKAskBagsConfirmationMessage(screen, optionTrue, optionFalse) {
+
+	var screenConfig = screen.split("|");
+	var optionTrueConfig = optionTrue.split("|");
+	var optionFalseConfig = optionFalse.split("|");
+
+	var screenArray = new Array();
+	screenArray.push(new Array(PosCSOI18nGetMessageJS(screenConfig[0]), screenConfig[1], screenConfig[2], screenConfig[3], PosNGKGetLocalizedImageFromStoreDB(screenConfig[4])));
+
+	var optionArray = new Array();
+
+	// It is currently not possible to display text superimposed onto image in NGK so we need to display as separate items
+	optionArray.push(new Array(PosCSOI18nGetMessageJS(optionTrueConfig[0]), optionTrueConfig[1], optionTrueConfig[2], optionTrueConfig[3]));
+	optionArray.push(new Array(PosCSOI18nGetMessageJS(optionTrueConfig[0]), optionTrueConfig[1], optionTrueConfig[2], optionTrueConfig[3], PosNGKGetLocalizedImageFromStoreDB(optionTrueConfig[4])));
+	optionArray.push(new Array(PosCSOI18nGetMessageJS(optionFalseConfig[0]), optionFalseConfig[1], optionFalseConfig[2], optionFalseConfig[3]));
+	optionArray.push(new Array(PosCSOI18nGetMessageJS(optionFalseConfig[0]), optionFalseConfig[1], optionFalseConfig[2], optionFalseConfig[3], PosNGKGetLocalizedImageFromStoreDB(optionFalseConfig[4])));
+
+	return PosNGKSendSyncPickImageJS("DLG_SIMPLE_DIALOG", optionArray, new Array("BAG", "BAG", "NOBAG", "NOBAG"), screenArray);
+
+}
+
+/**
+ * @brief - Rounds the energy value according the local rules. 
+ * @author - Dalton Pericles de Almeida
+ * @param - energyValue - Default value in case of not finding the configuration.
+ * @since - CSO-463 - NGK-US FDA Mandate - Calorie Calculation for Meals - 8263717
+ */
+function RoundEnergyValueLocal(energyValue)
+{
+	if (energyValue == "") return "";
+	/* Felipe Ramas - NVS-3555 - Cal rounding not correct. */
+	/* NVS-4249 -fixed for all values */ 
+	if(Number(energyValue) < 5){ energyValue = 0; }
+
+	var value = new Number(energyValue);
+	var roundedEnergyValue = value;
+	var factor = (energyValue >= 50) ? "10" : "5" ;
+
+	var last = "";
+	var temp = energyValue.toString();
+
+	if (temp.length == 1) {
+		last = temp;
+	} else {
+		last = temp.substring(temp.length - 1);
+	}
+
+	var number = parseInt(last);
+	roundedEnergyValue = 0;
+
+	if (factor == 5) { 
+		switch (number) { 
+			case 1: 
+			case 2: 
+			case 6:
+			case 7:
+			{ 
+				roundedEnergyValue = Math.floor(Math.abs(energyValue) / factor) * factor;
+				break;
+			}
+
+			case 3:
+			case 4:
+			case 8:
+			case 9:
+			{ 
+				roundedEnergyValue = Math.ceil(Math.abs(energyValue) / factor) * factor;
+				break;
+			}
+
+			default:
+			{ 
+				roundedEnergyValue = energyValue;
+				break;
+			}
+		}
+	} else { 
+		switch (number) { 
+			case 1: 
+			case 2: 
+			case 3:
+			case 4:
+			{ 
+				roundedEnergyValue = Math.floor(Math.abs(energyValue) / factor) * factor;
+				break;
+			}
+
+			case 5:
+			case 6:
+			case 7:
+			case 8:
+			case 9:
+			{ 
+				roundedEnergyValue = Math.ceil(Math.abs(energyValue) / factor) * factor;
+				break;
+			}
+
+			default:
+			{ 
+				roundedEnergyValue = energyValue;
+				break;
+			}
+		}
+	} 
+
+	
+	// SQC-7517 - [NGK 5.12] US Nutrition Enhancement - Problems in round up the energy values
+	
+
+	return roundedEnergyValue.toString();	
+}
+
+/**
+ * @brief - Allows for three button dialog. 
+ * @author - Kevin Dilks
+ * @param - title - Dialog caption.
+ * @param - option 1 - Button 1 config.
+ * @param - option 2 - Button 2 config.
+ * @param - option 3 - Button 3 config.
+ * @since - NVS-3325 - Implement Kiosk Cashless Partial Payment Changes
+ */
+function PosNGKShowDialogLocal(title, option1, option2, option3)
+{
+	var titleConfig = title.split("|");
+	var option1Config = option1.split("|");
+	var option2Config = option2.split("|");
+	var option3Config = option3.split("|");
+
+	var titleArray = new Array();
+	titleArray.push(new Array(PosCSOI18nGetMessageJS(titleConfig[0]), titleConfig[1], titleConfig[2], titleConfig[3]));
+
+	var optionArray = new Array();
+
+	optionArray.push(new Array(PosCSOI18nGetMessageJS(option1Config[0]), option1Config[1], option1Config[2], option1Config[3]));
+	optionArray.push(new Array(PosCSOI18nGetMessageJS(option2Config[0]), option2Config[1], option2Config[2], option2Config[3]));
+	optionArray.push(new Array(PosCSOI18nGetMessageJS(option3Config[0]), option3Config[1], option3Config[2], option3Config[3]));
+
+	var result = PosNGKSendSyncPickImageJS("DLG_SIMPLE_DIALOG", optionArray, new Array(PosCSOI18nGetMessageJS(option1Config[0]),                    PosCSOI18nGetMessageJS(option2Config[0]), PosCSOI18nGetMessageJS(option3Config[0])), titleArray);
+	
+	return result;
+}
+/**
+ * @brief - Allows for two button dialog. 
+ * @author - Felipe Ramas
+ * @param - title - Dialog caption.
+ * @param - option 1 - Button 1 config.
+ * @param - option 2 - Button 2 config.
+ * @since - NVS-4557
+ */
+function PosNGKShowDialogLocalTwoOptions(title, option1, option2)
+{
+	var titleConfig = title.split("|");
+	var option1Config = option1.split("|");
+	var option2Config = option2.split("|");
+
+	var titleArray = new Array();
+	titleArray.push(new Array(PosCSOI18nGetMessageJS(titleConfig[0]), titleConfig[1], titleConfig[2]));
+
+	var optionArray = new Array();
+
+	optionArray.push(new Array(PosCSOI18nGetMessageJS(option1Config[0]), option1Config[1], option1Config[2]));
+	optionArray.push(new Array(PosCSOI18nGetMessageJS(option2Config[0]), option2Config[1], option2Config[2]));
+
+	var result = PosNGKSendSyncPickImageJS("DLG_SIMPLE_DIALOG", optionArray, new Array(PosCSOI18nGetMessageJS(option1Config[0]),PosCSOI18nGetMessageJS(option2Config[0])), titleArray);
+	
+	return result;
+}
+
+/**
+ *
+ * @brief - Test if the order total is zero (order must have at least 1 sold item)
+ * @return - true if order total is zero. false if total is not zero OR has no sold item
+ * @author - msilva
+ * @since - NVS-3771 - On the Kiosk, "Done" button is Enabled when order total is $0.00 after applying free sandwich offer
+ */
+function PosNGKTestZeroTotalLocal() {
+	var retVal=false;
+	var hlp = new BusinessObjectHelper();
+	var orderView = new XML(hlp.getCurrentView());
+	if(orderView.ItemView.length()>0) {
+		var orderTotal = new BigDecimal(orderView.@totalAmount);
+		if (0==orderTotal.compareTo(new BigDecimal("0"))) {
+			retVal=true;
+		}
+	}
+	else {
+		API.dbg("PosNGKTestZeroTotal - Order has no items!!");
+		retVal=true;
+	}
+	if(retVal) {
+		PosSetSessionProperty("ZERO_TOTAL", "true");
+	}
+	else {
+		PosSetSessionProperty("ZERO_TOTAL", "false");
+	}
+	return (retVal);
+}
+
+// NVS-4136 - [MR3 COE KIOSK] Bag item will be removed from sales basket and review screen if we decrease the number to 0
+function PosCSODecreaseQuantityJSUS(itemIndex) {
+	API.dbg("itemIndex" + itemIndex);
+	var indexArray = itemIndex.split("|");
+	if(indexArray.length > 1){
+		//Decrease quantity of items in a group
+		var itemGroup = csoItemGroupManager.getOrderViewItemGroup(indexArray[1]);
+		
+		if(itemGroup != null){
+		
+			//Added for NGK - logic to identify the current selected group / product
+			if (sessionSale.get("IS_NGK") == "true")
+			{
+				csoItemGroupManager.setSelectedGroup(itemGroup.groupId);
+			}
+		
+			if (!csoItemGroupManager.hasClone(itemGroup) && !PosCSOShowBalloonMessageJS('CSO_MSG_DELETE_CONFIRM','MSG_YES','MSG_NO')) {
+				return true;
+			}
+			
+			//Added for NGK - logic to identify the current selected group / product
+			if (sessionSale.get("IS_NGK") == "true")
+			{
+				csoItemGroupManager.resetSelectedGroup();
+			
+				//If the item has a clone, it will be grouped together in the order basket.
+				//In this case, the cloned group should become the selected one after the other removal
+				if (csoItemGroupManager.hasClone(itemGroup))
+				{
+					var clone = csoItemGroupManager.getFirstClone(itemGroup);
+				
+					if (clone != null)
+					{
+						csoItemGroupManager.setSelectedGroup(clone.groupId);
+					}
+				}
+			}
+			
+			// EQA-956 - [November Release][6.1.21RC13HF1][SL 2.80.02a][Local Promotions][Lab 05][FR] Basket total price incorrect after subtracting a Local Promotion coupon
+			lRemoveItemGroupDiscount(itemGroup);
+			
+			csoItemGroupManager.removeOrderViewItemGroupFromOrder(itemGroup);
+			csoItemGroupManager.destroyOrderViewItemGroup(itemGroup);
+		}
+	} else {
+	
+		//Added for NGK - logic to identify the current selected group / product
+		if (sessionSale.get("IS_NGK") == "true")
+		{
+			csoItemGroupManager.resetSelectedGroup();
+		}
+	
+		//Decrease quantity of an individual item
+		PosDoSelIndex(itemIndex);
+		
+		var hlp = new BusinessObjectHelper;
+		var kioskOrderView = new XML(getKioskView(hlp.getCurrentView()));
+		
+		//CES-2586 - Kiosk GUI 4 - Fatal Error when decreasing the qty - ACSI0874700
+		if(kioskOrderView.Order.Item.(@index == itemIndex) == undefined){
+			return true;
+		}
+		
+		//Added for NGK to fix an issue with the confirmation popup when removing products that may also be inside a group
+		//Basically the popup would not be displayed for the individual product
+		//TODO NGK: Check if this fix should also be applied for V4
+		if (sessionSale.get("IS_NGK") == "true")
+		{
+			var currentQuantity = Number(kioskOrderView.Order.Item.(@index == itemIndex).Product[0].@qty);
+			currentQuantity -= lGetQuantityInsideGroups(kioskOrderView, itemIndex);
+		
+			if (currentQuantity == 1) {
+				if (!PosCSOShowBalloonMessageJS('CSO_MSG_DELETE_CONFIRM','MSG_YES','MSG_NO')) {
+					return true;
+				}
+				else {
+					// CSO-153 - NGK - Create Percentage Discount Barcodes On NGKiosk - 6998290
+					// if the removed item has discount clear the session NGK_DISCOUNT_BARCODE_APPLIED
+					if(lHasDiscount(kioskOrderView, itemIndex)) {
+						API.dbg("CSO - clear NGK_DISCOUNT_BARCODE_APPLIED");
+						sessionSale.set("NGK_DISCOUNT_BARCODE_APPLIED", null);
+					}
+				}
+			}
+		}
+		else
+		{
+			if (kioskOrderView.Order.Item.(@index == itemIndex).Product[0].@qty == "1") {
+				if (!PosCSOShowBalloonMessageJS('CSO_MSG_DELETE_CONFIRM','MSG_YES','MSG_NO')) {
+					return true;
+				}
+			}
+		}
+		var productCode = kioskOrderView.Order.Item.(@index == itemIndex).Product[0].@code.toString();
+	
+		var storedbPathBag = "Configurations.Configuration.(@type==\"Store.wide\").Section.(@name==\"AutoBagSale\").Parameter.(@name==\"bagProductCode\").@value";
+		var posdbPathBag = "Configuration.(@imports==\"Store.wide\").Section.(@name==\"AutoBagSale\").Parameter.(@name==\"bagProductCode\").@value";
+		var codeBag = getConfigValue(storedbPathBag , posdbPathBag);
+
+		var storedbPathNoBag = "Configurations.Configuration.(@type==\"Store.wide\").Section.(@name==\"AutoBagSale\").Parameter.(@name==\"noBagsProductCode\").@value";
+		var posdbPathNoBag = "Configuration.(@imports==\"Store.wide\").Section.(@name==\"AutoBagSale\").Parameter.(@name==\"noBagsProductCode\").@value";
+		var codeNoBag = getConfigValue(storedbPathNoBag , posdbPathNoBag);
+		
+		var lastItem = (kioskOrderView.Order.Item.(@index == itemIndex).Product[0].@qty == "1");
+		
+		PosDoVoidLine("1");
+		if (lastItem) {
+			if (productCode == codeBag || productCode == codeNoBag) {
+				if (productCode == codeBag) PosDoSale(codeNoBag);
+				/* if (productCode == codeNoBag) PosDoSale(codeBag);			 */
+			}
+		}
+	}
+	
+	return true;
+	
+	//Added for NGK
+	function lGetQuantityInsideGroups(kioskOrderView, itemIndex)
+	{
+		var quantity = 0;
+		var item = itemIndex.toString();
+	
+		for each (var group in kioskOrderView.Order.Group)
+		{
+			var groupItems = group.@memberIndexes.toString().split("|");
+			
+			for (var i = 0; i < groupItems.length; i++) 
+			{
+				if (groupItems[i] == item)
+				{
+					quantity++;
+				}
+			}
+		}
+		
+		return quantity;
+	}
+	
+	// CSO-153 - NGK - Create Percentage Discount Barcodes On NGKiosk - 6998290
+	// TODO: will have to review this for the multiple products discount feature - if at least one item (different from the one that was selected) has discount keep return true
+	function lHasDiscount(kioskOrderView, itemIndex)
+	{
+		var hasDiscount = false;
+		var index=0;
+		for each (var item in kioskOrderView.Order.Item) {
+			if(Number(item.Product.@qty)!=0) {
+				if(index == itemIndex) {
+					var tdAmount=new BigDecimal(item.Product.@discountAmount);
+					if(tdAmount.compareTo(BigDecimal.ZERO) > 0) {
+						hasDiscount=true;
+					}
+					if(false==hasDiscount) {
+						for each (var subitem in kioskOrderView.Order.Item.Product.Product) {
+							var tdAmount=new BigDecimal(subitem.@discountAmount);
+							if(tdAmount.compareTo(BigDecimal.ZERO) > 0) {
+								hasDiscount=true;
+							}
+						}
+					}
+					break;
+				}
+				else {
+					index++;
+				}
+			}
+		}
+		if(index != itemIndex) {
+			// error
+			API.dbg("CSO - item not found[" + itemIndex + "] in ["+kioskOrderView.Order+"]");
+		}
+		return (hasDiscount);
+	}
+}
+
+/**
+ * @brief Function to validate table service puck "0" value entered
+ * @return - true if a zone is selected, if the table service is not available or if it is not desired
+ * @author - Marcelo Silva
+ * @since - NVS-4442
+ */
+function PosNGKAskTableServicePuckJSLocal() {
+
+	var selectedValue = null;
+	var posNGKAskTableServicePuckJSResult = PosNGKAskTableServicePuckJS();
+	
+	if(!posNGKAskTableServicePuckJSResult)
+	{
+			return posNGKAskTableServicePuckJSResult;
+	}
+	
+	selectedValue = sessionSale.get("ZoneValueSelected");
+
+	/*NVS-4442 - msilva - Validate table service puck "0" value entered */
+	if(selectedValue != undefined && selectedValue != null && selectedValue != "")
+	{
+		var invalidPuckMessage = PosCSOI18nGetMessageJS("CSO_INVALID_NUMBER_TABLE_SERVICE_PUCK");			
+		while(posNGKAskTableServicePuckJSResult && (selectedValue == 0 || selectedValue == "0"))
+		{
+			PosShowMessage(invalidPuckMessage);
+			posNGKAskTableServicePuckJSResult = PosNGKAskTableServicePuckJS();
+			selectedValue = sessionSale.get("ZoneValueSelected");
+		}
+	}	
+	
+	return posNGKAskTableServicePuckJSResult;
+}	
+
+//NVS-4215 - msilva - Reevaluate promotions on back from total
+function PosDoBackFromTotalNKGLocal()
+{
+	try{
+		PosNGKApplyPromotionsLocal(true);
+	} catch (ex) {
+		API.dbg("Could not remove promotions PosRemoveOnTotalPromotions_USCOE: " + ex);
+	}
+	return PosDoBackFromTotal();
+	
+}
+
+/**
+ * @brief - Apply the global promotions to the order sorted by priority: 1-Offers/2-Coupons/3-Promotions
+ * @return - true
+ * @author - Marcelo Silva
+ * @since - NVS-4215 - Promotions are not getting reevaluated after totaling at Kiosk. Wrong discount is applied to the order.
+ * 			NVS-4121 - User is not able to apply both offer and discount to the same order even when the parameter "allowAdditionalDiscounts"
+ *			NVS-4155 - Order discount offer is overridden by promotional discount and offer is getting removed from GMA App.
+ *			NVS-4138 - Scanning Offer with McSavings promotion applied displays pop-up "Additional Discounts are not allowed..." and offer gets applied after modifying the order.
+ *			NVS-4073 - Flexible discount applies on eligible side items when order contains manual promo entrÃ©e item with multiple quantities
+ */
+function PosNGKApplyPromotionsLocal(needsReevaluation)
+{
+
+	if(needsReevaluation == undefined || needsReevaluation == null || needsReevaluation == "")
+	{
+		needsReevaluation = false;
+	}
+	
+	if(needsReevaluation || needsReevaluation == "true")
+	{
+		PosRemoveOnTotalPromotions_USCOE();
+	}
+
+	//Sorted by priority offers and promotions applying
+
+	//1 - Offers
+	if (typeof(PosOffersOnTotal) == "function")
+	{
+			PosOffersOnTotal(true);	
+	}	
+	
+	//2 - Coupons
+	if (typeof(PosApplyPromotionCoupons) == "function")
+	{
+		PosApplyPromotionCoupons();
+	}	
+
+	//3 - On Item Sold Promotions
+	if (typeof(PosPromotionOnItemSold) == "function")
+	{
+		PosPromotionOnItemSold();
+	}	
+	
+	//4 - On Total Promotions
+	if (typeof(PosPromotionOnTotal) == "function")
+	{
+		PosSetSessionProperty("runPromotionOnTotal", "true");
+		PosPromotionOnTotal();
+	}	
+
+	// If this property has value, it's because there is a promotion with question configured.
+	// This type of promotion is not supported by Kiosk, so we log a warning.
+	// Also, to avoid memory consumption we clean the property.
+	if (!PosCheckSessionProperty("appliedPromotionsWithQuestion", ""))
+	{
+		API.dbg("PosNGKApplyPromotions::WARNING:: There are promotions with questions configured for Kiosk!");
+		API.dbg("PosNGKApplyPromotions:: " + sessionSale.get("appliedPromotionsWithQuestion"));
+		
+		PosSetSessionProperty("appliedPromotionsWithQuestion", "");
+	}
+	
+	return true;
+}
+
+// NVS-4934 - Change the kiosk to go to the locked screen when NP6.1 has a wrong version.
+/* 
+ * @brief - Send "UI_BLOCK" when POS has wrong version. 
+ */ 
+function NGKSendBlockWhenPOSHasWrongVersionJS() { 
+
+	if(PosCheckSessionProperty("KIOSK_POSWRONG_VERSION", "true")) { 
+		sndBlock("MSG_AU_WRONGVERSION"); // Send "UI_BLOCK" The POS version is wrong 
+		return true; 
+	} 
+
+	return false; 
+
+	function sndBlock(msgCode) { 
+		var hlp = new BusinessObjectHelper; 
+		var msgText = hlp.getSysMessage(msgCode); 
+		PosSendUICmd(lcreateBlockUnblock("UI_BLOCK", msgCode, msgText)); 
+		API.dbg("INFO_CSO : Kiosk UI has been BLOCKED - msg: [" + msgText + "]"); 
+	} 
+}

@@ -1,0 +1,70 @@
+/**
+ * @file BusinessComponentsRPS.nps
+ * @brief This NPS file implements BusinessComponents for RPS. This is the main entry of CSL
+ *
+ * @addtogroup 	CSL The NP6 Core Script Lybrary (CSL)
+ *
+ * Copyright (C) 2008 McDonalds Corp. All rights reserved.
+ *
+ * $Source: /NP6/SRC/np61cvs/cvs/NP6/src/npCore/npBusComp/scripts/BusinessComponents.nps,v $
+ * $Revision: 776 $
+ * $Date: 2009-08-06 10:46:38 -0300 (qui, 06 ago 2009) $ (of revision)
+ * $Author: rcaram $ (of revision)
+ * @{
+ */
+
+/* Variable used for version control */
+BUSINESS_COMPONENTS_RPS_VERSION = "$WCURL$:$WCREV$";
+
+var csl_version;
+var csl_lastchange;
+var csl_buildtime;
+var NP6_build;
+
+executeScript("CSL_RPS.nps",true);
+executeScript("BCEvents.nps",true);
+
+//Let's try to include the CSL_VERSION file
+try {
+	executeScript("CSL_VERSION.ver",true);
+} catch(filenotfound) {
+	csl_version = "development version";
+	//When it was last committed in the repository
+	csl_lastchange = "unknown";
+	//When it was included in build
+	csl_buildtime = new Date();
+	//NP6 Build number
+	NP6_build = "unknown";
+} finally {
+	logVersion();
+}
+
+/**
+ * @since 1.17-
+ */
+function logVersion() {
+	API.dbg("***************C S L   V E R S I O N***************");
+	API.dbg("version:   " + csl_version);
+	API.dbg("lastchange: " + csl_lastchange);
+	API.dbg("buildTime: " + csl_buildtime);
+	API.dbg("buildNumber: " + NP6_build);
+	API.dbg("FILE                           VERSION");
+	API.dbg("BusinessComponentsRPS.nps      " + BUSINESS_COMPONENTS_RPS_VERSION);
+	API.dbg("CSL_RPS.nps                    " + CSL_RPS_VERSION);
+	API.dbg("***************************************************");
+}
+
+/**
+ * @} END nps
+ */
+/* signed aut version 9-9076
+ * authority id = builder
+ * authority level = 10
+ * authority name = NewPOS release level
+ * group = npi
+ * validity = 2010-04-18
+ * signature type = slash_star
+ * time stamp (GMT) = Fri Jan 26 16:27:04 2018
+ * certificate = 393735312d3739343700ef3fb7b6628d496891df63994baee2acce3019ab70882165ef33902181ed8b546cd6cab9ad6957b54e9e4dbf641c7788770f0010
+ * =============================================================================================================================
+*/

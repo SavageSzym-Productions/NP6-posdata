@@ -1,0 +1,22 @@
+/**
+ * BusinessComponentsWay.nps
+ * This NPS file implements BusinessComponentsWay.
+ *
+ * Copyright (c) 2005-2007 - Torex Retail PLC-
+ *
+ * $Source: /NewPOS/SRC/np61cvs/cvs/___Config61/Posdata/US/nps/BusinessComponentsWay.nps,v $
+ * $Revision: 1.2 $
+ * $Date: 2007/09/04 14:08:40 $ (of revision)
+  * $Author: gfonseca $ (of revision)
+*/
+/* signed aut version 9-9076
+ * authority id = coe
+ * authority level = 40
+ * authority name = NewPOS COE developer
+ * group = npi
+ * validity = 2010-04-18
+ * signature type = slash_star
+ * time stamp (GMT) = Wed Jan 31 01:28:44 2018
+ * certificate = 393735312d3739343700e3a51fc6de49efc802a9592396592a04edeff0fd3b31dfda6f9e4a0e88006e2577da643b496f2bf444b81642f72e883bd8390010
+ * =================================================================================================================================
+*/

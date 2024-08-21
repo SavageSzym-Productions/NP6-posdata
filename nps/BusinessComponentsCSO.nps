@@ -1,0 +1,77 @@
+/** 
+ * @file BusinessComponentsCSO.nps
+ * @brief This NPS file implements BusinessComponentsCSO Initialiation. This is the main entry of CSL for CSO.
+ *
+ * @addtogroup 	CSL The NewPOS Core Script Lybrary (CSL)
+ *
+ * Copyright (C) 2011 McDonalds Corp. All rights reserved. 
+ *
+ * $Source: /NewPOS/SRC/npkiosk/cvs/npkiosk/PosData/nps/BusinessComponentsCSO.nps,v $
+ * $Revision: 1.133 $
+ * $Date: 2013/09/02 17:37:40 $ (of revision)
+ * $Author: pflorencio $ (of revision)
+ * @{
+ */
+
+
+// CSO-498 - QA_NP6.1.23-MR3-Bundle1.0-Patch0.2 - Kiosk v4 freezes after adding first item - ACSI2956713
+var sessionSale = new SessionContext();
+
+//Must be the first function to be called during initialization
+//Will set the necessary session context variable to switch the code between Kiosk V4 and NGK
+PosCSOInitJS();
+
+/**
+ *
+ * @brief - Kiosk initialization function. Will set the necessary variables to switch the code between Kiosk V4 and NGK
+ * @author - Vladimir Dobroff
+ * @since - Kiosk V4 RC11 HF3 and NGK 5.1.8.0 Merge
+ */
+function PosCSOInitJS()
+{
+	//Must use lGetCSOUserInterfaceStringParameter to get the parameter value
+	//Internally this function uses BusinessObjectHelper.findParamInSectionConfig,
+	//which checks if the value defined in store-db.xml has been overwritten inside the pos-db.xml file
+	var isNGK = lGetCSOUserInterfaceStringParameter("isNGK", "false").toString();
+	
+	if (isNGK == "true")
+	{
+		sessionSale.set("IS_NGK", "true");
+		executeScript("BusinessComponentsCSONGK.nps", true);
+	}
+	else
+	{
+		sessionSale.set("IS_NGK", "false");
+		executeScript("BusinessComponentsCSOLGK.nps", true);
+	}
+}
+
+/**
+ * @brief - Gets the literal value of a given CSO parameter name.
+ * @param - parameterName - name of the parameter.
+ * @param - defaultValue - default value in case of not finding the configuration.
+ * @return - Value for the parameter name.
+ * @since - NPS-5801
+ * @author - Kalil
+ * @since - NPS-7449 - Kiosk v3.0 Integration and Configuration Improvements - 4778742
+ */
+function lGetCSOUserInterfaceStringParameter(parameterName, defaultValue)
+{
+	var hlp = new BusinessObjectHelper;
+	var data = hlp.findParamInSectionConfig(parameterName, "CSO.UserInterface");
+	var rc = (data == null ? defaultValue : data);
+
+	return rc;
+}
+
+/* signed aut version 9-9076
+ * authority id = builder
+ * authority level = 10
+ * authority name = NewPOS release level
+ * group = npi
+ * validity = 2010-04-18
+ * signature type = slash_star
+ * time stamp (GMT) = Fri Jan 26 13:15:43 2018
+ * certificate = 393735312d373934370047793619bcf8affa862eee1b4d65e4b4452eb990a97400b235fce54e04256e124e6fc325b731860a116b85fcd03ad5023b0d0010
+ * =============================================================================================================================
+*/

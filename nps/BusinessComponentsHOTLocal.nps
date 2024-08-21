@@ -1,0 +1,622 @@
+/**
+ * BusinessComponentsHOTLocal.nps
+ * This NPS file implements Local's BusinessComponentes for HOT.
+ *
+ * Copyright (c) 2005-2006 - Torex Retail PLC-
+ *
+ * $Source: /NewPOS/SRC/np61cvs/cvs/___Config61/Posdata/US/nps/BusinessComponentsHOTLocal.nps,v $
+ * $Revision: 1.21 $
+ * $Date: 2009/02/05 15:42:55 $ (of revision)
+  * $Author: rschreiber $ (of revision)
+ */
+
+/**
+ * Global variables
+ */
+const TOTAL_SCREEN_NUMBER=1500;					//!< Total screen number
+var gnGrillScreen=0;							//!< Global variable to check if entered in Grill Screen
+var gsDLOverride="10000001|10000003|10000004"	//!< List of choices to be overrided during total
+
+executeScript("BCEventsHOT.nps",true);
+executeScript("BCTandem.nps",true);
+/** CanSellGiftCardJS
+ *
+ * @brief - This function implements the BC,Business Component: <b>CanSellGiftCardJS</b>\n
+ * This BC checks if it's possible to sell gift cards!\n
+ * In a workflow sequence it is called:<b>CanSellGiftCardJS</b>\n
+ * In java script it should be called:<b>CanSellGiftCardJS</b>\n
+ * Return - rval - true if possible
+ */
+function CanSellGiftCardJS()
+{
+	// check if it's refund or waste
+	if(PosCheckTransactionKind("1") || PosCheckTransactionKind("2")) {
+		return false;
+	}
+	if(PosCheckSessionProperty("POD","DRIVE_THRU")) {
+		return true;
+	}
+	if(PosCheckSessionProperty("POD","HOT")) {
+		return true;
+	}
+	return PosCheckParameter("TCLExtension","everest","true");
+}
+
+/**PosDoSaleSizeJS
+ *
+ * @brief - This BC sells an item
+ * Return - rval - true if allowed to continue
+ */
+function PosDoSaleSizeJS(size,productCode)
+{
+	var ctx=new SessionContext;
+	if(Number(size) >= 0) {
+		PosSizeSelection(size);
+	}
+	// Is this product a Choice solution?
+	var ret=true;
+	if(!PosDoChoice(productCode)) {
+		if(PosCheckSessionProperty("isSmartReminderON","TRUE")) {
+			PosEndSmartReminder();
+			PosShowGrillFloatScreen();
+		}
+		// Sale did not end with a choice
+		if(PosDoSale(productCode)) {
+			PosAutoChoice();
+		}
+		else {
+			ret=false;
+		}
+		PosDoQuantum(-1);
+		ctx.remove("selectedProductWithSize");
+	} else {
+		if(PosCheckSessionProperty("isSmartReminderON","TRUE")) {
+            //@since : NPS-6076 - Auto Total
+            if(! PosDoCheckOpenChoices()) {
+                PosExecuteSavedWorkflow();                
+                PosEndSmartReminder();
+            }
+		}
+	}
+	return(ret);
+}
+
+/** PosDoSaleJS
+ * @brief - Sale an item
+ * @param - ProductCode - Product code
+ * @return - true if ok
+ */
+function PosDoSaleJS(productCode) {
+	return(PosDoSaleSizeJS(-1,productCode));
+}
+
+/**PosDoTotalJS
+ *
+ * @brief - This BC totalizes a sale
+ * Return - rval - true if allowed to continue
+ */
+function PosDoTotalJS(saleType,screenNumber,screenNumberStore,flags,choices) {
+	if(PosNotATransactionInProgress(true)) {
+		return(false);
+	}
+	// Handle choices...
+	if(!PosAutoChoice()) {
+		return(false);
+	}
+
+	var choiceArray=null;
+	if(choices != null) {
+		choiceArray=choices.split(",");
+	}
+
+	if(!PosDoHandleOpenChoices(choiceArray, true, "MSG_BC_SALE_INCOMPLETE")) {
+		return(false);
+	}
+
+	if(!PosCheckSessionProperty("RemPOD", "DRIVE_THRU")) {
+		if(PosShowConfirmationMessage("Eat In or To Go?","Eat In","To Go")) {
+			saleType=0;
+		}
+		else {
+			saleType=1;
+		}
+	}
+	else {
+		saleType=1;
+	}
+	PosSetSaleType(saleType);
+	if(!PosDoTotal()) {
+		return(false);
+	}
+	PosDisplayText("","1",false,true);
+	PosShowScreen(screenNumber);
+	return(true);
+}
+
+
+/**
+ * PRIVATE
+ * This function pulls the PrintReceiptFromHOT XML node value from Printer section
+ * @author Sang Kim
+ */
+function IsHOTPrintReceipt() {
+    var print = false;
+
+	// If no change, end of sale otherwise store...
+	var hlp=new BusinessObjectHelper;
+
+	// pull the setting from POSDB
+	var PrintFromHOT = hlp.findParamInSectionConfig("PrintReceiptFromHOT","Printer");
+
+	// force lower case
+	if (PrintFromHOT != null) {
+		PrintFromHOT = PrintFromHOT.toLowerCase();
+	}
+
+    // set the return code based on the XML data
+	if (PrintFromHOT == "true" || PrintFromHOT == "on") {
+	   print = true;
+	}
+
+	return print;
+}
+
+
+/** PosDoStoreJS
+ *
+ * @brief - Perfom store operation
+ * @return - true on success
+ */
+function PosDoStoreJS(choices) {
+	var ctx=new SessionContext;
+	var baseScreenId = ctx.get("baseScreenId");
+
+	// Handle choices...
+	if(!PosAutoChoice()) {
+		return(false);
+	}
+	if(choices != null) {
+		var i;
+		var choiceArray=choices.split(",");
+		if(choiceArray != null) {
+			for(i=0;i < choiceArray.length; i++) {
+				var choice_screen=choiceArray[i].split("|");
+				if(choice_screen != null) {
+					if(!PosCheckChoice(choice_screen[0])) {
+						if(gsDLOverride.indexOf(choice_screen[0]) >= 0) {
+							if(!PosShowConfirmationMessage("MSG_BC_SALE_INCOMPLETE","BY-PASS","OK")) {
+								PosDoBackFromTotal();
+								PosShowScreen(choice_screen[1]);
+								return(false);
+							}
+						}
+						else {
+							PosShowMessage("MSG_BC_SALE_INCOMPLETE");
+							PosDisplayText("","1",false,true);
+							PosDoBackFromTotal();
+							PosShowScreen(choice_screen[1]);
+							return(false);
+						}
+					}
+				}
+			}
+		}
+	}
+
+ 	var hlp = new BusinessObjectHelper;
+	var view = hlp.getLastSaleView();
+	if (view == null) {
+		view = hlp.getCurrentView();
+	}
+	if (view != null) {
+		var workView = new XML(view);
+		var orderId = workView.@orderId;
+		//PosSetSessionProperty("LastHHOTOrderID", orderId);  Changed for SDO-1202
+		PosSetSessionProperty("LastHHOTOrderID", orderId.toString());
+	} else {
+		PosSetSessionProperty("LastHHOTOrderID", "Unable to Retrieve Number");
+	}
+
+	if(PosDoStore()) {
+            var PrintReceipt;
+
+		var remPOD = ctx.get("RemPOD");
+
+		PrintReceipt = (remPOD != "STAND_ALONE");
+		PrintReceipt = PrintReceipt && IsHOTPrintReceipt();
+
+		if(PrintReceipt) {
+			PosCreateReport("VIEW","receiptHHOT@reportsHOT.nps","NOPREVIEW");
+		}
+	}
+	PosDisplayText("","1",false,true);
+	PosShowScreen(baseScreenId);
+	return (true);
+}
+
+/**PosCanApplyPromoOrder
+ *
+ * @brief - This BC verifies if it's possible to promo an order
+ * Return - rval - true if allowed to continue
+ */
+function PosCanApplyPromoOrder()
+{
+	var hlp = new BusinessObjectHelper;
+	var curView = hlp.getCurrentView();
+	if(curView == null) {
+		return(true);
+	}
+	var view = new XML(curView);
+	if(null == view) {
+		return(true);
+	}
+	if((view.@transactionKind != ACC_OT_SALE) && (view.@transactionKind != ACC_OT_DISCOUNT)
+			&& (view.@transactionKind != ACC_OT_MANAGER) && (view.@transactionKind != ACC_OT_CREW)) {
+		return(true);
+	}
+	var items=view.ItemView;
+	if(null == items) {
+		return(true);
+	}
+	var giftCardLines=0;
+	var i;
+	for(i=0; i < items.length(); i++) {
+		var item=items[i];
+
+        // SDE-1444
+		var bGiftCard = (item.quantity > 0) && (item.familyGroup == GIFT_COUPON) && (item.productType == NON_FOOD_PRODUCT) && (item.category == PAPER);
+		var bGiftCert = (item.quantity > 0) && (item.familyGroup == GIFT_COUPON) && (item.productType == 9) && (item.category == PAPER);
+
+		if(bGiftCard || bGiftCert) {
+			// Gift Card not allowed
+			giftCardLines++;
+		}
+	}
+	if(giftCardLines == items.length()) {
+		PosShowMessage("MSG_BC_PROMO_GC_ORDER");
+		return(false);
+	}
+	if(giftCardLines > 0) {
+		PosShowMessage("MSG_BC_PROMO_GC");
+		return(false);
+	}
+	return(true);
+}
+
+
+/**PosPromoOrderJS
+ *
+ * @brief - This BC promo-es an order
+ * Return - rval - true if allowed to continue
+ */
+function PosPromoOrderJS(level,sigleSignOn,promoType,preview,choices)
+{
+	if(PosNotATransactionInProgress(true)) {
+		PosShowMessage("MSG_BC_NO_ORDER_IN_PROGRESS");
+		return(false);
+	}
+	if(!PosCanApplyPromoOrder()) {
+		// Can't promo
+		return(false);
+	}
+	//if(!PosGetAuthorization(level,sigleSignOn)) {
+		// Not Authorized
+		//return(false);
+	//}
+	if(!PosDoPromoItem(-1)) {
+		return(false);
+	}
+	if(!PosDoStore()) {
+		return(false);
+	}
+	var ctx=new SessionContext;
+	PosShowScreen(ctx.get("baseScreenId"));
+	return(true);
+}
+/**PosChangeRemPODJS
+ *
+ * @brief - This BC changes the remote POD
+ * Return - rval - true if changed
+ */
+function PosChangeRemPODJS(mode) {
+	var hasChanged 	= false;
+	var tandemBooth = 0;
+	if((mode == null)) {
+		hasChanged=PosChangeRemPOD();
+	} else {
+		if(!PosCheckSessionProperty("RemPOD",mode)) {
+			hasChanged=PosChangeRemPOD(mode);
+		}
+	}
+	/* update booth and store mode */
+	if(hasChanged) {
+		var ctx=new SessionContext;
+		remPod=ctx.get("RemPOD");
+		if (remPod == "DT") {
+			tandemBooth=2;
+		}
+		if ((remPod == "FC") || (remPod == "SA")) {
+			tandemBooth=0;
+		}
+		PosSetSessionProperty("tandemBooth",tandemBooth,true);
+		var uiCmd="TANDEMB="+tandemBooth;
+		PosSendUICmd(uiCmd);
+	}
+	return(true);
+}
+
+/** PosCanUpgradeItemJS
+ * @brief - Checks if the current select sale item can be upgraded with the requested index.
+ * @param - upgrade_index - Upgrade index
+ * @return - true is possible to be upgraded
+ * @message - PROMO_NO_PRODUCT_SELECTED - If no product was selected
+ *            MSG_BC_INVALIDUPGRADE - If the selected product can't be upgraded
+ */
+ function PosCanUpgradeItemJS(upgrade_index) {
+	var hlp = new BusinessObjectHelper;
+	var prod = hlp.getSaleItem(-1,1);
+
+	if(prod == null) {
+		PosShowMessage("MSG_BC_PRODMISS");
+		return(false);
+	}
+
+	var prodXML = new XML(prod);
+	var sizesXML = prodXML.SizeSelection.Size;
+
+	if(sizesXML != null) {
+		for(index=0; index<sizesXML.length(); index++) {
+			if(Number(sizesXML[index].@entry) == Number(upgrade_index)) {
+				return(true);
+			}
+		}
+	}
+	PosShowMessage("MSG_BC_INVALIDUPGRADE");
+	return(false);
+ }
+
+function setHotUpdtList(value) {
+    var path = "HOTUPDLIST";
+    var updTempFile = new File(path);
+
+    if(updTempFile.open("w")) {
+       updTempFile.write(value);
+	   updTempFile.close();
+    } else {
+        API.SLog("LOGLEVL_ERROR", "UPDT - Cannot write to HOTUPDLIST");
+    }
+
+}
+
+function resetHotUpdtList() {
+    var path = "HOTUPDLIST";
+    var updTempFile = new File(path);
+
+    if(File.exists(path)) {
+        updTempFile.remove();
+        API.SLog("LOGLEVL_DEBUG", "UPDT - File HOTUPDLIST removed");
+    }
+}
+
+ /** PosApplyUpdateJS
+ * @brief - Checks for available updates and if so, start applier program.
+ * @param - errorReturn - return code to use in error, could be true of false
+ * @return - 'true' if successfull, otherwise errorReturn.
+ * @message - MSG_BC_NOUPDATE - When there's no update available
+ *            MSG_BC_UPDATEFAIL - When one the update stages fail
+ */
+ function PosApplyUpdateJS(errorReturn, aFiles) {
+	var persistedFileList = "";
+	var bBypassCheck = false;
+
+	// The list of files for update may already be fed
+	if(aFiles == null) {
+		aFiles = new Array();
+	}
+	else {
+		bBypassCheck = true;
+	}
+
+	// Gets the list of update files if necessary
+	if(!bBypassCheck && !PosCheckForNewUpdates("MSG_BC_NOUPDATE", aFiles)) {
+		return errorReturn;
+	}
+	else {
+		// builds the persistent file list
+		if(aFiles.length > 0) {
+			for(var i=0; i<aFiles.length; i++) {
+				persistedFileList+=aFiles[i];
+				if((i+1) < aFiles.length) {
+					persistedFileList+="|";
+				}
+			}
+		}
+	}
+
+	// Download the list of files
+	if(!PosDownloadUpdateFiles(aFiles, "MSG_BC_UPDATEFAIL")) {
+		PosCheckApplyUpdateResult(null,null,aFiles);
+		return errorReturn;
+	}
+
+	// Persists the update file list
+	setHotUpdtList(persistedFileList);
+	//PosSetSessionProperty("HOTUPDLIST",persistedFileList,true);
+
+	// Starts applier program
+	if(!PosApplyUpdateFiles(aFiles)) {
+		PosShowMessage("MSG_BC_UPDATEFAIL");
+		PosCheckApplyUpdateResult(null,null,aFiles);
+		resetHotUpdtList();
+		//PosSetSessionProperty("HOTUPDLIST","",true);
+		return errorReturn;
+	}
+	
+	return(true);
+ }
+ 
+
+  /** PosTogglePrintOrderNumberJS
+ * @brief - Set/unset the Print Order Number property
+ * @return - 'true'
+ *
+ */
+function PosTogglePrintOrderNumberJS()
+{
+	var bPrintOrderNumber = PosCheckSessionProperty("bPrintOrderNumber",true);
+	//Saving state
+	PosSetSessionProperty("bPrintOrderNumber",!bPrintOrderNumber,true);
+	return(true);
+}
+
+  /** PosVerifyPrintOrderNumberJS
+ * @brief - Verify the Print Order Number property state
+   @param - strTiteOn  -> Title when PON is ON
+   			strTiteOff -> Title when PON is OFF
+ * @return - 'true'
+ *
+ */
+function PosVerifyPrintOrderNumberJS(strTitleOn,strTitleOff)
+{
+	PosChangeButtonProperties(0,(PosCheckSessionProperty("bPrintOrderNumber",true) ? strTitleOn : strTitleOff));
+	return(true);
+}
+
+function PosGetLastHHOTOrderIDJS()
+{
+	var ctx=new SessionContext;
+	var orderId = ctx.get("LastHHOTOrderID");
+
+	if (orderId != null) {
+		if (orderId.length < 2) {
+			orderId = "0" + orderId;
+		}
+		PosShowMessage("Last Order number\n" +orderId);
+	} else {
+		PosShowMessage("Unable to Retrieve Number");
+	}
+}
+
+/**
+ * @brief - Check if PROMO button must show
+ */
+function PosCheckPromoAuthorityJS() {
+	var retVal=false;
+	var hlp=new BusinessObjectHelper;
+	// NPS-5766
+	//API.SLog("LOGLEVL_DEBUG", "[PosCheckPromoAuthorityJS] PromoItemAuthorityLimits ["+hlp.getBusinessLimitsParam("PromoItemAuthorityLimits")+"]");
+	if("enable"==hlp.getBusinessLimitsParam("PromoItemAuthorityLimits")) {
+		var promoAuthLevel=hlp.getBusinessLimitsParam("PromoItemAuthorityLevel");
+		if(""==promoAuthLevel) {
+			promoAuthLevel="disable";	// default
+		}
+		// NPS-5766
+		//API.SLog("LOGLEVL_DEBUG", "[PosCheckPromoAuthorityJS] PromoItemAuthorityLevel ["+promoAuthLevel+"]");
+		if(("crew"==promoAuthLevel)||("manager"==promoAuthLevel)) {
+			// show PROMO button for crew and manager
+			retVal=true;
+		}
+	}
+	else {
+		// compatibility with older version
+		retVal=true;
+	}
+	return(retVal);
+}
+
+/**
+ * @brief - Check if discount authority configuration must show
+ * returns - returns true to show button or false to not shown
+ */
+function PosCheckDiscountAuthorityJS() {
+	var retVal=false;
+	var hlp=new BusinessObjectHelper;
+	// NPS-5766
+	//API.SLog("LOGLEVL_DEBUG", "[PosCheckDiscountAuthorityJS] DiscountAuthorityLimits ["+hlp.getBusinessLimitsParam("DiscountAuthorityLimits")+"]");
+	if("enable"==hlp.getBusinessLimitsParam("DiscountAuthorityLimits")) {
+		var discAuthLevel=hlp.getBusinessLimitsParam("DiscountAuthorityLevel");
+		if(""==discAuthLevel) {
+			discAuthLevel="manager";	// default
+		}
+		// NPS-5766
+		//API.SLog("LOGLEVL_DEBUG", "[PosCheckDiscountAuthorityJS] DiscountAuthorityLevel ["+hlp.getBusinessLimitsParam("DiscountAuthorityLevel")+"]");
+		if("none"!=discAuthLevel) {
+			retVal=true;
+		}
+	}
+	return(retVal);
+}
+/**
+ * @brief - Gets the multiplicity of an item (its quantity times the quantities of its ancestors)
+ */
+function lGetProductMultiplicity(view, currentIndex, parentIndex, bLastParent) {
+	var iCount;
+	var nextLevel=Number(view.ItemView[currentIndex].level)-1;
+	var multiplicity=Number(view.ItemView[currentIndex].quantity);
+	for(iCount=currentIndex; (iCount>=parentIndex)&&(multiplicity!=0)&&(nextLevel>=0); iCount--) {
+		if(view.ItemView[iCount].level==nextLevel) {
+			multiplicity=multiplicity*Number(view.ItemView[iCount].quantity);
+			nextLevel--;
+		}
+		if((false==bLastParent)&&(0==nextLevel)) {
+			// disconsider the level zero parent
+			break;
+		}
+	}
+	return(multiplicity);
+}
+function OrderTaxFilterJS(sView) {
+	var view = new XML(sView);
+
+	if(view.@rule == "VIRGINIA") {
+		var max_id = -1;
+		var max_rate = -1;
+		var product_qty = 0;
+		var non_product_qty = 0;
+
+		for each (OrderItem in view.Items.Item) {
+
+			if(OrderItem.@class == PC_PRODUCT) {
+				product_qty++;
+			}
+			if(OrderItem.@class == PC_NON_FOOD_PRODUCT) {
+				non_product_qty++;
+			}
+		}
+
+		if(product_qty > 0 && non_product_qty > 0) {
+			for each (OrderItem in view.Items.Item) {
+
+				if(OrderItem.@class == PC_PRODUCT) {
+					for each (Tax in OrderItem.TaxChain.Tax) {
+						if(Number(max_rate) < Number(Tax.@rate)) {
+							max_rate = Tax.@rate;
+							max_id = Tax.@id;
+						}
+					}
+				}
+			}
+
+			if(max_id != -1) {
+				for each (OrderItem in view.Items.Item) {
+					if(OrderItem.@class == PC_NON_FOOD_PRODUCT) {
+						OrderItem.TaxChain.@id = max_id;
+					}
+				}
+			}
+		}
+	}
+	sView = view.toString();
+	return sView;
+}
+/* signed aut version 9-9076
+ * authority id = coe
+ * authority level = 40
+ * authority name = NewPOS COE developer
+ * group = npi
+ * validity = 2010-04-18
+ * signature type = slash_star
+ * time stamp (GMT) = Wed Jan 31 01:28:44 2018
+ * certificate = 393735312d37393437009013f4e2278ef47a899a494b48f031b6bea7730e51a7954f9331a442b971725a39073d5e1d61548906fdf60c861c6d32d1270010
+ * =================================================================================================================================
+*/

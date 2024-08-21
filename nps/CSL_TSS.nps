@@ -1,0 +1,2933 @@
+/**
+ * @file CSL_TSS.nps
+ * @brief This NPS file implements BusinessComponents related to Open Tab.
+ * @addtogroup 	CSL
+ * @defgroup 	TSS
+ * @ingroup 	CSL
+ *
+ * Copyright (C) 2008 McDonalds Corp. All rights reserved.
+ *
+ * @author Selma (of Creation)
+ * @since NPS-7605 / 2011/07/07
+ *
+ * @version $Id: CSL_Sales.nps 776 2009-08-06 13:46:38Z rcaram $
+ * @remarks Business Components related to Open Tab.
+ * @{
+ */
+
+/* Variable used for version control */
+CSL_TSS_VERSION = "$WCURL$:$WCREV$";
+
+/* Set the variable. */
+SRC_BC_TSS='CSL_TSS.nps';
+
+const NPGUI_VIEW_TAB=5;
+const NPGUI_VIEW_WAVES=6;
+const NPGUI_TRANSFER_WAVE=7;
+const NPGUI_CANCEL_WAVE=8;
+const NPGUI_CANCEL_ADJ=9;
+
+var TSS_RECEIPT_FILE_NAME = API.findParamInSectionWide("posReports", "NPScripts");
+/** Remove left and right spaces of String **/
+function csl_trim(s)
+{
+	return csl_rtrim(csl_ltrim(s+""));
+}
+
+/** Remove left spaces of String **/
+function csl_ltrim(s)
+{
+	s = String(s);  // <---- ADDED
+	var l=0;
+	while(l < s.length && s[l] == ' ')
+	{	l++; }
+	return s.substring(l, s.length);
+}
+
+/** Remove right spaces of String **/
+function csl_rtrim(s)
+{
+	s = String(s);  // <---- ADDED
+	var r=s.length -1;
+	while(r > 0 && s[r] == ' ')
+	{	r-=1;	}
+	return s.substring(0, r+1);
+}
+
+String.prototype.isdigits=function(){
+	return (/\D/.test(this)==false);
+}
+
+function lHandleCommunicationError() {
+	var tryAgain = false;
+	tryAgain = PosShowConfirmationMessage("MSG_BC_TSS_COMM_ERROR","MSG_YES","MSG_NO");
+	if(!tryAgain) {
+		var cmd = "cPosCheckAvailableTSS";
+		CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+		if(executeBC(cmd, ["true"])) {
+			var failoverSwitch = PosShowConfirmationMessage("MSG_BC_SWITCH_TSS_TO_FAILOVER","MSG_YES","MSG_NO");
+			if(failoverSwitch) {
+				if (!PosGetAuthorization("manager", false)) {
+					return false;
+				}
+				
+				cmd = "PosPromoteToPrimaryTSS";
+				CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+				if(executeBC(cmd)) {
+					return true;
+				}
+			}
+			return false;
+		}
+		return false;
+	}
+	
+	return tryAgain;
+}
+
+/**
+ * @brief - This function creates a new wave\n
+ * @param tabNumber - the Tab number.
+ * @param roomNumber  - the Tab room.
+ * @param tabTimestamp - the Tab creation timestamp.
+ * @param subKind - the wave transaction sub kind (ACC_OT_WAVE or ACC_OT_WAVE_ADJUSTMENT)
+ *
+ * @since 1.21-
+ */
+function lCreateNewWave(tabNumber, roomNumber, tabTimestamp, subKind) {
+	
+	// Should be in Sale mode (operator logged and not alreday performing a transaction
+	if(!PosIsInSaleMode() || !PosNotATransactionInProgress(false)) {
+		return(false);
+	}
+
+	if(PosCheckTransactionKind(ACC_OT_TAB) && (PosCheckTransactionSubKind(ACC_OT_WAVE) || PosCheckTransactionSubKind(ACC_OT_WAVE_ADJUSTMENT))) {
+		PosShowMessage("MSG_BC_TSS_ALREADY_WAVEREG");
+		return(false);
+	}
+	
+	if (PosCheckTabAjdusted(tabNumber, tabTimestamp)) {
+		PosShowMessage("MSG_BC_TSS_TABADJUSTED");
+		return(false);
+	}
+
+	var tabAmount = "0";
+	var maximumAmount = "0";
+	
+	var doAgain = true;
+	var step = 1;
+	do {
+		if(step == 1) {
+			//Verifies if the tab is still open
+			if(!PosCheckTabIsOpen(tabNumber, tabTimestamp)) {
+				//There was an error
+				var result = getLastFail(cmd);
+				if(result == "TSS_20_USR_MSG") {
+					//The tab timestamp is invalid
+					PosShowMessage("MSG_BC_TSS_TAB_NOT_AVAILABLE",tabNumber);
+					return false;
+				} else if(result == "TSS_ERR_01_USR_MSG") {
+					//There was an communication error
+					doAgain = lHandleCommunicationError();
+					continue;
+				} else {
+					PosShowMessage("MSG_BC_TSS_INTERNAL_ERROR");
+					return false;
+				}
+			}
+			step = 2;
+		}
+		else if(step == 2) {
+			//Verifies if the tab was created by the current POS
+			var cmd = "cPosCheckTabOwner";
+			CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+			if(!executeBC(cmd, [tabNumber])) {
+				//There was an error
+				var result = getLastFail(cmd);
+				if(result == "TSS_11_USR_MSG") {
+					//The tab was not created by the current POS, we need to get the manager authorization
+					PosShowMessage("MSG_BC_TSS_AUTH_ASSIGN_ORDER_TO_TAB");
+					if(!PosGetAuthorization("manager", false)) {
+						return false;
+					}
+				} else if(result == "TSS_ERR_01_USR_MSG") {
+					//There was an communication error
+					doAgain = lHandleCommunicationError();
+					continue;
+				} else {
+					PosShowMessage("MSG_BC_TSS_INTERNAL_ERROR");
+					return false;
+				}
+			}
+			step = 3;
+		}
+		else if(step == 3) {
+			//let's get the tab total amount and the maximum amount
+			var cmd = "PosCheckTabLimit";
+			CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+			if(executeBC(cmd, [tabNumber])) {
+				var result = getLastSuccess(cmd).split("|");
+				enable_result = result[0];
+				if(enable_result == "TSS_13_USR_MSG") {
+					//the order sub-total plus the open tab sub-total is less than the default maximum amount
+					tabAmount = result[2];
+					maximumAmount = result[3];
+				}
+				else {
+					//an error occurred
+					break;
+				}
+			}
+			else {
+				//There was an error
+				var result = getLastFail(cmd).split("|");
+				enable_result = result[0];
+				if(enable_result == "TSS_ERR_01_USR_MSG") {
+					//There was an communication error
+					doAgain = lHandleCommunicationError();
+					continue;
+				} else if(enable_result == "TSS_ERR_17_USR_MSG") {
+					//the order sub-total plus the open tab sub-total is greater than the default maximum amount
+					tabAmount = result[2];
+					maximumAmount = result[3];
+				} else {
+					//another error
+					break;
+				}
+			}
+			step = 4;
+		}
+		else if(step == 4) {
+			//Sets the next order to wave
+			if(!PosSetOrderAsWave(tabNumber,roomNumber,tabTimestamp,tabAmount,maximumAmount, subKind)) {
+				PosShowMessage("MSG_BC_TSS_INTERNAL_ERROR");
+				return false;
+			}
+
+			var ctx=new SessionContext;
+			PosShowScreen(ctx.get("baseScreenId"));
+			var message = "MSG_BC_TSS_WAVEREG";
+			if (subKind == ACC_OT_WAVE_ADJUSTMENT) {
+				message = "MSG_BC_TSS_ADJUSTMENTREG";
+			}
+			PosDisplayText(message,1,true,false);
+			return true;
+		}
+	} while (doAgain);
+	
+	// error
+	return false;
+}
+
+/**
+ * @brief - This function calls a BC via the executeBC function and asks if
+ * the user want to retry if there was a communictation problem
+ * @param command - String - the BC name
+ * @param cmdArguments - Array - the BC arguments
+ *
+ * @since 1.21-
+ */
+function lTryCommand(command, cmdArguments) {
+	var result = false;
+ 	var doAgain = true;
+	do {
+		result = executeBC(command, cmdArguments);
+		if (result) {
+			break;
+		}
+		var fail = getLastFail(command);
+		if(fail.indexOf("TSS_ERR_01_USR_MSG") >= 0) {
+			//There was an communication error
+			doAgain = lHandleCommunicationError();
+			continue;
+		} else {
+			break;
+		}
+	} while (doAgain);
+	return result;
+}
+/**
+ * @brief - This function calls a BC directly and asks if
+ * the user want to retry if there was a communictation problem
+ * @param command - Function - the BC to run
+ * @param cmdArguments - Array - the BC arguments
+ *
+ * @since 1.21-
+ */
+function lTryFunction(command, cmdArguments) {
+	var result = false;
+ 	var doAgain = true;
+	do {
+		result = command.apply(null, cmdArguments);
+		if (result) {
+			break;
+		}
+		var fail = getLastFail(command);
+		if(fail.indexOf("TSS_ERR_01_USR_MSG") >= 0) {
+			//There was an communication error
+			doAgain = lHandleCommunicationError();
+			continue;
+		} else {
+			break;
+		}
+	} while (doAgain);
+	return result;
+}
+/**
+ * @brief This function implements the BC,Business Component: <b>PosCheckAndEnableHOTTabService</b>.
+ *
+ * The PosCheckAndEnableHOTTabService is responsible for Check if this device is Enable and ask to enable if it is not enabled
+ * In java script it should be called:<b>PosCheckAndEnableHOTTabService()</b>
+ * @success <i>TSS_01_USR_MSG</i> - Device is enabled.
+ * @failure	<i>TSS_02_USR_MSG</i> - Device is disabled
+ * @failure	<i>TSS_ERR_01_USR_MSG</i>  - Indicate that there was a communication error
+ * @failure	<i>TSS_ERR_02_USR_MSG</i>  - Indicate that there was an error during the process
+ * @failure <i>TSS_ERR_16_USR_MSG</i>  - Indicate that the tab service has no operator logged in.
+ * @since 1.21-
+ */
+function PosCheckAndEnableHOTTabService() {
+	var tabServiceState = PosCheckEnableTabService();
+	if(tabServiceState) {
+		return true;
+	}
+	
+	var check_result = getLastFail("PosCheckEnableTabService");
+	if(check_result != "TSS_02_USR_MSG") {
+		PosShowMessage("MSG_BC_TSS_INTERNAL_ERROR");
+		return false;
+	}
+	
+	if(!PosGetAuthorization("manager","MSG_BC_TSS_ASK_ABLE_CARD_NUMBER")) {
+		return false;
+	}
+	
+	if(!PosEnableTabService()) {
+		return false;
+	}
+	
+	return true;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosCheckEnableTabService</b>.
+ *
+ * The PosCheckEnableTabService is responsible for Check if this device is Enable to use the tab service
+ * In java script it should be called:<b>PosCheckEnableTabService()</b>
+ * @success <i>TSS_01_USR_MSG</i> - Device is enabled.
+ * @failure	<i>TSS_02_USR_MSG</i> - Device is disabled
+ * @failure	<i>TSS_ERR_01_USR_MSG</i>  - Indicate that there was a communication error
+ * @failure	<i>TSS_ERR_02_USR_MSG</i>  - Indicate that there was an error during the process
+ * @failure <i>TSS_ERR_16_USR_MSG</i>  - Indicate that the tab service has no operator logged in.
+ * @since 1.21-
+ */
+function PosCheckEnableTabService() {
+	var cmd = "PosCheckEnableTabService";
+	CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosEnableTabService</b>.
+ *
+ * The PosEnableTabService is responsible for Enable this device to use table service features.
+ * In java script it should be called:<b>PosEnableTabService()</b>
+ * @param manager_id - manager ID
+ * @success <i>TSS_01_USR_MSG</i> - Device is enabled.
+ * @failure	<i>TSS_ERR_01_USR_MSG</i>  - Indicate that there was a communication error
+ * @failure	<i>TSS_ERR_02_USR_MSG</i>  - Indicate that there was a error during the process in the tab service
+ * @failure	<i>TSS_ERR_03_USR_MSG</i>  - Indicate that this BC is called with a invalid number of parameters
+ * @failure	<i>TSS_ERR_04_USR_MSG</i>  - Indicate that this device is already enabled
+ * @failure <i>TSS_ERR_16_USR_MSG</i>  - Indicate that the tab service has no operator logged in.
+ * @remarks Use the next format <i>getLastFail("cPosEnableTabService")</i> to get the error
+ *
+ * Property Messages:\n
+ *   MSG_BC_EMPLOYEE_CARD_NUMBER: Message displayed when a dialog window is used to get the employee card number.
+ *   MSG_BC_EMPLOYEE_INVALID_CARD_NUMBER: Message used to indicate that the entered card number is invalid.
+ *   MSG_BC_EMPLOYEE_ABLE_CARD_NUMBER: Message used in dialog window with the card number that will be used to enable device.
+ *   MSG_BC_TSS_INTERNAL_ERROR: Message used in dialog window to indicate a error during the enable process.
+ *   MSG_BC_TSS_COMM_ERROR: Message used in dialog window to indicate a communication error.
+ *	 MSG_BC_TSS_SERVICE_NOT_OPEN: Text used to indicate that the tab service is not open
+ *   MSG_BC_SWITCH_TSS_TO_FAILOVER: Message used in dialog window to switch to failover table service.
+ *   MSG_BC_TSS_OPER_NOT_COMPLETE: Message used in dialog window to indicate that operation was not completed.
+ * @since 1.21-
+ */
+function PosEnableTabService() {
+	var hlp = new BusinessObjectHelper;
+	var manager_id = String(hlp.getLastAuthManagerID());
+	
+	var employee_number = PosShowCalculator("MSG_BC_EMPLOYEE_CARD_NUMBER","",1,0);
+	if(employee_number == "") {
+		return false;
+	}
+	
+	var hlp=new BusinessObjectHelper;
+	
+	if(!hlp.validateUser(employee_number,null,0,true)) {
+		PosShowMessage("MSG_BC_EMPLOYEE_INVALID_CARD_NUMBER");
+		return(false);
+	}
+	
+	PosShowMessage("MSG_BC_EMPLOYEE_ABLE_CARD_NUMBER", employee_number);
+	
+	var cmd = "cPosEnableTabService";
+	CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+	
+	var tryAgain = false;
+	do {
+		if(!executeBC(cmd, [employee_number, manager_id])) {
+			var enable_result = getLastFail("cPosEnableTabService");
+			if(enable_result == "TSS_ERR_01_USR_MSG") {
+				tryAgain = lHandleCommunicationError();
+				continue;
+			}
+			else {
+				if(enable_result == "TSS_ERR_14_USR_MSG") {
+					PosShowMessage("MSG_BC_TSS_SERVICE_NOT_OPEN");
+					return false;
+				}
+				return false;
+			}
+		}
+		else {
+			return true;
+		}
+	}while(tryAgain);
+	
+	PosShowMessage("MSG_BC_TSS_OPER_NOT_COMPLETE");
+	return false;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosDisableTabService</b>.
+ *
+ * The PosDisableTabService is responsible for Disable this device to use table service features.
+ * In java script it should be called:<b>PosDisableTabService()</b>
+ * @success <i>TSS_02_USR_MSG</i> - Device is disabled.
+ * @failure	<i>TSS_ERR_01_USR_MSG</i>  - Indicate that there was a communication error
+ * @failure	<i>TSS_ERR_02_USR_MSG</i>  - Indicate that there was a error during the process in the tab service
+ * @failure	<i>TSS_ERR_05_USR_MSG</i>  - Indicate that this device is already disabled or was never enabled
+ * @failure <i>TSS_ERR_16_USR_MSG</i>  - Indicate that the tab service has no operator logged in.
+ * @remarks Use the next format <i>getLastFail("cPosDisableTabService")</i> to get the error
+ *
+ * Property Messages:\n
+ *   MSG_BC_TSS_INTERNAL_ERROR: Message used in dialog window to indicate a error during the enable process.\n
+ *   MSG_BC_TSS_COMM_ERROR: Message used in dialog window to indicate a communication error.\n
+ *   MSG_BC_TSS_OPER_NOT_COMPLETE: Message used in dialog window to indicate that operation was not completed.
+ * @since 1.21-
+ */
+function PosDisableTabService() {		
+	var cmd = "cPosDisableTabService";
+	CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+	
+	var tryAgain = false;
+	do {
+		if(!executeBC(cmd)) {
+			var enable_result = getLastFail("cPosDisableTabService");
+			if(enable_result == "TSS_ERR_01_USR_MSG") {
+				tryAgain = lHandleCommunicationError();
+			}
+			else {
+				return false;
+			}
+		}
+		else {
+			return true;
+		}
+	}while(tryAgain);
+	
+	PosShowMessage("MSG_BC_TSS_OPER_NOT_COMPLETE");
+	return false;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosShowTabCreationScreen</b>.
+ *
+ * The PosShowTabCreationScreen is responsible for Generate a new tab number and show the correspondent screen.
+ * In java script it should be called:<b>PosShowTabCreationScreen()</b>
+ * @param screen_number - Number of the screen used to show screen
+ * @param room_number - The room number that should be used (optional).
+ * @success <i>TSS_03_USR_MSG</i> - There is a number available.
+ * @failure	<i>TSS_ERR_01_USR_MSG</i>  - Indicate that there was a communication error
+ * @failure	<i>TSS_ERR_02_USR_MSG</i>  - Indicate that there was a error during the process in the tab service
+ * @failure	<i>TSS_ERR_06_USR_MSG</i>  - Indicate that the tab service is not enabled
+ * @failure	<i>TSS_ERR_07_USR_MSG</i>  - Indicate that the max number of tabs is reached
+ * @failure <i>TSS_ERR_16_USR_MSG</i>  - Indicate that the tab service has no operator logged in.
+ * @remarks The session property TabNumber is used to indicate the tab number to the screen
+ *
+ * Property Messages:\n
+ *   MSG_BC_TSS_MAX_NUMBER_REACHED: Message to indicate that the max number of available tabs is reached
+ *   MSG_BC_TSS_COMM_ERROR: Message used in dialog window to indicate a communication error.
+ *	 MSG_BC_TSS_SERVICE_NOT_OPEN: Text used to indicate that the tab service is not open
+ *   MSG_BC_TSS_INTERNAL_ERROR: Message used in dialog window to indicate a error during the enable process.
+ *   MSG_BC_SWITCH_TSS_TO_FAILOVER: Message used in dialog window to switch to failover table service.
+ *   MSG_BC_TSS_ASK_ABLE_CARD_NUMBER: Message used in dialog window to indicate the user to get manager authorization in HOT.
+ *   MSG_BC_TSS_AUTH_NEW_TAB: Message used in dialog window to indicate the user to get manager authorization in POS.
+ *   MSG_BC_TSS_OPER_NOT_COMPLETE: Message used in dialog window to indicate that operation was not completed.
+ * @since 1.21-
+ */
+function PosShowTabCreationScreen(screen_number, room_number) {
+	var step = 1;
+	var tryAgain = true;
+	do {
+		if(step == 1) {
+			/* carlosb 18.jun.2012 - WWR-2023 - cleanup fields before creating a new tab */
+			PosSetSessionProperty("RoomNumber","");
+			PosSetSessionProperty("Name","");
+			if(room_number != null && room_number.length > 0) {
+				if(!PosCheckRoom(room_number)) {
+					var generate_result = getLastFail("PosCheckRoom");
+
+					if(generate_result == "TSS_ERR_01_USR_MSG") {
+						tryAgain = lHandleCommunicationError();
+						continue;
+					}
+					else if(generate_result == "TSS_ERR_11_USR_MSG") {
+						PosShowMessage("MSG_BC_TSS_ROOM_NOT_AVAILABLE", room_number);
+						return false;
+					}
+					PosShowMessage("MSG_BC_TSS_INVALID_ROOM", room_number);
+					return false;
+				}
+			}
+			step = 2;
+		} else if(step == 2) {
+			var cmd = "cPosGetNextTabNumber";
+			CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+			if(!executeBC(cmd)) {
+				var generate_result = getLastFail("cPosGetNextTabNumber");
+				if((generate_result == "TSS_ERR_06_USR_MSG") || (generate_result == "TSS_ERR_07_USR_MSG")){
+					PosShowMessage("MSG_BC_TSS_MAX_NUMBER_REACHED");
+					return false;
+				}
+				
+				if(generate_result == "TSS_ERR_01_USR_MSG") {
+					tryAgain = lHandleCommunicationError();
+					continue;
+				}
+				else {
+					if(generate_result == "TSS_ERR_14_USR_MSG") {
+						PosShowMessage("MSG_BC_TSS_SERVICE_NOT_OPEN");
+						return false;
+					}
+					PosShowMessage("MSG_BC_TSS_INTERNAL_ERROR");
+					return false;
+				}
+			}
+			else {
+				var tabNumber = getLastSuccess("cPosGetNextTabNumber");
+				if(PosCheckSessionProperty("POD","HOT")) {
+					if(!PosCheckAndEnableHOTTabService()) {
+						var cmd = "cPosFreeTabNumber";
+						CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+						executeBC(cmd, [tabNumber]);
+						
+						return false;
+					}
+						
+					PosSetSessionProperty("TabNumber", tabNumber);
+					
+					PosShowScreen(screen_number);
+					return true;
+				}
+				else {
+					if(!PosGetAuthorization("manager","MSG_BC_TSS_AUTH_NEW_TAB")) {
+						var cmd = "cPosFreeTabNumber";
+						CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+						executeBC(cmd, [tabNumber]);
+						return false;
+					}
+					
+					PosSetSessionProperty("TabNumber", tabNumber);
+					
+					PosShowScreen(screen_number);
+					return true;
+				}
+			}
+		}
+	} while(tryAgain);
+	
+	PosShowMessage("MSG_BC_TSS_OPER_NOT_COMPLETE");
+	return false;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosConcatRoomNumber</b>.
+ *
+ * The PosConcatRoomNumber is responsible for concat a character in the end of the room ID.
+ * In java script it should be called:<b>PosConcatRoomNumber(roomNumber, new_value)</b>
+ * @success <i>new value</i> - OK.
+ *
+ * @since 1.21-
+ */
+function PosConcatRoomNumber(roomNumber, new_value, roomType) {
+	if(roomNumber == null) {
+		return false;
+	}
+	
+	if(!new_value.isdigits()) {
+		return false;
+	}
+	
+	var ctx=new SessionContext;
+	var value = ctx.get(roomNumber);
+	if((value == null) || (value.length == 0)){
+		var ret;
+		ret = ctx.concatChar(roomNumber, new_value, false);
+		if(ret && (roomType != null) && (roomType.length > 0)) {
+			ctx.concatChar(roomNumber, ".", false);
+			ret = ctx.concatChar(roomNumber, roomType, false);
+		}
+		return ret;
+	}
+	
+	
+	if(value.length == 1) {
+		ctx.concatChar(roomNumber, ".", false);
+		return ctx.concatChar(roomNumber, new_value, false);
+	}
+	
+	if(value.length == 3) {
+		var last_char = value[2];
+		PosBackSpaceSessionProperty(roomNumber);
+		PosBackSpaceSessionProperty(roomNumber);
+		if((roomType != null) && (roomType.length > 0)){
+			ctx.concatChar(roomNumber, new_value, false);
+			ctx.concatChar(roomNumber, ".", false);
+			ctx.concatChar(roomNumber, roomType, false);
+		}
+		else {
+		ctx.concatChar(roomNumber, last_char, false);
+		ctx.concatChar(roomNumber, ".", false);
+			ctx.concatChar(roomNumber, new_value, false);
+		}
+		return true;
+	}
+	
+	if(value.length == 4) {
+		return true;
+	}
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosBackSpaceRoomNumber</b>.
+ *
+ * The PosBackSpaceRoomNumber is responsible for clear the last char of a room ID.
+ * In java script it should be called:<b>PosBackSpaceRoomNumber(roomNumber)</b>
+ * @success <i>new value</i> - OK.
+ *
+ * @since 1.21-
+ */
+function PosBackSpaceRoomNumber(roomNumber) {
+	if(roomNumber == null) {
+		return false;
+	}
+	var ctx=new SessionContext;
+	var value = ctx.get(roomNumber);
+	if((value == null) ||(value.length == 0)){
+		return false;
+	}
+	
+	if(value.length == 4) {
+		var second = value[1];
+		PosBackSpaceSessionProperty(roomNumber);
+		PosBackSpaceSessionProperty(roomNumber);
+		PosBackSpaceSessionProperty(roomNumber);
+		ctx.concatChar(roomNumber, ".", false);	
+		ctx.concatChar(roomNumber, second, false);
+		return true;		
+	}
+	
+	if(value.length == 3) {
+		PosBackSpaceSessionProperty(roomNumber);
+	}
+	
+	return PosBackSpaceSessionProperty(roomNumber);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosFreeTabNumber</b>.
+ *
+ * The PosFreeTabNumber is responsible for free a not used tab number.
+ * In java script it should be called:<b>PosFreeTabNumber(roomNumber)</b>
+ * @success <i>TSS_03_USR_MSG</i> - OK.
+ * @failure	<i>TSS_ERR_01_USR_MSG</i>  - Indicate that there was a communication error
+ * @failure	<i>TSS_ERR_02_USR_MSG</i>  - Indicate that there was a error during the process in the tab service
+ * @failure	<i>TSS_ERR_03_USR_MSG</i>  - Indicate that this BC is called with a invalid number of parameters
+ * @failure	<i>TSS_ERR_06_USR_MSG</i>  - Indicate that the tab service is not enabled
+ * @failure	<i>TSS_ERR_08_USR_MSG</i>  - Indicate that the tab was not found
+ * @failure	<i>TSS_ERR_09_USR_MSG</i>  - Indicate that this tab is open
+ * @failure <i>TSS_ERR_16_USR_MSG</i>  - Indicate that the tab service has no operator logged in.
+ * @remarks Use the next format <i>getLastFail("cPosFreeTabNumber")</i> to get the error
+ *
+ * @since 1.21-
+ */
+function PosFreeTabNumber(tabNumber) {
+	var cmd = "cPosFreeTabNumber";
+	CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+	return executeBC(cmd, [tabNumber]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosCheckRoomReturnMessage</b>.
+ *
+ * The PosCheckRoomReturnMessage is responsible for check if the current room is available.
+ * In java script it should be called:<b>PosCheckRoomReturnMessage(checkRoom)</b>
+ * @param checkRoom - session property with the room ID to be checked.
+ * @success <i>TSS_04_USR_MSG</i> - OK.
+ * @failure	<i>TSS_ERR_01_USR_MSG</i>  - Indicate that there was a communication error
+ * @failure	<i>TSS_ERR_02_USR_MSG</i>  - Indicate that there was a error during the process in the tab service
+ * @failure	<i>TSS_ERR_03_USR_MSG</i>  - Indicate that this BC is called with a invalid number of parameters
+ * @failure	<i>TSS_ERR_10_USR_MSG</i>  - Indicate that the room ID is invalid
+ * @failure	<i>TSS_ERR_11_USR_MSG</i>  - Indicate that the room ID is not available
+ * @failure <i>TSS_ERR_16_USR_MSG</i>  - Indicate that the tab service has no operator logged in.
+ *
+ * Property Messages:\n
+ *   MSG_BC_TSS_ROOM_NOT_AVAILABLE: Message used in dialog window to indicate that this room is not available.
+ *   MSG_BC_TSS_INVALID_ROOM: Message used in dialog window to indicate that this room ID is invalid.
+ *
+ * @since 1.21-
+ */
+ function PosCheckRoomReturnMessage(checkRoom, roomType, checkRoomType) {
+	if(checkRoom == null) {
+		return true;
+	}
+	var ctx=new SessionContext;
+	var roomNumber = ctx.get(checkRoom);
+	if((roomNumber == null) ||(roomNumber.length == 0)){
+		return true;
+	}
+	
+	if(roomNumber.length < 4) {
+		PosShowMessage("MSG_BC_TSS_INVALID_ROOM", roomNumber);
+		return false;
+	}
+	
+	var last_char = roomNumber[3];
+	if((checkRoomType != null) && (checkRoomType.toUpperCase() == "TRUE")) {
+		if((roomType != null) && (roomType == "0")) {
+			if(last_char != "0"){
+				PosShowMessage("MSG_BC_TSS_INVALID_ROOM", roomNumber);
+				return false;
+			}
+		}
+		else if((roomType != null) && (roomType == "9")) {
+			if (last_char != "9") {
+				PosShowMessage("MSG_BC_TSS_INVALID_ROOM", roomNumber);
+				return false;
+			}
+		} 
+		else if((last_char == "0") || (last_char == "9")){
+			PosShowMessage("MSG_BC_TSS_INVALID_ROOM", roomNumber);
+			return false;
+		}
+	}
+
+	if(!PosCheckRoom(roomNumber)) {
+		ctx.set(checkRoom, "");
+		var result = getLastFail("PosCheckRoom");
+		
+		if(result == "TSS_ERR_11_USR_MSG") {
+			PosShowMessage("MSG_BC_TSS_ROOM_NOT_AVAILABLE", roomNumber);
+			return false;
+		}
+		
+		PosShowMessage("MSG_BC_TSS_INVALID_ROOM", roomNumber);
+		return false;
+	}
+	return true;
+ }
+ 
+/**
+ * @brief This function implements the BC,Business Component: <b>PosCheckRoom</b>.
+ *
+ * The PosCheckRoom is responsible for check if a room is available.
+ * In java script it should be called:<b>PosCheckRoom(roomNumber)</b>
+ * @param roomNumber - room ID to be checked.
+ * @success <i>TSS_04_USR_MSG</i> - OK.
+ * @failure	<i>TSS_ERR_01_USR_MSG</i>  - Indicate that there was a communication error
+ * @failure	<i>TSS_ERR_02_USR_MSG</i>  - Indicate that there was a error during the process in the tab service
+ * @failure	<i>TSS_ERR_03_USR_MSG</i>  - Indicate that this BC is called with a invalid number of parameters
+ * @failure	<i>TSS_ERR_10_USR_MSG</i>  - Indicate that the room ID is invalid
+ * @failure	<i>TSS_ERR_11_USR_MSG</i>  - Indicate that the room ID is not available
+ * @failure <i>TSS_ERR_16_USR_MSG</i>  - Indicate that the tab service has no operator logged in.
+ *
+ * @since 1.21-
+ */
+function PosCheckRoom(roomNumber) {
+	var cmd = "PosCheckRoom";
+	CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+	return executeBC(cmd, [roomNumber]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosCreateTab</b>.
+ *
+ * The PosCreateTab is responsible for Create a Tab.
+ * In java script it should be called:<b>PosCreateTab(tab_number, roomNumber, room_name)</b>
+ * @success <i>TSS_05_USR_MSG</i> - OK.
+ * @failure	<i>TSS_ERR_01_USR_MSG</i>  - Indicate that there was a communication error
+ * @failure	<i>TSS_ERR_12_USR_MSG</i>  - Indicate that there was an error during the tab creation
+ * @failure <i>TSS_ERR_16_USR_MSG</i>  - Indicate that the tab service has no operator logged in.
+ *
+ * Property Messages:\n
+ *   MSG_BC_TSS_COMM_ERROR: Message used in dialog window to indicate a communication error.
+ *   MSG_BC_SWITCH_TSS_TO_FAILOVER: Message used in dialog window to switch to failover table service.
+ *	 MSG_BC_TSS_SERVICE_NOT_OPEN: Text used to indicate that the tab service is not open
+ *	 MSG_BC_TSS_ERROR_SAVING_TAB: Text used to indicate that there is an error during the process
+ *   MSG_BC_TSS_OPER_NOT_COMPLETE: Message used in dialog window to indicate that operation was not completed.
+ * @since 1.21-
+ */
+function PosCreateTab(tab_number, roomNumber, room_name) {
+	var cmd = "PosCreateTab";
+	CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+	room_name = csl_trim(room_name);
+	var tryAgain = false;
+	do {
+		if(!executeBC(cmd, [tab_number, roomNumber, room_name])) {
+			var enable_result = getLastFail("PosCreateTab");
+			if(enable_result == "TSS_ERR_01_USR_MSG") {
+				tryAgain = lHandleCommunicationError();
+			}
+			else {
+				if(enable_result == "TSS_ERR_14_USR_MSG") {
+					PosShowMessage("MSG_BC_TSS_SERVICE_NOT_OPEN");
+					return false;
+				}
+				PosShowMessage("MSG_BC_TSS_ERROR_SAVING_TAB");
+				return false;
+			}
+		}
+		else {
+			return true;
+		}
+	}while(tryAgain);
+	
+	PosShowMessage("MSG_BC_TSS_OPER_NOT_COMPLETE");
+	return false;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosShowOpenTabsScreen</b>.
+ *
+ * The PosShowOpenTabsScreen is responsible for show a screen with the open tabs.
+ * In java script it should be called:<b>PosShowOpenTabsScreen(action_type)</b>
+ * @param action_type - mandatory - the action that will be performed by the Tabs Screen buttons.
+ * @success <i>TSS_07_USR_MSG</i> - OK.
+ * @failure	<i>TSS_ERR_01_USR_MSG</i>  - Indicate that there was a communication error
+ * @failure	<i>TSS_ERR_12_USR_MSG</i>  - Indicate that there was an error during the tab creation
+ *
+ * Property Messages:\n
+ *   MSG_BC_TSS_COMM_ERROR: Message used in dialog window to indicate a communication error.
+ *   MSG_BC_SWITCH_TSS_TO_FAILOVER: Message used in dialog window to switch to failover table service.
+ *	 MSG_BC_TSS_POS_TAB_NUMBER: Text used before the tab number in the open tab button in POS
+ *	 MSG_BC_TSS_SERVICE_NOT_OPEN: Text used to indicate that the tab service is not open
+ *	 MSG_BC_TSS_ERROR_GET_OPEN_TABS: Text used to indicate an error during the process of get open tabs
+ *	 MSG_BC_TSS_POS_REGISTER_NUMBER: Text used before the register number in the open tab button in POS
+ *	 MSG_BC_TSS_POS_PARTY_NUMBER: Text used before the party number in the open tab button in POS
+ *	 MSG_BC_TSS_POS_TABLE_NUMBER: Text used before the table number in the open tab button in POS
+ *	 MSG_BC_TSS_POS_CAR_NUMBER: Text used before the car number in the open tab button in POS
+ *	 MSG_BC_TSS_NO_WAVE: Text used to indicate that there isn't a wave associated to this open tab
+ *	 MSG_BC_TSS_HOT_TAB_NUMBER: Text used before the tab number in the open tab button in HOT
+ *	 MSG_BC_TSS_HOT_REGISTER_NUMBER: Text used before the register number in the open tab button in HOT
+ *	 MSG_BC_TSS_HOT_PARTY_NUMBER: Text used before the party number in the open tab button in HOT
+ *	 MSG_BC_TSS_HOT_TABLE_NUMBER: Text used before the table number in the open tab button in HOT
+ *	 MSG_BC_TSS_HOT_CAR_NUMBER: Text used before the car number in the open tab button in HOT
+ *	 MSG_BC_TSS_SERVICE_POS: Text used to indicate that this tab is created by a POS
+ *	 MSG_BC_TSS_SERVICE_HOT: Text used to indicate that this tab is created by a HOT
+ *	 MSG_BC_TSS_OPEN_TAB_SCREEN_TITLE: Text used in the title of open tabs screen
+ *   MSG_BC_TSS_OPER_NOT_COMPLETE: Message used in dialog window to indicate that operation was not completed.
+ * @since 1.21-
+ */
+function PosShowOpenTabsScreen(action_type) {
+	var cmd = "cPosGetOpenTabsData";
+	CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+	
+	if(PosCheckSessionProperty("POD","HOT")) {
+		if(!PosCheckAndEnableHOTTabService()) {			
+			return false;
+		}
+	}
+	
+	var tryAgain = false;
+	do {
+		if(!executeBC(cmd)) {
+			var enable_result = getLastFail("cPosGetOpenTabsData");
+			if(enable_result == "TSS_ERR_01_USR_MSG") {
+				tryAgain = lHandleCommunicationError();
+				if(!tryAgain) {
+					PosShowMessage("MSG_BC_TSS_OPER_NOT_COMPLETE");
+					return false;
+				}
+			}
+			else {
+				if(enable_result == "TSS_ERR_14_USR_MSG") {
+					PosShowMessage("MSG_BC_TSS_SERVICE_NOT_OPEN");
+					return false;
+				}
+				PosShowMessage("MSG_BC_TSS_ERROR_GET_OPEN_TABS");
+				return false;
+			}
+		}
+		else {
+			tryAgain = false;
+		}
+	}while(tryAgain);
+	
+	var ctx = new SessionContext;
+	var hlp = new BusinessObjectHelper;
+	var message = hlp.getSysMessage("MSG_BC_TSS_OPEN_TAB_SCREEN_TITLE");
+	
+	ctx.set("TabsScreenTitle", message);
+
+	ctx.set("callerScreen", "OpenTabsScreen");
+	ctx.set("actionType", action_type);
+	
+	cmd = "PosShowTabsScreen";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd,[action_type]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosSetPreviousTabs</b>.
+ *
+ * The PosSetPreviousTabs is responsible for return to the previous screen with open tabs.
+ * In java script it should be called:<b>PosSetPreviousTabs(action_type)</b>
+ * @param action_type - mandatory - the action that will be performed by the Tabs Screen buttons.
+ * @success <i>TSS_08_USR_MSG</i> - OK.
+ *
+ * @since 1.21-
+ */
+function PosSetPreviousTabs(action_type) {
+	var cmd = "cPosSetPreviousTabs";
+	CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+	executeBC(cmd);
+	
+	cmd = "PosShowTabsScreen";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd,[action_type]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosSetNextTabs</b>.
+ *
+ * The PosSetNextTabs is responsible for go to the next screen with open tabs.
+ * In java script it should be called:<b>PosSetNextTabs(action_type)</b>
+ * @param action_type - mandatory - the action that will be performed by the Tabs Screen buttons.
+ * @success <i>TSS_09_USR_MSG</i> - OK.
+ *
+ * @since 1.21-
+ */
+function PosSetNextTabs(action_type) {
+	var cmd = "cPosSetNextTabs";
+	CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+	executeBC(cmd);
+	
+	cmd = "PosShowTabsScreen";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd,[action_type]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosShowTabsScreen</b>.
+ *
+ * The PosShowTabsScreen is responsible for show a screen with the all tabs of the current business day.
+ * In java script it should be called:<b>PosShowTabsScreen(action_type)</b>
+ * @param action_type - mandatory - the action that will be performed by the Tabs Screen buttons.
+ * @success <i>TSS_10_USR_MSG</i> - OK.
+ * @failure	<i>TSS_ERR_01_USR_MSG</i>  - Indicate that there was a communication error
+ * @failure	<i>TSS_ERR_12_USR_MSG</i>  - Indicate that there was an error during the tab creation
+ *
+ * Property Messages:\n
+ *   MSG_BC_TSS_COMM_ERROR: Message used in dialog window to indicate a communication error.
+ *   MSG_BC_SWITCH_TSS_TO_FAILOVER: Message used in dialog window to switch to failover table service.
+ *	 MSG_BC_TSS_POS_TAB_NUMBER: Text used before the tab number in the tab button in POS
+ *	 MSG_BC_TSS_SERVICE_NOT_OPEN: Text used to indicate that the tab service is not open
+ *	 MSG_BC_TSS_ERROR_GET_OPEN_TABS: Text used to indicate an error during the process of get tabs
+ *	 MSG_BC_TSS_POS_REGISTER_NUMBER: Text used before the register number in the tab button in POS
+ *	 MSG_BC_TSS_POS_PARTY_NUMBER: Text used before the party number in the tab button in POS
+ *	 MSG_BC_TSS_POS_TABLE_NUMBER: Text used before the table number in the tab button in POS
+ *	 MSG_BC_TSS_POS_CAR_NUMBER: Text used before the car number in the tab button in POS
+ *	 MSG_BC_TSS_NO_WAVE: Text used to indicate that there isn't a wave associated to this tab
+ *	 MSG_BC_TSS_HOT_TAB_NUMBER: Text used before the tab number in the tab button in HOT
+ *	 MSG_BC_TSS_HOT_REGISTER_NUMBER: Text used before the register number in the tab button in HOT
+ *	 MSG_BC_TSS_HOT_PARTY_NUMBER: Text used before the party number in the tab button in HOT
+ *	 MSG_BC_TSS_HOT_TABLE_NUMBER: Text used before the table number in the tab button in HOT
+ *	 MSG_BC_TSS_HOT_CAR_NUMBER: Text used before the car number in the tab button in HOT
+ *	 MSG_BC_TSS_SERVICE_POS: Text used to indicate that this tab is created by a POS
+ *	 MSG_BC_TSS_SERVICE_HOT: Text used to indicate that this tab is created by a HOT
+ *	 MSG_BC_TSS_TAB_SCREEN_TITLE: Text used in the title of tabs screen
+ *   MSG_BC_TSS_OPER_NOT_COMPLETE: Message used in dialog window to indicate that operation was not completed.
+ * @since 1.21-
+ */
+function PosShowTabsScreen(action_type) {
+	var cmd = "cPosGetTabsData";
+	CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+	
+	var tryAgain = false;
+	do {
+		if(!executeBC(cmd)) {
+			var enable_result = getLastFail("cPosGetTabsData");
+			if(enable_result == "TSS_ERR_01_USR_MSG") {
+				tryAgain = lHandleCommunicationError();
+				if(!tryAgain) {
+					PosShowMessage("MSG_BC_TSS_OPER_NOT_COMPLETE");
+					return false;
+				}
+			}
+			else {
+				if(enable_result == "TSS_ERR_14_USR_MSG") {
+					PosShowMessage("MSG_BC_TSS_SERVICE_NOT_OPEN");
+					return false;
+				}
+				PosShowMessage("MSG_BC_TSS_ERROR_GET_OPEN_TABS");
+				return false;
+			}
+		}
+		else {
+			tryAgain = false;
+		}
+	}while(tryAgain);
+
+	var ctx = new SessionContext;
+	var hlp = new BusinessObjectHelper;
+	var message = hlp.getSysMessage("MSG_BC_TSS_TAB_SCREEN_TITLE");
+
+	ctx.set("TabsScreenTitle", message);
+
+	ctx.set("callerScreen", "TabsScreen");
+	ctx.set("actionType", action_type);
+	
+	cmd = "PosShowTabsScreen";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	return executeBC(cmd,[action_type]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosAssignWaveToTab</b>.
+ *
+ * The PosAssignWaveToTab is responsible for adding a wave to a tab.
+ * In java script it should be called:<b>PosAssignWaveToTab(tabNumber, roomNumber)</b>
+ *
+ * @param tabNumber  - Number of the tab.
+ * @param roomNumber  - Number of the toom.
+ * @param timestamp - Tab creation timestamp.
+ * @success returns true.
+ * @failure	returns false.
+ *
+ * Property Messages:\n
+ *	 MSG_BC_TSS_AUTH_ASSIGN_ORDER_TO_TAB: Text to indicate that it's needed the manager authorization to assign a wave created in another POS.
+ *	 MSG_BC_TSS_ASK_ASSIGN_ORDER_TO_TAB: Text to ask if the crew are sure to assign the wave to the tab.
+ *	 MSG_BC_TSS_AUTH_ASSIGN_ORDER_TO_TAB_MAXIMUM_AMOUNT: Text to indicate that it's needed the manager authorization to assign the current wave to the tab.
+ *	 MSG_BC_TSS_SERVICE_NOT_OPEN: Text used to indicate that the tab service is not open
+ *   MSG_BC_TSS_OPER_NOT_COMPLETE: Message used in dialog window to indicate that operation was not completed.
+ * @since 1.21-
+ */
+function PosAssignWaveToTab(tabNumber, roomNumber, timestamp) {
+	var state = 0;
+	var cmd;
+	var doAgain = true;
+	var enable_result;
+	var hlp = new BusinessObjectHelper;
+
+	if(TSS_RECEIPT_FILE_NAME == "" || TSS_RECEIPT_FILE_NAME == undefined || TSS_RECEIPT_FILE_NAME == null) {
+		TSS_RECEIPT_FILE_NAME = "reports.nps";
+	}
+	do {
+		if(state == 0) {
+			// Verifies if the tab is still open.
+			if(!PosCheckTabIsOpen(tabNumber, timestamp)) {
+				//There was an error
+				var result = getLastFail(cmd);
+				if(result == "TSS_20_USR_MSG") {
+					//The tab timestamp is invalid
+					PosShowMessage("MSG_BC_TSS_TAB_NOT_AVAILABLE",tabNumber);
+					return false;
+				} else if(result == "TSS_ERR_01_USR_MSG") {
+					//There was an communication error
+					doAgain = lHandleCommunicationError();
+					continue;
+				} else {
+					//another error
+					break;
+				}
+			}
+			//ok, we can go to the next step
+			state = 1;
+		}
+		else if(state == 1) {
+			// If it is already a wave it was authorized in the beginning of the sale
+			if(PosCheckTransactionKind(ACC_OT_TAB) && PosCheckTransactionSubKind(ACC_OT_WAVE)) {
+				//ok, we can go to the next step
+				state = 2;
+				continue;
+			}
+			
+			//Verifies if the tab was created by the current POS
+			var cmd = "cPosCheckTabOwner";
+			CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+			if(!executeBC(cmd, [tabNumber])) {
+				//There was an error
+				enable_result = getLastFail(cmd);
+				if(enable_result == "TSS_ERR_01_USR_MSG") {
+					//There was an communication error
+					doAgain = lHandleCommunicationError();
+					continue;
+				} else if(enable_result == "TSS_11_USR_MSG") {
+					//The tab was not created by the current POS, we need to get the manager authorization
+					PosShowMessage("MSG_BC_TSS_AUTH_ASSIGN_ORDER_TO_TAB");
+					if (!PosGetAuthorization("manager", false)) {
+						return false;
+					}
+				} else {
+					//another error
+					break;
+				}
+			}
+			//ok, we can go to the next step
+			state = 2;
+		} else if(state == 2) {
+			//Let's ask it the crew really wants to assign this order to the selected tab
+			var msg = hlp.getSysMessage("MSG_BC_TSS_ASK_ASSIGN_ORDER_TO_TAB", tabNumber, roomNumber);
+			if(false == PosYesNoMessage(msg)) {
+				return false;
+			}
+			//ok we have the crew authorization, let's go to the next step
+			state = 3;
+		} else if(state == 3) {
+			//let's check if the order sub-total plus the open tab sub-total is greater than the default maximum amount
+			var cmd = "PosCheckTabLimit";
+			CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+			if(!executeBC(cmd, [tabNumber])) {
+				//There was an error
+				var result = getLastFail(cmd).split("|");
+				enable_result = result[0];
+				if(enable_result == "TSS_ERR_01_USR_MSG") {
+					//There was an communication error
+					doAgain = lHandleCommunicationError();
+					continue;
+				} else if(enable_result == "TSS_ERR_17_USR_MSG") {
+					//the order sub-total plus the open tab sub-total is greater than the default maximum amount
+					var orderAmount = result[1];
+					var tabAmount = result[2];
+					var maximumAmount = result[3];
+
+					PosShowMessage("MSG_BC_TSS_AUTH_ASSIGN_ORDER_TO_TAB_MAXIMUM_AMOUNT", orderAmount, tabAmount, maximumAmount);
+					if (!PosGetAuthorization("manager", false)) {
+						PosBackToPreviousScreen();
+						return false;
+					}
+				} else {
+					//another error
+					break;
+				}
+			}
+			//ok we have the crew authorization, let's go to the next step
+			state = 4;
+		} else if(state == 4) {
+			//Add the current order to the open tab
+			if(!PosAddWave(tabNumber, roomNumber, timestamp)) {
+				//There was an error
+				enable_result = getLastFail(cmd);
+				if(enable_result == "TSS_ERR_01_USR_MSG") {
+					//There was an communication error
+					doAgain = lHandleCommunicationError();
+					continue;
+				} else {
+					//another error
+					break;
+				}
+			}
+
+			// Finalize the Wave and Print the receipt
+			var noAutoRecall=!(PosIsCashDrawerForced()||!PosCheckSessionProperty("IsCDrawerSetToOpen","true"));
+
+			// End of Sale
+			PosDoEndOfSale(true);
+
+			var showCanceledItems = hlp.findParamInSectionConfig("showCanceledItems","UserInterface");
+			if(PosCheckSessionProperty("workingMode","cashier")) {
+				showCanceledItems =	showCanceledItems+":1"
+			}
+
+			// Regular Receipt
+			if(PosCheckSessionProperty("waveAutomaticPrint","on")) {
+				PosCreateReport("VIEW","receipt@"+TSS_RECEIPT_FILE_NAME,'NOPREVIEW',showCanceledItems);
+			}
+
+			// Pick List
+			if(PosCheckSessionProperty("pickListAutomaticPrint","on")) {
+				PosCreateReport("FULLCONSVIEW","reportPickList@"+TSS_RECEIPT_FILE_NAME,'NOPREVIEW',showCanceledItems);
+			}
+
+			PosSetSessionProperty("activatedCOD","0","true");
+      
+			//ok we have finished all the steps we can return true
+			return true;
+		}
+	} while(doAgain);
+
+	if(!doAgain) {
+		PosShowMessage("MSG_BC_TSS_OPER_NOT_COMPLETE");
+	}
+	else if(enable_result == "TSS_ERR_14_USR_MSG") {
+		PosShowMessage("MSG_BC_TSS_SERVICE_NOT_OPEN");
+	}
+
+	PosBackToPreviousScreen();
+
+	return false;
+}
+
+/**
+
+ * @brief This function implements the BC,Business Component: <b>PosCheckTabAvailable</b>.
+ *
+ * The PosCheckTabAvailable is responsible for Check if there is a tab number available
+ * In java script it should be called:<b>PosCheckTabAvailable()</b>
+ * @success <i>TSS_14_USR_MSG</i> - OK.
+ * @failure	<i>TSS_ERR_01_USR_MSG</i>  - Indicate that there was a communication error
+ * @failure	<i>TSS_ERR_02_USR_MSG</i>  - Indicate that there was a error during the process in the tab service
+ * @failure	<i>TSS_ERR_03_USR_MSG</i>  - Indicate that this BC is called with a invalid number of parameters
+ * @failure	<i>TSS_ERR_06_USR_MSG</i>  - Indicate that the tab service is not enabled
+ * @failure	<i>TSS_ERR_08_USR_MSG</i>  - Indicate that the tab number was not found
+ * @failure <i>TSS_ERR_14_USR_MSG</i>  - Indicate that the tab service is not open
+ * @failure <i>TSS_ERR_16_USR_MSG</i>  - Indicate that the tab service has no operator logged in.
+ * @failure <i>TSS_ERR_21_USR_MSG</i>  - Indicate that there is no tab available
+ * @since 1.21-
+ */
+function PosCheckTabAvailable() {
+	var cmd = "PosCheckTabAvailable";
+	CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosCheckOpenTabs</b>.
+ *
+ * The PosCheckOpenTabs is responsible for checking if there are open tabs.
+ * In java script it should be called:<b>PosCheckOpenTabs</b>
+ * @success <i>status</i> - "TRUE" if there are open tabs, "FALSE" otherwise.
+ * @failure	<i>TSS_ERR_01_USR_MSG</i>  - Indicate that there was a communication error
+ * @failure	<i>TSS_ERR_02_USR_MSG</i>  - Indicate that there was a error during the process in the tab service
+ * @failure	<i>TSS_ERR_06_USR_MSG</i>  - Indicate that the tab service is not enabled
+ * @failure <i>TSS_ERR_14_USR_MSG</i>  - Indicate that the tab service is not open
+ * @failure <i>TSS_ERR_16_USR_MSG</i>  - Indicate that the tab service has no operator logged in.
+ *
+ * @since 1.21-
+ */
+function PosCheckOpenTabs() {
+	var cmd = "cPosCheckOpenTabs";
+	CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+	
+	var tryAgain = 3;
+	do {
+		if(!executeBC(cmd)) {
+			var error = getLastFail("cPosCheckOpenTabs");
+			if(error == "TSS_ERR_01_USR_MSG") {
+				tryAgain = tryAgain - 1;
+			}
+			else {
+				return false;
+			}
+		}
+		else {
+			var status = getLastSuccess("cPosCheckOpenTabs");
+			if(status == "TRUE") {
+				return true;
+			}
+			else {
+				return false;
+			}
+		}
+	}while(tryAgain > 0);
+	
+	return false;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosCheckOpenTabEnabled</b>.
+ *
+ * The PosCheckOpenTabEnabled is responsible for checking if the Open Tab feature is enabled.
+ * In java script it should be called:<b>PosCheckOpenTabEnabled</b>
+ * @success <i>enabled</i> - true if the Open Tab feature is enabled, false otherwise.
+ *
+ * @since 1.21-
+ */
+function PosCheckOpenTabEnabled() {
+	var hlp = new BusinessObjectHelper;
+	var maximumConcurrentTabLimit=hlp.findParamInSectionWide("MaximumConcurrentTabLimit","OpenTab");
+	if(maximumConcurrentTabLimit == null) {
+		return false;
+	}
+	if (Number(maximumConcurrentTabLimit) > 0 && Number(maximumConcurrentTabLimit) <= 9999) {
+		return true;
+	}
+	return false;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosHandleTabButton</b>.
+ *
+ * The PosHandleTabButton is responsible for handling the buttons in the tab selection screen.
+ * In java script it should be called: <b>PosHandleTabButton(action_type, tab_number, roomNumber, tab_name, tab_is_open)</b>
+ * @param action_type - mandatory - the action that will be performed by the Tabs Screen buttons.
+ *                      - "assign_wave" - assign the current order to the given Tab as a wave.
+ *                      - "show_tab_menu" - show the Tab Menu Screen.
+ *						- "postpone" - postpone tab
+ *						- "cancel" - cancel tab
+ *						- "add_wave" - add wave to the selected tab
+ *						- "transfer_wave" - transfer wave to selected tab
+ *                      - "do_nothing" - take no action.
+ * @param tab_number - the selected Tab's number.
+ * @param roomNumber - the selected Tab's room.
+ * @param tab_number - the selected Tab's name.
+ * @param tab_is_open - indicate if the tab is open.
+ * @param timestamp - timestamp of the tab.
+ * @param elapsedTime - elapsed time of the tab.
+ * @param sourcePosID - POS ID of the POS that create the tab.
+ *
+ * @since 1.21-
+ */
+function PosHandleTabButton(action_type, tab_number, roomNumber, tab_name, tab_is_open, timestamp, elapsedTime, sourcePosID) {
+	var hlp = new BusinessObjectHelper;
+	if(action_type == "assign_wave") {
+		if(PosAssignWaveToTab(tab_number, roomNumber, timestamp)) {
+			var ctx=new SessionContext;
+			PosShowScreen(ctx.get("baseScreenId"));
+			return true;
+		}
+		return false;
+	}
+	else if(action_type == "show_tab_menu") {
+		var xmlPOS = new XML(hlp.getPOSState());
+		if(xmlPOS.@ID != sourcePosID) {
+			// carlosb 26.jun.2012 - WWR-2037 - This Tab was not created in this register, so the manager authorization will be required
+			PosShowMessage("MSG_BC_TSS_AUTH_VIEW_TAB_OTHER_REGISTER");
+			if (!PosGetAuthorization("manager", false)) {
+				return false;
+			}
+		}
+		return PosShowTabMenuScreen(tab_number, roomNumber, tab_name, tab_is_open, timestamp, elapsedTime);
+	}
+	else if(action_type == "postpone") {
+		return PosPostponeTab(tab_number);
+	}
+	else if(action_type == "add_wave") {
+		PosCreateNewWave(tab_number, roomNumber, timestamp);
+		var ctx=new SessionContext;
+		PosShowScreen(ctx.get("baseScreenId"));
+		return true;
+	}
+
+	else if(action_type == "transfer_wave") {
+		var ctx=new SessionContext;
+		var TransferOrderKey = ctx.get("TransferOrderKey");
+		var TransferFromTab = ctx.get("TabNumber");
+		var TransferWaveAmount =  ctx.get("TransferWaveAmount");
+		var TransferFromTimestamp = ctx.get("Timestamp");
+		PosTransferWave(TransferFromTab, TransferFromTimestamp, tab_number, timestamp, TransferOrderKey, TransferWaveAmount);
+		//Clear the transfer order key
+		ctx.set("TransferOrderKey");
+		ctx.set("TransferWaveAmount");
+		PosBackToPreviousScreen();
+		return true;
+	}
+	else if(action_type == "cancel") {
+		if (PosCheckTabHasWave(tab_number)) {
+			PosShowMessage("MSG_BC_TSS_TAB_NOT_EMPTY", tab_number);
+			PosBackToPreviousScreen();
+			return false;			
+		}
+		var msg = hlp.getSysMessage("MSG_BC_TSS_TAB_CANCEL_CONFIRM", tab_number, tab_name);
+		if (!PosShowConfirmationMessage(msg, "MSG_YES", "MSG_NO")) {
+			PosShowMessage("MSG_BC_TSS_TAB_CANCEL_FAILED", tab_number, tab_name);
+			return false;
+		}
+		return PosCancelOpenTab(tab_number, tab_name, timestamp);
+	}	
+	else if(action_type == "do_nothing"){
+		return true;
+	}
+	return false;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosCreateTabAndAssignWave</b>.
+ *
+ * The PosCreateTabAndAssignWave is responsible for create a tab and add a wave to this tab.
+ * In java script it should be called:<b>PosCreateTabAndAssignWave(tabNumber, roomNumber, room_name)</b>
+
+ * @param tab_number  - Number of the tab.
+ * @param roomNumber  - Number of the toom.
+ * @success returns true.
+ * @failure	returns false.
+ *
+ * Property Messages:\n
+ *	 MSG_BC_TSS_ASK_ASSIGN_ORDER_TO_TAB: Text to ask if the crew are sure to assign the wave to the tab.
+ *	 MSG_BC_TSS_AUTH_ASSIGN_ORDER_TO_TAB_MAXIMUM_AMOUNT: Text to indicate that it's needed the manager authorization to assign the current wave to the tab.
+ *	 MSG_BC_TSS_SERVICE_NOT_OPEN: Text used to indicate that the tab service is not open
+ *   MSG_BC_TSS_COMM_ERROR: Message used in dialog window to indicate a communication error.
+ *   MSG_BC_SWITCH_TSS_TO_FAILOVER: Message used in dialog window to switch to failover table service.
+ *	 MSG_BC_TSS_SERVICE_NOT_OPEN: Text used to indicate that the tab service is not open
+ *	 MSG_BC_TSS_ERROR_SAVING_TAB: Text used to indicate that there is an error during the process
+ *   MSG_BC_TSS_OPER_NOT_COMPLETE: Message used in dialog window to indicate that operation was not completed.
+ * @since 1.21-
+ */
+function PosCreateTabAndAssignWave(tab_number, roomNumber, room_name) {
+	var cmd = "";
+	var enable_result;
+	var timestamp;
+	var hlp = new BusinessObjectHelper;
+	room_name = csl_trim(room_name);
+	cmd = "PosCreateTab";
+	CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+	if(TSS_RECEIPT_FILE_NAME == "" || TSS_RECEIPT_FILE_NAME == undefined || TSS_RECEIPT_FILE_NAME == null) {
+		TSS_RECEIPT_FILE_NAME = "reports.nps";
+	}
+	if(!lTryCommand(cmd, [tab_number, roomNumber, room_name])) {
+		enable_result = getLastSuccess("PosCreateTab");
+		if(enable_result === "TSS_ERR_14_USR_MSG") {
+			PosShowMessage("MSG_BC_TSS_SERVICE_NOT_OPEN");
+		} else {
+			PosShowMessage("MSG_BC_TSS_ERROR_SAVING_TAB");
+		}
+		PosShowMessage("MSG_BC_TSS_OPER_NOT_COMPLETE");
+		PosBackToPreviousScreen();
+		return false;
+	}
+
+	enable_result = getLastSuccess("PosCreateTab");
+	var result = enable_result.split("|");
+	timestamp = result[0];
+	
+	//let's check if the order sub-total plus the open tab sub-total is greater than the default maximum amount
+	cmd = "PosCheckTabLimit";
+	CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+	if(!lTryCommand(cmd, [tab_number])) {
+		//There was an error
+		var result = getLastFail(cmd).split("|");
+		enable_result = result[0];
+		if(enable_result === "TSS_ERR_17_USR_MSG") {
+			//the order sub-total plus the open tab sub-total is greater than the default maximum amount
+			var orderAmount = result[1];
+			var tabAmount = result[2];
+			var maximumAmount = result[3];
+
+			PosShowMessage("MSG_BC_TSS_AUTH_ASSIGN_ORDER_TO_TAB_MAXIMUM_AMOUNT", orderAmount, tabAmount, maximumAmount);
+			if (!PosGetAuthorization("manager", false)) {
+				PosBackToPreviousScreen();
+				return false;
+			}
+		} else {
+			//another error
+			PosShowMessage("MSG_BC_TSS_OPER_NOT_COMPLETE");
+			PosBackToPreviousScreen();
+			return false;
+		}
+		
+	}
+	
+	//Add the current order to the open tab
+	if(!lTryFunction(PosAddWave, [tab_number, roomNumber, timestamp])) {
+		//There was an error
+		enable_result = getLastFail("cPosAddWave");
+		if(enable_result !== "TSS_ERR_01_USR_MSG") {
+			//another error
+			PosShowMessage("MSG_BC_TSS_OPER_NOT_COMPLETE");
+			PosBackToPreviousScreen();
+			return false;
+		}
+	}
+	
+	// Finalize the Wave and Print the receipt
+	var noAutoRecall=!(PosIsCashDrawerForced()||!PosCheckSessionProperty("IsCDrawerSetToOpen","true"));
+
+	// End of Sale
+	PosDoEndOfSale(true);
+
+	var showCanceledItems = hlp.findParamInSectionConfig("showCanceledItems","UserInterface");
+	if(PosCheckSessionProperty("workingMode","cashier")) {
+		showCanceledItems =	showCanceledItems+":1"
+	}
+
+	// Regular Receipt
+	if(PosCheckSessionProperty("waveAutomaticPrint","on")) {
+		PosCreateReport("VIEW","receipt@"+TSS_RECEIPT_FILE_NAME,'NOPREVIEW',showCanceledItems);
+	}
+
+	// Pick List
+	if(PosCheckSessionProperty("pickListAutomaticPrint","on")) {
+		PosCreateReport("FULLCONSVIEW","reportPickList@"+TSS_RECEIPT_FILE_NAME,'NOPREVIEW',showCanceledItems);
+	}
+	
+	PosSetSessionProperty("activatedCOD","0","true")
+
+	//ok we have finished all the steps we can return true
+	return true;
+}
+
+/**
+ * @brief - This function implements the BC,Business Component: <b>PosShowTabMenuScreen</b>\n
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC shows the Tab Menu Screen\n
+ * In java script it should be called:<b>PosShowTabMenuScreen(tab_number, roomNumber, tab_name)</b>\n
+ * @param tab_number - mandatory - the selected Tab's number.
+ * @param roomNumber - mandatory - the selected Tab's room.
+ * @param tab_name - mandatory - the selected Tab's name.
+ * @param tab_is_open - mandatory - true if the selected Tab is open.
+ * @param timestamp - mandatory - timestamp of the tab.
+ * @param elapsedTime - mandatory - elapsed time since the first wave was inserted.
+ * @success <i>TSS_15_USR_MSG</i> - OK.
+ * @failure	<i>TSS_ERR_03_USR_MSG</i>  - Indicate that this BC is called with a invalid number of parameters
+ * @failure	<i>TSS_ERR_15_USR_MSG</i>  - Indicate that there was an error during the show screen process
+ *
+ * Property Messages:\n
+ *   MSG_BC_TSS_OPEN_TAB_MENU_TITLE: Text of the Open Tab Menu screen title
+ *   MSG_BC_TSS_POS_TAB_NUMBER_TITLE: Text of the Tab Number button
+ *   MSG_BC_TSS_POS_TAB_ROOM_TITLE: Text of the Generic Tab Room button
+ *   MSG_BC_TSS_POS_TAB_NAME_TITLE: Text of the Generic Tab Name button
+ *   MSG_BC_TSS_POS_PARTY_TAB_ROOM_TITLE: Text of the Party Tab Room button
+ *   MSG_BC_TSS_POS_PARTY_TAB_NAME_TITLE: Text of the Party Tab Room button
+ *   MSG_BC_TSS_POS_TABLE_TAB_ROOM_TITLE: Text of the Table Tab Room button
+ *   MSG_BC_TSS_POS_TABLE_TAB_NAME_TITLE: Text of the Table Tab Room button
+ *   MSG_BC_TSS_POS_CAR_TAB_ROOM_TITLE: Text of the Car Tab Room button
+ *   MSG_BC_TSS_POS_CAR_TAB_NAME_TITLE: Text of the Car Tab Room button
+ *   MSG_BC_TSS_VIEW_WAVES_BTN_TITLE: Text of the View Waves button
+ *   MSG_BC_TSS_ADD_WAVE_BTN_TITLE: Text of the Add Waves button
+ *   MSG_BC_TSS_PRN_ALL_BTN_TITLE: Text of the Print All Waves button
+ *   MSG_BC_TSS_VIEW_TAB_BTN_TITLE: Text of the View Tab button
+ *   MSG_BC_TSS_PRN_TAB_BTN_TITLE: Text of the Print Tab button
+ *   MSG_BC_TSS_ADJ_TAB_BTN_TITLE: Text of the Adjust Tab button
+ *   MSG_BC_TSS_TENDER_TAB_BTN_TITLE: Text of the Tender Tab button
+ *   MSG_BC_TSS_BACK_BTN_TITLE: Text of the Back button
+ *
+ * @since 1.21-
+ */
+function PosShowTabMenuScreen(tab_number, roomNumber, tab_name, tab_is_open, timestamp, elapsedTime) {
+	var cmd = "PosShowTabMenuScreen";
+	CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+	return executeBC(cmd,[tab_number,roomNumber,tab_name,tab_is_open, timestamp, elapsedTime]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosBackToTabsScreen</b>.
+ *
+ * The PosHandleTabButton is responsible for handling the back button of the Tab Menu Screen.
+ * In java script it should be called: <b>PosBackToTabsScreen()</b>
+ *
+ * @since 1.21-
+ */
+function PosBackToTabsScreen() {
+	var ctx=new SessionContext;
+
+	var caller_screen = ctx.get("callerScreen");
+	var action_type = ctx.get("actionType");
+
+	ctx.set("callerScreen");
+	ctx.set("actionType");
+
+	if(caller_screen != null) {
+		if(caller_screen == "OpenTabsScreen") {
+			PosShowOpenTabsScreen(action_type);
+			return true;
+		}
+		if(caller_screen == "TabsScreen") {
+			PosShowTabsScreen(action_type);
+			return true;
+		}
+	}
+
+	PosShowScreen(ctx.get("baseScreenId"));
+	return true;
+}
+
+/**
+ * @brief - This function implements the BC,Business Component: <b>PosShowTabWavesListScreen</b>\n
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC shows the Tab view dialog\n
+ * In java script it should be called:<b>PosShowTabWavesListScreen()</b>\n
+ * @success true - OK.
+ * @param TypeView - mandatory - type of the view dialog - "Tab" to show consolidate receipt and "Wave" to show the list of waves.
+ * @failure	<i>TSS_ERR_01_USR_MSG</i>  - Indicate that there was a communication error
+ * @failure	<i>TSS_ERR_02_USR_MSG</i>  - Indicate that there was a error during the process in the tab service
+ * @failure	<i>TSS_ERR_06_USR_MSG</i>  - Indicate that the tab service is not enabled
+ * @failure <i>TSS_ERR_14_USR_MSG</i>  - Indicate that the tab service is not open
+ * @failure <i>TSS_ERR_16_USR_MSG</i>  - Indicate that the tab service has no operator logged in.
+ * @failure	<i>TSS_ERR_03_USR_MSG</i>  - Indicate that this BC is called with a invalid number of parameters
+ * @failure	<i>TSS_ERR_22_USR_MSG</i>  - Indicate that this tab is not open
+ *
+ * Property Messages:\n
+ *	MSG_BC_TSS_VIEW_TAB_BTN: Text of the button tab view
+ *	MSG_BC_TSS_VIEW_WAVES_BTN: Text of the button waves view
+ *	MSG_BC_TSS_TRANSFER_WAVES_BTN: Text of the button transfer wave
+ *	MSG_BC_TSS_CANCEL_WAVES_BTN: Text of the button cancel wave
+ *	MSG_BC_TSS_VIEW_WAVES_TITLE: Text of the title of the tab/wave view dialog
+ *	MSG_BC_TSS_VIEW_WAVES_HEADER: Text of the header of the tab/wave view list
+ *  MSG_BC_TSS_OPER_NOT_COMPLETE: Message used in dialog window to indicate that operation was not completed.
+ *
+ * @since 1.21-
+ */
+function PosShowTabWavesListScreen(TypeView) {
+	var state = 1;
+	var cmd;
+	var doAgain = true;
+	
+	var ctx=new SessionContext;
+	var tabNumber = ctx.get("TabNumber");
+	var timestamp = ctx.get("Timestamp");
+	var name = ctx.get("Name");
+	var roomNumber = ctx.get("RoomNumber");
+	var elapsedTime = ctx.get("ElapsedTime");
+	
+	do {
+		if(state == 1) {			
+			cmd = "PosGetTabWaveList";
+			CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+			if(!executeBC(cmd,[tabNumber,timestamp])) {
+				//There was an error
+				var result = getLastFail("PosGetTabWaveList");
+				if(result == "TSS_ERR_01_USR_MSG") {
+					//There was an communication error
+					doAgain = lHandleCommunicationError();
+					continue;
+				} else if(result == "TSS_ERR_14_USR_MSG") {
+					PosShowMessage("MSG_BC_TSS_SERVICE_NOT_OPEN");
+					break;
+				} else {
+					//another error
+					break;
+				}
+			}
+			//ok we have the wave list, let's go to the next step
+			state = 2;
+		} else if(state == 2) {
+			cmd = "cPosGetTabView";
+			CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+			if(!executeBC(cmd,[tabNumber,timestamp])) {
+				//There was an error
+				var result = getLastFail("PosGetTabWaveList");
+				if(result == "TSS_ERR_01_USR_MSG") {
+					//There was an communication error
+					doAgain = lHandleCommunicationError();
+					continue;
+				} else if(result == "TSS_ERR_14_USR_MSG") {
+					PosShowMessage("MSG_BC_TSS_SERVICE_NOT_OPEN");
+					break;
+				} else {
+					//another error
+					break;
+				}
+			}
+			//ok we have the crew authorization, let's go to the next step
+			state = 3;
+		} else if(state == 3) {
+			cmd = "PosShowTabWavesList";
+			CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+			if(!executeBC(cmd,[tabNumber, roomNumber, name, elapsedTime, TypeView])) {
+				var result = getLastFail(cmd);
+				if(result == "TSS_ERR_42_USR_MSG") {
+					PosShowMessage("MSG_BC_TSS_TAB_NOT_INITIALIZED");
+					return false;
+				}
+			}
+			
+			var result = getLastSuccess(cmd).split("|");
+			var ctx=new SessionContext;
+			ctx.set("WaveListCmd", result[0]);
+			if(Number(result[0]) == NPGUI_TRANSFER_WAVE) {
+				ctx.set("TransferOrderKey", result[1]);
+				ctx.set("TransferWaveAmount", result[2]);
+			}
+			else if(Number(result[0]) == NPGUI_CANCEL_WAVE || Number(result[0]) == NPGUI_CANCEL_ADJ) {
+				ctx.set("CancelOrderKey", result[1]);
+				ctx.set("waveMajor", result[2]);
+			}
+			
+			//ok we have finished all the steps we can return true
+			return true;
+		}
+	} while(doAgain);
+	
+	PosShowMessage("MSG_BC_TSS_OPER_NOT_COMPLETE");
+	return false;
+}
+
+/**
+ * @brief - This function implements the BC,Business Component: <b>PosPrintAllWaves</b>\n
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC shows the Tab Menu Screen\n
+ * In java script it should be called:<b>PosPrintAllWaves()</b>\n
+ * @success <i>TSS_15_USR_MSG</i> - OK.
+ * @failure	<i>TSS_ERR_03_USR_MSG</i>  - Indicate that this BC is called with a invalid number of parameters
+ * @failure	<i>TSS_ERR_15_USR_MSG</i>  - Indicate that there was an error during the show screen process
+ *
+ * Property Messages:\n
+ *   MSG_BC_TSS_OPEN_TAB_MENU_TITLE: Text of the Open Tab Menu screen title
+ *   MSG_BC_TSS_POS_TAB_NUMBER_TITLE: Text of the Tab Number button
+ *   MSG_BC_TSS_POS_TAB_ROOM_TITLE: Text of the Generic Tab Room button
+ *   MSG_BC_TSS_POS_TAB_NAME_TITLE: Text of the Generic Tab Name button
+ *   MSG_BC_TSS_POS_PARTY_TAB_ROOM_TITLE: Text of the Party Tab Room button
+ *   MSG_BC_TSS_POS_PARTY_TAB_NAME_TITLE: Text of the Party Tab Room button
+ *   MSG_BC_TSS_POS_TABLE_TAB_ROOM_TITLE: Text of the Table Tab Room button
+ *   MSG_BC_TSS_POS_TABLE_TAB_NAME_TITLE: Text of the Table Tab Room button
+ *   MSG_BC_TSS_POS_CAR_TAB_ROOM_TITLE: Text of the Car Tab Room button
+ *   MSG_BC_TSS_POS_CAR_TAB_NAME_TITLE: Text of the Car Tab Room button
+ *   MSG_BC_TSS_VIEW_WAVES_BTN_TITLE: Text of the View Waves button
+ *   MSG_BC_TSS_ADD_WAVE_BTN_TITLE: Text of the Add Waves button
+ *   MSG_BC_TSS_PRN_ALL_BTN_TITLE: Text of the Print All Waves button
+ *   MSG_BC_TSS_VIEW_TAB_BTN_TITLE: Text of the View Tab button
+ *   MSG_BC_TSS_PRN_TAB_BTN_TITLE: Text of the Print Tab button
+ *   MSG_BC_TSS_ADJ_TAB_BTN_TITLE: Text of the Adjust Tab button
+ *   MSG_BC_TSS_TENDER_TAB_BTN_TITLE: Text of the Tender Tab button
+ *   MSG_BC_TSS_BACK_BTN_TITLE: Text of the Back button
+ *
+ * @since 1.21-
+ */
+function PosPrintAllWaves() {
+	var ctx=new SessionContext;
+	var tabNumber = ctx.get("TabNumber");
+	var timestamp = ctx.get("Timestamp");
+
+	var cmd = "cPosPrintAllWaves";
+	CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+
+	var ret = executeBC(cmd,[tabNumber,timestamp]);
+	if(!ret) {
+		//There was an error
+		var result = getLastFail("cPosPrintAllWaves");
+		if(result == "TSS_ERR_38_USR_MSG") {
+			PosShowMessage("MSG_BC_TSS_WITHOUT_WAVES");
+		}
+	}
+	return ret;
+}
+
+/**
+ * @brief - This function implements the BC,Business Component: <b>PosPrintTab</b>\n
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC shows the Tab Menu Screen\n
+ * In java script it should be called:<b>PosPrintTab()</b>\n
+ * @success <i>TSS_15_USR_MSG</i> - OK.
+ * @failure	<i>TSS_ERR_03_USR_MSG</i>  - Indicate that this BC is called with a invalid number of parameters
+ *
+ * Property Messages:\n
+ *   MSG_BC_TSS_OPEN_TAB_MENU_TITLE: Text of the Open Tab Menu screen title
+ *   MSG_BC_TSS_OPER_NOT_COMPLETE: Message used in dialog window to indicate that operation was not completed.
+ *
+ * @since 1.21-
+ */
+function PosPrintTab() {
+	var ctx=new SessionContext;
+	var tabNumber = ctx.get("TabNumber");
+	var timestamp = ctx.get("Timestamp");
+
+	var cmd = "cPosGetTabView";
+	CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+	do {
+		if(!executeBC(cmd,[tabNumber,timestamp])) {
+			//There was an error
+			var result = getLastFail("PosGetTabWaveList");
+			if(result == "TSS_ERR_01_USR_MSG") {
+				//There was an communication error
+				doAgain = lHandleCommunicationError();
+				if(!doAgain) {
+					PosShowMessage("MSG_BC_TSS_OPER_NOT_COMPLETE");
+					return false;
+				}
+			} else if(result == "TSS_ERR_14_USR_MSG") {
+				PosShowMessage("MSG_BC_TSS_SERVICE_NOT_OPEN");
+				break;
+			} else {
+				//another error
+				break;
+			}
+		}
+		break;
+	} while (doAgain);
+	
+	cmd = "cPosPrintTab";
+	CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+
+	return(executeBC(cmd,[tabNumber]));
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosPostponeTab</b>.
+ *
+ * The PosPostponeTab is responsible for marking a tab as postponed. 
+ * In java script it should be called:<b>PosPostponeTab(tabNumber)</b>
+ * @success <i>enabled</i> - true if the tab was postponed, false otherwise
+ *
+ * @since 1.21-
+ */
+function PosPostponeTab(tab_number) {
+	var cmd = "cPosPostponeTab";
+	CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+	if (executeBC(cmd,[tab_number])) {
+		var interval = getLastSuccess(cmd);
+		PosShowMessage("MSG_BC_TSS_TAB_POSTPONED", tab_number, interval);
+		PosBackToPreviousScreen();
+		return true;				
+	}
+	
+	PosShowMessage("MSG_BC_TSS_POSTPONE_FAILED", tab_number, interval);
+	PosBackToPreviousScreen();
+	return false;
+}
+
+/**
+ * @brief - This function implements the BC,Business Component: <b>PosCreateNewWave</b>\n
+ * Persistence:<b>Not Persisted</b>\n
+ * This sets the next order as a wave assigned to the given tab.\n
+ * In java script it should be called:<b>PosCreateNewWave(tabNumber, roomNumber, tabTimestamp)</b>\n
+ * @param tabNumber - the Tab number.
+ * @param roomNumber  - the Tab room.
+ * @param tabTimestamp - the Tab creation timestamp.
+ * @success <i>TRUE</i> - OK.
+ * @failure <i>FALSE</i> - Failed to start a new wave.
+ * @failure	<i>TSS_ERR_01_USR_MSG</i>  - Indicate that there was a communication error
+ * @failure	<i>TSS_ERR_02_USR_MSG</i>  - Indicate that there was an error during the process
+ * @failure	<i>TSS_ERR_06_USR_MSG</i>  - Indicate that the tab service is not enabled
+ * @failure <i>TSS_ERR_14_USR_MSG</i>  - Indicate that the tab service is not open
+ * @failure <i>TSS_ERR_16_USR_MSG</i>  - Indicate that the tab service has no operator logged in.
+ *
+ * Property Messages:\n
+ *   MSG_BC_TSS_OPEN_TAB_MENU_TITLE: Text of the Open Tab Menu screen title
+ *
+ * @since 1.21-
+ */
+function PosCreateNewWave(tabNumber, roomNumber, tabTimestamp) {
+	return lCreateNewWave(tabNumber, roomNumber, tabTimestamp, ACC_OT_WAVE);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosValidateTabLimit</b>.
+ *
+ * Persistence <b>Not Persisted</b>\n
+ * This BC is responsible for verify if the Tab Limit was reached and get authorization if necessary.
+ *
+ * @success Tab Limit not reached or amount authorized.
+ * @failure <i>Tab Limit not authorized</i>  - Indicate that the amount is not authorized
+ * @remarks
+ * @since 1.21
+ */
+function PosValidateTabLimit() {
+	CSL_dbglog(7, SRC_BC_TSS, "PosValidateTabLimit", "Start");
+
+	var ctx = new SessionContext;
+	var tabAmount = ctx.get("waveTabTotalAmount");
+	var maximumAmount = ctx.get("waveTabMaximumAmount");
+	
+	API.dbg("TAB(" + tabAmount + "), MAX(" + maximumAmount + ")"); 
+
+	var cmd = "cPosValidateTabLimit";
+	CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+	if(!executeBC(cmd,[tabAmount, maximumAmount])) {
+		var message = getLastFail();
+		var info = message.split("|");
+
+		var orderAmount = info[0];
+		
+		PosShowMessage("MSG_BC_TSS_AUTH_ASSIGN_ORDER_TO_TAB_MAXIMUM_AMOUNT", orderAmount, tabAmount, maximumAmount);
+		if (!PosGetAuthorization("manager", false)) {
+			PosBackToPreviousScreen();
+			return false;
+		}
+
+		cmd = "cPosAuthorizeTabLimit";
+		CSL_dbglog(7, SRC_BC_SALES, cmd, "Start");
+		executeBC(cmd);
+	}
+	
+	return true;
+}	
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosCheckTabHasWave</b>.
+ *
+ * The PosCheckTabHasWave is responsible for checking if the required tab has any wave assigned to it. 
+ * In java script it should be called:<b>PosTabHasWave(tabNumber)</b>
+ * @success <i>enabled</i> - true if the tab was canceled, false otherwise
+ *
+ * @since 1.21-
+ */
+function PosCheckTabHasWave(tab_number) {
+	var cmd = "cPosCheckTabHasWave";
+	CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+	return executeBC(cmd, [tab_number]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosCancelOpenTab</b>.
+ *
+ * The PosCancelOpenTab is responsible for removing a tab. 
+ * In java script it should be called:<b>PosCancelOpenTab(tabNumber)</b>
+ * @success <i>enabled</i> - true if the tab was canceled, false otherwise
+ *
+ * @since 1.21-
+ */
+function PosCancelOpenTab(tab_number, tab_name, timestamp) {
+	var cmd = "cPosCancelTab";
+	CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+	if (executeBC(cmd,[tab_number, timestamp])) {
+		var interval = getLastSuccess(cmd);
+		PosShowMessage("MSG_BC_TSS_TAB_CANCELED", tab_number, tab_name);
+		PosBackToPreviousScreen();
+		return true;				
+	}
+	var msg = getLastFail("cPosCancelTab");
+	if (msg == "TSS_21_USR_MSG") {
+		PosShowMessage("MSG_BC_TSS_TAB_NOT_EMPTY", tab_number);
+		PosBackToPreviousScreen();
+		return false;
+	}
+	PosShowMessage("MSG_BC_TSS_TAB_CANCEL_FAILED", tab_number, tab_name);
+	PosBackToPreviousScreen();
+	return false;
+}
+
+/*
+ * @brief This function implements the BC,Business Component: <b>PosHandleWavesListReturn</b>.
+ *
+ * The PosHandleWavesListReturn is responsible for handling the buttons in the wave list screen.
+ * In java script it should be called: <b>PosHandleWavesListReturn()</b>
+ *
+ * @since 1.21-
+ */
+function PosHandleWavesListReturn() {
+	var ctx=new SessionContext;
+	var WaveListCmd = Number(ctx.get("WaveListCmd"));
+
+	if(WaveListCmd == NPGUI_TRANSFER_WAVE) {
+		if(!PosGetAuthorization("manager", false)) {
+			return true;
+		}
+		PosShowOpenTabsScreen("transfer_wave");
+	}
+	else if(WaveListCmd == NPGUI_CANCEL_WAVE) {
+		var tabNumber = ctx.get("TabNumber");
+		var tabTimestamp = ctx.get("Timestamp");
+		var waveOrderKey = ctx.get("CancelOrderKey");
+		var roomNumber = ctx.get("RoomNumber");
+		var waveMajor = ctx.get("waveMajor");
+
+		PosCancelWaveOnTab(tabNumber, tabTimestamp, waveOrderKey, roomNumber, waveMajor);
+	}
+	else if(WaveListCmd == NPGUI_CANCEL_ADJ) {
+		var tabNumber = ctx.get("TabNumber");
+		var tabTimestamp = ctx.get("Timestamp");
+		var waveOrderKey = ctx.get("CancelOrderKey");
+		var roomNumber = ctx.get("RoomNumber");
+		PosCancelAdjustment(tabNumber, tabTimestamp, waveOrderKey, roomNumber);
+	}
+	return true;
+}
+
+/*
+ * @brief This function implements the BC,Business Component: <b>PosHandleBackOpenTabs</b>.
+ *
+ * The PosHandleBackOpenTabs is responsible for handling the return of the open tabs screen.
+ * In java script it should be called: <b>PosHandleBackOpenTabs(action_type)</b>
+ * @param action_type - action used in the open tabs screen.
+ *
+ * @since 1.21-
+ */
+function PosHandleBackOpenTabs(action_type) {
+	if(action_type == "transfer_wave") {
+		var ctx=new SessionContext;
+		//Clear the transfer order key
+		ctx.set("TransferOrderKey");
+		ctx.set("TransferWaveAmount");
+		var tabNumber = ctx.get("TabNumber");
+		var timestamp = ctx.get("Timestamp");
+		var name = ctx.get("Name");
+		var roomNumber = ctx.get("RoomNumber");
+		var elapsedTime = ctx.get("ElapsedTime");
+		
+		// it's necessary to set the action type used in the show open tabs
+		ctx.set("actionType","show_tab_menu");
+		
+		PosShowTabMenuScreen(tabNumber, roomNumber, name, "true", timestamp, elapsedTime);
+		PosShowTabWavesListScreen("Wave");
+		return true;
+	}
+	
+	PosBackToPreviousScreen();
+	return true;
+}
+
+/**
+ * @brief - This function implements the BC,Business Component: <b>PosTransferWave</b>\n
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC is responsible to transfer a wave.\n
+ * In java script it should be called:<b>PosTransferWave(tabNumberToRemove, tabTimestampToRemove, tabNumberToInsert, tabTimestampToInsert,orderKey, amount)</b>\n
+ * @param tabNumberToRemove - the Tab number from where the wave will be removed.
+ * @param tabTimestampToRemove  - timestamp of the tab from where the wave will be removed.
+ * @param tabNumberToInsert - the Tab number to where the wave will be removed.
+ * @param tabTimestampToInsert  - timestamp of the tab to where the wave will be inserted.
+ * @param orderKey  - order key of the wave.
+ * @param amount  - amount of the wave.
+ * @success <i>TRUE</i> - OK.
+ * @failure <i>FALSE</i> - Failed to start a new wave.
+ * @failure	<i>TSS_ERR_01_USR_MSG</i>  - Indicate that there was a communication error
+ * @failure	<i>TSS_ERR_06_USR_MSG</i>  - Indicate that the tab service is not enabled
+ * @failure <i>TSS_ERR_14_USR_MSG</i>  - Indicate that the tab service is not open
+ * @failure <i>TSS_ERR_16_USR_MSG</i>  - Indicate that the tab service has no operator logged in.
+ *
+ * Property Messages:\n
+ *   MSG_BC_TSS_AUTH_TRANSFER_ORDER_TO_TAB_MAXIMUM_AMOUNT: Message to indicate that the maximum amount was reached
+ *   MSG_BC_TSS_INTERNAL_ERROR: Message to indicate a internal error
+ *   MSG_BC_TSS_OPER_NOT_COMPLETE: Message used in dialog window to indicate that operation was not completed.
+ *
+ * @since 1.21-
+ */
+function PosTransferWave(tabNumberToRemove, tabTimestampToRemove, tabNumberToInsert, tabTimestampToInsert,orderKey, amount) {
+	var doAgain = true;
+	var step = 1;
+	do {
+		if(step == 1) {
+			//let's check if the order sub-total plus the open tab sub-total is greater than the default maximum amount
+			var cmd = "PosCheckTabLimit";
+			CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+			if(!executeBC(cmd, [tabNumberToInsert, amount])) {
+				//There was an error
+				var result = getLastFail(cmd).split("|");
+				enable_result = result[0];
+				if(enable_result == "TSS_ERR_01_USR_MSG") {
+					//There was an communication error
+					doAgain = lHandleCommunicationError();
+					continue;
+				} else if(enable_result == "TSS_ERR_17_USR_MSG") {
+					PosShowMessage("MSG_BC_TSS_AUTH_TRANSFER_ORDER_TO_TAB_MAXIMUM_AMOUNT");
+					if (!PosGetAuthorization("manager", false)) {
+						return false;
+					}
+				} else {
+					//another error
+					break;
+				}
+			}
+			//ok we have the crew authorization, let's go to the next step
+			step = 2;
+		}
+		else if(step == 2) {
+			var cmd = "cPosTransferWave";
+			CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+			if(!executeBC(cmd, [tabNumberToRemove, tabTimestampToRemove, tabNumberToInsert, tabTimestampToInsert, orderKey])) {
+				//There was an error
+				var result = getLastFail(cmd);
+				if(result == "TSS_ERR_01_USR_MSG") {
+					//There was an communication error
+					doAgain = lHandleCommunicationError();
+					continue;
+				} else {
+					PosShowMessage("MSG_BC_TSS_INTERNAL_ERROR");
+					return false;
+				}
+			}
+			return true;
+		}
+	} while (doAgain);
+	
+	PosShowMessage("MSG_BC_TSS_OPER_NOT_COMPLETE");
+	// error
+	return false;
+}
+
+/** PosCancelWaveOnTab
+ *
+ * @brief - This function implements the BC,Business Component: <b>PosCancelWaveOnTab</b>\n
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC cancels a wave on a tab.
+ * In a workflow sequence it is called:<b>PosCancelWaveOnTab $tabNumber $tabTimestamp $waveOrderKey</b>\n
+ * In java script it should be called:<b>PosCancelWaveOnTab(tabNumber, tabTimestamp, waveOrderKey)</b>\n
+ * @param tabNumber - the tab number of the tab that contains the wave to cancel
+ * @param tabTimestamp - the tab creation timestamp of the tab that contains the wave to cancel
+ * @param waveOrderKey - the order key of the wave to cancel
+ * @param waveMajor - the Major Number of the wave to cancel
+ * @success <i>TSS_27_USR_MSG</i> - the wave was canceled.
+ * @failure <i>TSS_ERR_30_USR_MSG</i>  - the wave was not canceled.
+ * @failure <i>TSS_ERR_01_USR_MSG</i>  - Indicate that there was a communication error
+ * @failure <i>TSS_ERR_02_USR_MSG</i>  - Indicate that there was a error during the process in the tab service
+ * @failure <i>TSS_ERR_06_USR_MSG</i>  - Indicate that the tab service is not enabled
+ * @failure <i>TSS_ERR_08_USR_MSG</i>  - Indicate that the tab number and timestamp were not found
+ * @failure <i>TSS_ERR_14_USR_MSG</i>  - Indicate that the tab service is not open
+ * @failure <i>TSS_ERR_16_USR_MSG</i>  - Indicate that the tab service has no operator logged in.
+ * @failure <i>TSS_ERR_22_USR_MSG</i>  - Indicate that the tab is not open.
+ * @failure <i>TSS_ERR_24_USR_MSG</i>  - Indicate that the tab was already tendered.
+ * @failure <i>TSS_ERR_25_USR_MSG</i>  - Indicate that the tab has no sale started.
+ * @failure <i>TSS_ERR_26_USR_MSG</i>  - Indicate that an error occurred while processing the tab sale.
+ * @failure <i>TSS_ERR_27_USR_MSG</i>  - Indicate that the wave is not registered at the Tab Service.
+ * @failure <i>TSS_ERR_28_USR_MSG</i>  - Indicate that the wave does not belog to the tab.
+ * @failure <i>TSS_ERR_29_USR_MSG</i>  - Indicate that the wave is invalid.
+ * Property Messages:\n
+ *   MSG_BC_TSS_COMM_ERROR: Message used in dialog window to indicate a communication error.
+ *   MSG_BC_SWITCH_TSS_TO_FAILOVER: Message used in dialog window to switch to failover table service.
+ *   MSG_BC_TSS_TAB_NOT_OPEN: Message used in dialog window to inform that the tab is not open.
+ *   MSG_BC_TSS_CANCEL_TAB_TENDERED: Message used in dialog window to inform that the tab has already entered tendering mode.
+ *   MSG_BC_TSS_AUTH_CANCEL_WAVE_DENIED: Message used in dialog window to inform that the wave cancel was denied by the manager.
+ *   MSG_BC_TSS_WAVE_CANCELED: Message used in dialog window to inform that the the wave was cancelled.
+ *   MSG_BC_TSS_OPER_NOT_COMPLETE: Message used in dialog window to indicate that operation was not completed.
+ * Return: - rval - True.
+ *
+ * @since 1.21-
+ */
+function PosCancelWaveOnTab(tabNumber, tabTimestamp, waveOrderKey, roomNumber, waveMajor) {
+	var doAgain = true;
+	var step = 1;
+	if(TSS_RECEIPT_FILE_NAME == "" || TSS_RECEIPT_FILE_NAME == undefined || TSS_RECEIPT_FILE_NAME == null) {
+		TSS_RECEIPT_FILE_NAME = "reports.nps";
+	}
+	do {
+		if(step == 1) {
+			//Verifies if the tab is open
+			var cmd = "cPosCheckTabIsOpen";
+			CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+			if(!executeBC(cmd, [tabNumber, tabTimestamp])) {
+				//There was an error
+				var result = getLastFail(cmd);
+				if(result == "TSS_20_USR_MSG") {
+					//The tab timestamp is invalid
+					PosShowMessage("MSG_BC_TSS_TAB_NOT_OPEN",tabNumber);
+					return false;
+				} else if(result == "TSS_ERR_01_USR_MSG") {
+					//There was an communication error
+					doAgain = lHandleCommunicationError();
+					continue;
+				} else {
+					PosShowMessage("MSG_BC_TSS_INTERNAL_ERROR");
+					return false;
+				}
+			}
+			step = 2;
+		}
+		else if(step == 2) {
+			//Verifies if the tab was not tendered yet
+			var cmd = "cPosCheckTabNotTendered";
+			CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+			if(!executeBC(cmd, [tabNumber, tabTimestamp])) {
+				//There was an error
+				var result = getLastFail(cmd);
+				if(result == "TSS_26_USR_MSG") {
+					//The tab was already trendered
+					PosShowMessage("MSG_BC_TSS_CANCEL_TAB_TENDERED", tabNumber);
+					return false;
+				} else if(result == "TSS_ERR_01_USR_MSG") {
+					//There was an communication error
+					doAgain = lHandleCommunicationError();
+					continue;
+				} else {
+					PosShowMessage("MSG_BC_TSS_INTERNAL_ERROR");
+					return false;
+				}
+			}
+			step = 3;
+		}
+		else if(step == 3) {
+			//Get the manager authorization
+			if(!PosGetAuthorization("manager", false)) {
+				PosShowMessage("MSG_BC_TSS_AUTH_CANCEL_WAVE_DENIED", waveOrderKey, tabNumber);
+				return false;
+			}
+			// Cancel the Wave
+			var cmd = "cPosCancelWave";
+			CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+			if(!executeBC(cmd, [tabNumber, tabTimestamp, waveOrderKey, roomNumber])) {
+				//There was an error
+				var result = getLastFail(cmd);
+				if(result == "TSS_ERR_01_USR_MSG") {
+					//There was an communication error
+					doAgain = lHandleCommunicationError();
+					continue;
+				} else {
+					PosShowMessage("MSG_BC_TSS_INTERNAL_ERROR");
+					return false;
+				}
+			}
+			// Wave was canceled
+			PosShowMessage("MSG_BC_TSS_WAVE_CANCELED", waveMajor, tabNumber);
+			if(PosCheckSessionProperty("waveAutomaticPrint","on")) {
+				PosCreateReport("VIEW","receipt@"+TSS_RECEIPT_FILE_NAME,'NOPREVIEW',true);
+			}
+			return true;
+		}
+	} while (doAgain);
+	// error
+	PosShowMessage("MSG_BC_TSS_OPER_NOT_COMPLETE");
+	return false;
+}
+
+/**
+ * @brief - This function implements the BC,Business Component: <b>PosQuitWave</b>\n
+ * Persistence:<b>Persisted</b>\n
+ * This BC cancels a wave at the POS\n
+ * In a workflow sequence it is called:<b>PosQuitWave</b>\n
+ * In java script it should be called:<b>PosQuitWave()</b>\n
+ * @success <i>true</i> - OK.
+ * @failure	<i>false</i> - FAILED.
+ * Property Messages:\n
+ *   MSG_BC_TSS_CONFIRM_WAVE_CANCEL: Show a prompt message confirming wave cancelation.\n
+ * Return: - rval - True.
+ *
+ * @since 1.21-
+ */
+function PosQuitWave() {
+	var hlp=new BusinessObjectHelper;
+	var ctx=new SessionContext;
+	var view=new XML(hlp.getCurrentView());
+	var orderKey = view.@orderKey.toString();
+	var emptyWave = false;
+	if(TSS_RECEIPT_FILE_NAME == "" || TSS_RECEIPT_FILE_NAME == undefined || TSS_RECEIPT_FILE_NAME == null) {
+		TSS_RECEIPT_FILE_NAME = "reports.nps";
+	}
+	if (view.ItemView.length() == 0) {
+		emptyWave = true;
+	}
+	var tab = ctx.get("waveTabNumber");
+	if (!emptyWave && !PosGetAuthorization("manager", false)) {
+    	PosShowMessage("MSG_BC_TSS_AUTH_CANCEL_WAVE_DENIED", orderKey, tab);
+		return false;
+	}
+	var cmd = "cPosQuitWave";
+	CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+    var ok = executeBC(cmd);
+    if (!ok) {
+    	PosShowMessage("MSG_BC_TSS_CANCEL_WAVE_ERROR", orderKey);
+    	return false;
+    }
+    if (emptyWave) {
+		PosShowMessage("MSG_BC_TSS_CANCEL_EMPTY_WAVE");
+    } else {
+    	PosShowMessage("MSG_BC_TSS_WAVE_CANCELED", orderKey, tab);
+		if(PosCheckSessionProperty("waveAutomaticPrint","on")) {
+			PosCreateReport("VIEW","receipt@"+TSS_RECEIPT_FILE_NAME,'NOPREVIEW',true);
+		}
+    }
+    return true;
+}
+
+/**
+ * @brief - This function implements the BC,Business Component: <b>PosCreateTabAndAddWave</b>\n
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC create a tab and set the next sale like a wave.\n
+ * In java script it should be called:<b>PosCreateTabAndAddWave(tabNumber, roomNumber, tabName)</b>\n
+ * @param tabNumber - the Tab number.
+ * @param roomNumber  - the Tab room.
+ * @param tabName - the Tab name.
+ * @success <i>TRUE</i> - OK.
+ * @failure <i>FALSE</i> - Failed to start a new wave.
+ * @failure	<i>TSS_ERR_01_USR_MSG</i>  - Indicate that there was a communication error
+ * @failure	<i>TSS_ERR_02_USR_MSG</i>  - Indicate that there was an error during the process
+ * @failure	<i>TSS_ERR_06_USR_MSG</i>  - Indicate that the tab service is not enabled
+ * @failure <i>TSS_ERR_14_USR_MSG</i>  - Indicate that the tab service is not open
+ * @failure <i>TSS_ERR_16_USR_MSG</i>  - Indicate that the tab service has no operator logged in.
+ *
+ * Property Messages:\n
+ *   MSG_BC_TSS_ALREADY_WAVEREG: Sale is a wave
+ *	 MSG_BC_TSS_SERVICE_NOT_OPEN: Service is not open
+ *	 MSG_BC_TSS_ERROR_SAVING_TAB: Error saving tab
+ *	 MSG_BC_TSS_INTERNAL_ERROR: Internal error
+ *   MSG_BC_TSS_OPER_NOT_COMPLETE: Message used in dialog window to indicate that operation was not completed.
+ *
+ * @since 1.21-
+ */
+function PosCreateTabAndAddWave(tabNumber, roomNumber, tabName) {
+	// Should be in Sale mode (operator logged and not already performing a transaction
+	if(!PosIsInSaleMode() || !PosNotATransactionInProgress(false)) {
+		return(false);
+	}
+
+	if(PosCheckTransactionKind(ACC_OT_TAB) && PosCheckTransactionSubKind(ACC_OT_WAVE)) {
+		PosShowMessage("MSG_BC_TSS_ALREADY_WAVEREG");
+		return(false);
+	}
+
+	var tabAmount = "0";
+	var maximumAmount = "0";
+	var timestamp = 0;
+	
+	var doAgain = true;
+	var step = 1;
+	tabName = csl_trim(tabName);
+	do {
+		if(step == 1) {
+			var cmd = "PosCreateTab";
+			CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+	
+			if(!executeBC(cmd, [tabNumber, roomNumber, tabName])) {
+				var result = getLastFail(cmd);
+				if(result == "TSS_ERR_01_USR_MSG") {
+					//There was an communication error
+					doAgain = lHandleCommunicationError();
+				}
+				else {
+					if(result == "TSS_ERR_14_USR_MSG") {
+						PosShowMessage("MSG_BC_TSS_SERVICE_NOT_OPEN");
+						return false;
+					}
+					PosShowMessage("MSG_BC_TSS_ERROR_SAVING_TAB");
+					return false;
+				}
+			}
+			else {
+				var result = getLastSuccess(cmd).split("|");
+				timestamp = result[0];
+			}
+			step = 2;
+		}
+		else if(step == 2) {
+			//let's get the tab total amount and the maximum amount
+			var cmd = "PosCheckTabLimit";
+			CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+			if(executeBC(cmd, [tabNumber])) {
+				var result = getLastSuccess(cmd).split("|");
+				enable_result = result[0];
+				if(enable_result == "TSS_13_USR_MSG") {
+					//the order sub-total plus the open tab sub-total is less than the default maximum amount
+					tabAmount = result[2];
+					maximumAmount = result[3];
+				}
+				else {
+					//an error occurred
+					break;
+				}
+			}
+			else {
+				//There was an error
+				var result = getLastFail(cmd).split("|");
+				enable_result = result[0];
+				if(enable_result == "TSS_ERR_01_USR_MSG") {
+					//There was an communication error
+					doAgain = lHandleCommunicationError();
+					continue;
+				} else if(enable_result == "TSS_ERR_17_USR_MSG") {
+					//the order sub-total plus the open tab sub-total is greater than the default maximum amount
+					tabAmount = result[2];
+					maximumAmount = result[3];
+				} else {
+					//another error
+					break;
+				}
+			}
+			step = 3;
+		}
+		else if(step == 3) {
+			//Sets the next order to wave
+			if(!PosSetOrderAsWave(tabNumber,roomNumber,timestamp,tabAmount,maximumAmount, ACC_OT_WAVE)) {
+				PosShowMessage("MSG_BC_TSS_INTERNAL_ERROR");
+				return false;
+			}
+
+			var ctx=new SessionContext;
+			PosShowScreen(ctx.get("baseScreenId"));
+			PosDisplayText("MSG_BC_TSS_WAVEREG",1,true,false);
+			return true;
+		}
+	} while (doAgain);
+	
+	// error
+	PosShowMessage("MSG_BC_TSS_OPER_NOT_COMPLETE");
+	return false;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosAddWave</b>.
+ *
+ * The PosAddWave is responsible for assigning an existing sale as a wave 
+ * In java script it should be called:<b>PosAddWave(tabNumber, roomNumber)</b>
+ * @success <i>TRUE</i> - OK.
+ * @failure <i>FALSE</i> - Failed to start a new wave.
+ * @failure	<i>TSS_ERR_38_USR_MSG</i>  - Indicate that the TAB is on Tender process in another POS
+ *
+ * Property Messages:\n
+ *   MSG_BC_TSS_TABTENDERED: Tab {0} is already in tender process.
+ *
+ * @since 1.21-
+ */
+function PosAddWave(tabNumber, roomNumber, timestamp) {
+	var cmd = "cPosAddWave";
+	CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+	if(!executeBC(cmd, [tabNumber, roomNumber, timestamp])) {
+		//There was an error
+		/* carlosb 26.jun.2012 - handle table already adjusted error (WWR-2033) */
+		var result = getLastFail(cmd);
+		if(result == "TSS_ERR_38_USR_MSG") {
+			PosShowMessage("MSG_BC_TSS_TABTENDERED",tabNumber);
+			return false;
+		} else if(result == "TSS_ERR_17_USR_MSG") {
+			PosShowMessage("MSG_BC_TSS_TABADJUSTED",tabNumber);
+			return false;
+		}
+		return false;
+	}
+	return true;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosSetOrderAsWave</b>.
+ *
+ * The PosSetOrderAsWave is responsible for creating a new wave 
+ * In java script it should be called:<b>PosAddWave(tabNumber, roomNumber)</b>
+ * @success <i>enabled</i> - true if the tab created
+ *
+ * @since 1.21-
+ */
+function PosSetOrderAsWave(tabNumber,roomNumber,timestamp,tabAmount,maximumAmount, subKind) {
+	cmd = "cPosSetOrderAsWave";
+	CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+	return executeBC(cmd,[tabNumber,roomNumber,timestamp,tabAmount,maximumAmount, subKind]);	
+}
+
+/**
+ * @brief - This function implements the BC,Business Component: <b>PosTenderTab</b>\n
+ * Persistence:<b>Not Persisted</b>\n
+ * This BC shows the Tab Menu Screen\n
+ * In java script it should be called:<b>PosTenderTab()</b>\n
+ * @success <i>true</i> - OK.
+ * @failure	<i>TSS_ERR_38_USR_MSG</i>  - Indicate that the TAB don't have Waves
+ * @failure	<i>TSS_ERR_39_USR_MSG</i>  - Indicate that the TAB is on Tender process in another POS
+ * @failure	<i>TSS_ERR_40_USR_MSG</i>  - Indicate that the TAB update failed
+ *
+ * Property Messages:\n
+ *	 MSG_BC_TSS_WITHOUT_WAVES: This TAB don't have Waves.
+ *   MSG_BC_TSS_TABTENDERED: Tab {0} is already in tender process.
+ *   MSG_BC_TSS_UPDATE_TAB: TAB {0} can't change its status
+ *
+ * @since 1.21-
+ */
+function PosTenderTab(screenNumber)
+{
+	var ctx=new SessionContext;
+	var tabNumber = ctx.get("TabNumber");
+	var hasWave = PosCheckTabHasWave(tabNumber);
+	if (!hasWave) {
+		PosShowMessage("MSG_BC_TSS_WITHOUT_WAVES");
+		return false;
+	}
+	var timestamp = ctx.get("Timestamp");
+	var tabName = ctx.get("Name");
+	var roomNumber = ctx.get("RoomNumber");
+
+	// Step 01 - Check informations about the selected TAB
+	var cmd = "cPosGetTabView";
+	CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+	do {
+		if(!executeBC(cmd,[tabNumber,timestamp])) {
+			//There was an error
+			var result = getLastFail(cmd);
+			if(result == "TSS_ERR_01_USR_MSG") {
+				//There was an communication error
+				doAgain = lHandleCommunicationError();
+				if(!doAgain) {
+					PosShowMessage("MSG_BC_TSS_OPER_NOT_COMPLETE");
+					return false;
+				}
+			} else if(result == "TSS_ERR_14_USR_MSG") {
+				PosShowMessage("MSG_BC_TSS_SERVICE_NOT_OPEN");
+				break;
+			} else {
+				//another error
+				break;
+			}
+		}
+		break;
+	} while (doAgain);
+	
+	// Step 02 - Dialog to confirm the operation
+	var hlp = new BusinessObjectHelper;
+	//Let's ask it the crew really wants to assign this order to the selected tab
+	var msg = hlp.getSysMessage("MSG_BC_TSS_ASK_TENDER_TAB", tabNumber, roomNumber);
+	if(false == PosYesNoMessage(msg)) {
+		return false;
+	}
+	
+	// Step 03 - Manager Authorization
+	if(!PosGetAuthorization("manager", false)) {
+		PosShowMessage("MSG_BC_TSS_TENDER_DENIED", tabNumber, tabName, roomNumber);
+		return false;
+	}
+	
+	// Step 04 - Tender the TAB (Recall the TAB and display the Tender Screen to complete the operation)
+	cmd = "cPosTenderTab";
+	CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+	if(!executeBC(cmd,[tabNumber])) {
+		//There was an error
+		var result = getLastFail(cmd);
+		if(result == "TSS_ERR_03_USR_MSG") {
+			PosShowMessage("Invalid Parameters");
+		} else if(result == "TSS_ERR_02_USR_MSG") {
+			PosShowMessage("MSG_BC_TSS_SERVICE_NOT_OPEN");
+		} else if(result == "TSS_ERR_38_USR_MSG") {
+			PosShowMessage("This TAB don't have waves");
+		} else if(result == "TSS_ERR_39_USR_MSG") {
+			PosShowMessage("This TAB was recalled by another POS");
+		} else if(result == "TSS_ERR_40_USR_MSG") {
+			PosShowMessage("TAB status updated failed");
+		} else {
+			//another error
+		}
+	}
+	
+	PosDoTotalJS(0, screenNumber, -1, 'NOPREVIEW|SAVE', "");
+	
+	return(true);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosCheckTabTendered</b>.
+ *
+ * The PosCheckTabTendered is responsible for assigning an existing sale as a wave 
+ * In java script it should be called:<b>PosAddWave(tabNumber, roomNumber)</b>
+ * @success <i>enabled</i> - true if the tab created
+ *
+ * @since 1.21-
+ */
+function PosCheckTabIsOpen(tabNumber, tabTimestamp) {
+	var cmd = "cPosCheckTabIsOpen";
+	CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+	return executeBC(cmd, [tabNumber, tabTimestamp]);	
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosCheckTabAjdusted</b>.
+ *
+ * The PosCheckTabAjdusted is responsible for assigning an existing sale as a wave 
+ * In java script it should be called:<b>PosCheckTabAjdusted(tabNumber, tabTimestamp)</b>
+ * @success <i>enabled</i> - true if the tab created
+ *
+ * @since 1.21-
+ */
+function PosCheckTabAjdusted(tabNumber, tabTimestamp) {
+	var cmd = "cPosCheckTabAjdusted";
+	CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+	return executeBC(cmd, [tabNumber, tabTimestamp]);	
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosCreateTabAjustment</b>.
+ *
+ * The PosCreateTabAjustment is responsible for creating an adjustment tab. 
+ * In java script it should be called:<b>PosCreateTabAjustment(tabNumber, roomNumber, tabTimestamp)</b>
+ * @success <i>enabled</i> - true if the tab created
+ *
+ * @since 1.21-
+ */
+function PosCreateTabAjustment(tabNumber, roomNumber, tabTimestamp) {
+	CSL_dbglog(7, SRC_BC_TSS, "PosCreateTabAjustment", "Start");
+	if (!PosCheckTabIsOpen(tabNumber, tabTimestamp)) {
+		PosShowMessage("MSG_BC_TSS_TAB_NOT_OPEN",tabNumber);
+		return false;		
+	}
+	if (!PosCheckTabHasWave(tabNumber)) {
+		PosShowMessage("MSG_BC_TSS_TAB_ADJUSTMENT_EMPTY");
+		return false;
+	}
+	if (PosCheckTabAjdusted(tabNumber, tabTimestamp)) {
+		PosShowMessage("MSG_BC_TSS_TABADJUSTED", tabNumber);
+		return false;
+	}
+	return lCreateNewWave(tabNumber, roomNumber, tabTimestamp, ACC_OT_WAVE_ADJUSTMENT);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosAddAdjustment</b>.
+ *
+ * The PosAddAdjustment is responsible for assigning an existing sale as an adjustment 
+ * In java script it should be called:<b>PosAddAdjustment(tabNumber, roomNumber)</b>
+ * @success <i>enabled</i> - true if the tab created
+ *
+ * @since 1.21-
+ */
+function PosAddAdjustment(tabNumber, roomNumber, tabTimestamp) {
+	var ctx=new SessionContext;
+	var hlp = new BusinessObjectHelper;
+	if(TSS_RECEIPT_FILE_NAME == "" || TSS_RECEIPT_FILE_NAME == undefined || TSS_RECEIPT_FILE_NAME == null) {
+		TSS_RECEIPT_FILE_NAME = "reports.nps";
+	}
+	if (!PosValidateAdjustment(tabNumber, roomNumber, tabTimestamp)) {
+		var message = getLastFail("cPosValidateAdjustment");
+		if (message == "TSS_ERR_31_USR_MSG") {
+			PosShowMessage("MSG_BC_TSS_TABADJUSTED", tabNumber);
+			return false;
+		}
+		if (message == "TSS_ERR_35_USR_MSG") {
+			PosShowMessage("MSG_BC_TSS_ADJ_EMPTY_TAB");
+			return false;
+		}
+		if (message == "TSS_ERR_33_USR_MSG") {
+			var item = ctx.get("adjInvalidItem");
+			PosShowMessage("MSG_BC_TSS_ADJ_INVALID_ITEM", item);
+			ctx.remove("adjInvalidItem");
+			return false;
+		}
+		if (message == "TSS_ERR_34_USR_MSG") {
+			var item = ctx.get("adjInvalidItem");
+			var qty = ctx.get("adjInvalidItemQty");
+			PosShowMessage("MSG_BC_TSS_ADJ_INVALID_QTY", item, qty);
+			ctx.remove("adjInvalidItem");
+			ctx.remove("adjInvalidItemQty");
+			return false;
+		}
+		PosShowMessage("MSG_BC_TSS_VALIDATE_ADJ_FAILED");
+		return false;
+	}
+	var msg = hlp.getSysMessage("MSG_BC_TSS_ADJ_CONFIRM");
+	if(false == PosYesNoMessage(msg)) {
+		PosQuitAdjustment(tabNumber, roomNumber, tabTimestamp);
+		PosShowMessage("MSG_BC_TSS_ADJ_CANCELED");
+		return false;
+	}
+	var cmd = "cPosAddAdjustment";
+	CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+	if (!executeBC(cmd, [tabNumber, roomNumber, tabTimestamp])) {
+		var message = getLastFail("cPosAddAdjustment");
+		if (message == "TSS_ERR_31_USR_MSG") {
+			PosShowMessage("MSG_BC_TSS_TABADJUSTED", tabNumber);
+			return false;
+		}
+		PosShowMessage("MSG_BC_TSS_ADJUSTMENT_FAILED");
+		return false;
+	}
+
+	PosDoEndOfSale(true);
+	if(PosCheckSessionProperty("waveAutomaticPrint","on")) {
+		PosCreateReport("VIEW","receipt@"+TSS_RECEIPT_FILE_NAME,'NOPREVIEW',false);
+	}
+	PosSetSessionProperty("activatedCOD","0","true");
+	PosShowScreen(ctx.get("baseScreenId"));
+	return true;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosQuitAdjustment</b>.
+ *
+ * The PosValidateAdjustment is responsible for checking if the existing sale is a valid adjustment 
+ * In java script it should be called:<b>PosQuitAdjustment()</b>
+ * @success <i>enabled</i> - true if the tab created
+ *
+ * @since 1.21-
+ */
+function PosQuitAdjustment(tabNumber, roomNumber, tabTimestamp) {
+	var cmd = "cPosQuitAdjustment";
+	CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+	return executeBC(cmd, [tabNumber, roomNumber, tabTimestamp]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosValidateAdjustment</b>.
+ *
+ * The PosValidateAdjustment is responsible for checking if the existing sale is a valid adjustment 
+ * In java script it should be called:<b>PosValidateAdjustment(tabNumber, roomNumber, tabTimestamp)</b>
+ * @success <i>enabled</i> - true if the tab created
+ *
+ * @since 1.21-
+ */
+function PosValidateAdjustment(tabNumber, roomNumber, tabTimestamp) {
+	var cmd = "cPosValidateAdjustment";
+	CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+	return executeBC(cmd, [tabNumber, roomNumber, tabTimestamp]);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosConcatRoomName</b>.
+ *
+ * The PosConcatRoomName is responsible for concat a character in the end of the room ID.
+ * In java script it should be called:<b>PosConcatRoomName(roomName, new_value)</b>
+ * @success <i>new value</i> - OK.
+ *
+ * @since 1.21-
+ */
+function PosConcatRoomName(roomName, new_value) {
+	
+	function is_int(value){
+		if((parseFloat(value) == parseInt(value)) && !isNaN(value)){
+			return true;
+		} else {
+			return false;
+		}
+	}
+	
+	if(roomName == null) {
+		return false;
+	}
+		
+	var ctx=new SessionContext;
+	var value = ctx.get(roomName);
+	if(value == null) {
+		return ctx.concatChar(roomName, new_value, false);
+	}
+    if(new_value == "SPACE"){
+        new_value=" ";
+    }
+	var hlp=new BusinessObjectHelper;
+	var nameMaximumLength = hlp.findParamInSectionWide("NameMaximumLength","OpenTab");
+
+	if(!is_int(nameMaximumLength) || parseInt(nameMaximumLength) < 1 || parseInt(nameMaximumLength) > 50) {
+		API.SLog("LOGLEVL_WARNING", "[PosConcatRoomName] nameMaximumLength \"" + nameMaximumLength + "\" is invalid. Default value 20 will be used.");
+		nameMaximumLength = 20;
+	}
+	else{
+		nameMaximumLength = parseInt(nameMaximumLength);
+	}
+
+	if(value.length >= nameMaximumLength) {
+		return true;
+	}
+	
+	return ctx.concatChar(roomName, new_value, false);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosPromoteToPrimaryTSS</b>.
+ *
+ * The PosPromoteToPrimaryTSS is responsible for Promote the failover TSS to Primary TSS
+ * In java script it should be called:<b>PosPromoteToPrimaryTSS()</b>
+ * @success <i>TSS_32_USR_MSG</i> - failover promoted.
+ * @failure <i>TSS_31_USR_MSG</i> - failover not promoted.
+ * @failure	<i>TSS_ERR_01_USR_MSG</i>  - Indicate that there was a communication error
+ * @since 1.21-
+ */
+function PosPromoteToPrimaryTSS() {
+	var cmd = "PosPromoteToPrimaryTSS";
+	CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+	return executeBC(cmd);
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>cPosCancelAdjustment</b>.
+ *
+ * The PosValidateAdjustment is responsible for checking if the existing sale is a valid adjustment 
+ * In java script it should be called:<b>PosCancelAdjustment()</b>
+ * @success <i>enabled</i> - true if the tab created
+ *
+ * @since 1.21-
+ */
+function PosCancelAdjustment(tabNumber, tabTimestamp, waveOrderKey, roomNumber) {
+	var cmd = "cPosCancelAdjustment";
+	CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+
+	if(TSS_RECEIPT_FILE_NAME == "" || TSS_RECEIPT_FILE_NAME == undefined || TSS_RECEIPT_FILE_NAME == null) {
+		TSS_RECEIPT_FILE_NAME = "reports.nps";
+	}
+	if(!PosGetAuthorization("manager", false)) {
+		/* carlosb 29.jun.2012 - correction  in i18n messages (WWR-2030) */
+		PosShowMessage("MSG_BC_TSS_AUTH_CANCEL_ADJUST_DENIED", tabNumber);
+		return false;
+	}
+	if (!executeBC(cmd, [tabNumber, roomNumber, tabTimestamp])) {
+		var message = getLastFail("cPosCancelAdjustment");
+		if (message === "TSS_ERR_36_USR_MSG") {
+			PosShowMessage("MSG_BC_TSS_TAB_NOT_ADJUSTED", tabNumber);
+			return false;
+		}
+		PosShowMessage("MSG_BC_TSS_CANCEL_ADJ_FAILED", waveOrderKey, tabNumber);
+		return false;
+	}
+	
+	if(PosCheckSessionProperty("waveAutomaticPrint","on")) {
+		PosCreateReport("VIEW","receipt@"+TSS_RECEIPT_FILE_NAME,'NOPREVIEW', false);
+	}
+	/* carlosb 29.jun.2012 - correction  in i18n messages (WWR-2030) */
+	PosShowMessage("MSG_BC_TSS_ADJUST_CANCELED", tabNumber);
+	return true;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosRestorePrimaryTSS</b>.
+ *
+ * The PosRestorePrimaryTSS is responsible for Restore configured primary TSS
+ * In java script it should be called:<b>PosRestorePrimaryTSS()</b>
+ * @success <i>TSS_35_USR_MSG</i> - primary restored.
+ * @failure <i>TSS_31_USR_MSG</i> - failover not promoted.
+ * @failure	<i>TSS_ERR_01_USR_MSG</i>  - Indicate that there was a communication error
+ * @failure	<i>TSS_ERR_38_USR_MSG</i>  - Failover not configured as primary
+ *
+ * Property Messages:\n
+ *   MSG_BC_TSS_PROMOTE_PRIMARY_SUCESS: Text to indicate that the process was succesfully executed
+ *   MSG_BC_TSS_FAILOVER_NOT_AVAILABLE: Message used in dialog window to indicate that there is no failover tss available
+ *   MSG_BC_TSS_PROMOTE_PRIMARY_FAILURE: Message used in dialog window to indicate that it is not possible to promote the tss
+ *
+ * @since 1.21-
+ */
+function PosRestorePrimaryTSS() {
+	if (!PosGetAuthorization("manager", false)) {
+		return true;
+	}
+	
+	var cmd = "PosRestorePrimaryTSS";
+	CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+	if(executeBC(cmd)) {
+		PosShowMessage("MSG_BC_TSS_PROMOTE_PRIMARY_SUCESS");
+	}
+	else {
+		var message = getLastFail("PosRestorePrimaryTSS");
+		if(message == "TSS_ERR_01_USR_MSG") {
+			PosShowMessage("MSG_BC_TSS_PROMOTE_FAILURE_NOFAILOVER");
+			return true;
+		}
+		
+		if(message == "TSS_ERR_41_USR_MSG") {
+			PosShowMessage("MSG_BC_TSS_PROMOTE_FAILURE_ALREADYFAILOVER");
+		}
+	}
+	
+	return true;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosTSSOpenDayOffline</b>.
+ *
+ * The PosTSSOpenDayOffline is responsible for Close day in TSS
+ * In java script it should be called:<b>PosTSSOpenDayOffline()</b>
+ * @success <i>TSS_37_USR_MSG</i> - Day opened.
+ * @failure <i>TSS_ERR_03_USR_MSG</i> - Incorrect number of parameters.
+ * @failure	<i>TSS_ERR_01_USR_MSG</i>  - Communication error
+ * @failure	<i>MSG_BC_INVBUSDATE</i>  - Invalid business date
+ * @failure	<i>MSG_BC_ALREADYOPEN</i>  - POS already opened
+ * @failure	<i>MSG_BC_TSS_OPER_NOT_COMPLETE</i>  - error during the process
+ * @failure	<i>MSG_BC_OPERLOGIN</i>  - operator logged
+ *
+ * Property Messages:\n
+ *   MSG_BC_DAYOPENCONF: Message used in dialog window to get a new date
+ *   MSG_BC_TSS_OPER_NOT_COMPLETE: Message used in dialog window to indicate that there is an error during the process
+ *   MSG_BC_INVBUSDATE: Message used in dialog window to indicate an invalid business date
+ *   MSG_BC_ALREADYOPEN: Message used in dialog window to indicate that the tss is already opened
+ *   MSG_BC_OPERLOGIN: Message used in dialog window to indicate that the tss has an operator logged
+ *
+ * @since 1.21-
+ */
+function PosTSSOpenDayOffline() {
+	var cmd = "PosTSSOpenDayOffline";
+	CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+	
+	var ctx=new SessionContext;
+	var hlp = new BusinessObjectHelper;
+	var fmtDate	= rootStoreDB.StoreDB.StoreProfile.Localization.DateFormat;
+  	var dayOpen = ctx.get("dayOpenBusinessDay");
+  	if (dayOpen == null) {
+      // Gets Date System
+    	var wdate  = new Date();
+    	var wyear  = setZerosOnLeft(wdate.getFullYear(),4);
+    	var wmonth = setZerosOnLeft(wdate.getMonth() + 1,2);
+    	var wday   = setZerosOnLeft(wdate.getDate(),2);
+    	var sdate  = wyear + wmonth + wday;
+        var sMsg=hlp.getSysMessage("MSG_BC_DAYOPENCONF",fmtDate);
+		if (PosAskDate(sdate, sMsg, 2)) {
+			dayOpen = getLastSuccess("PosAskDate");
+		} else {
+			return(false);
+		}
+	}
+	
+	//  Manager Autorization
+	if(!PosGetAuthorization("manager")) {
+		return(false);
+	}
+	
+	var doAgain = false;
+	do {
+		if(!executeBC(cmd,[dayOpen])) {
+			//There was an error
+			var result = getLastFail(cmd);
+			if(result == "TSS_ERR_01_USR_MSG") {
+				//There was an communication error
+				doAgain = lHandleCommunicationError();
+				if(!doAgain) {
+					PosShowMessage("MSG_BC_TSS_OPER_NOT_COMPLETE");
+					return false;
+				}
+			}
+			else {
+				PosShowMessage(result);
+				doAgain = false;
+			}
+		}			
+	} while (doAgain);
+	
+	return true;
+}
+
+/**
+ * @brief This function implements the BC,Business Component: <b>PosTSSCloseDayOffline</b>.
+ *
+ * The PosTSSCloseDayOffline is responsible for Close day in TSS
+ * In java script it should be called:<b>PosTSSCloseDayOffline()</b>
+ * @success <i>TSS_37_USR_MSG</i> - Day opened.
+ * @failure <i>TSS_ERR_03_USR_MSG</i> - Incorrect number of parameters.
+ * @failure	<i>TSS_ERR_01_USR_MSG</i>  - Communication error
+ * @failure	<i>MSG_BC_INVBUSDATE</i>  - Invalid business date
+ * @failure	<i>MSG_BC_NOTOPENED</i>  - POS was not opened
+ * @failure	<i>MSG_BC_TSS_OPER_NOT_COMPLETE</i>  - error during the process
+ * @failure	<i>MSG_BC_OPERLOGIN</i>  - operator logged
+ * @failure	<i>MSG_BC_TSS_TABS_STILL_OPEN</i>  - there are open tabs
+ *
+ * Property Messages:\n
+ *   MSG_BC_DAYOPENCONF: Message used in dialog window to get a new date
+ *   MSG_BC_TSS_OPER_NOT_COMPLETE: Message used in dialog window to indicate that there is an error during the process
+ *   MSG_BC_INVBUSDATE: Message used in dialog window to indicate an invalid business date
+ *   MSG_BC_NOTOPENED: Message used in dialog window to indicate that the tss is already opened
+ *   MSG_BC_OPERLOGIN: Message used in dialog window to indicate that the tss has an operator logged
+ *   MSG_BC_TSS_TABS_STILL_OPEN: Message used in dialog window to indicate the open tabs
+ *
+ * @since 1.21-
+ */
+function PosTSSCloseDayOffline() {
+	var cmd = "PosTSSCloseDayOffline";
+	CSL_dbglog(7, SRC_BC_TSS, cmd, "Start");
+	
+	var ctx=new SessionContext;
+	var hlp = new BusinessObjectHelper;
+	var fmtDate	= rootStoreDB.StoreDB.StoreProfile.Localization.DateFormat;
+	var registerBusinessDay = "00000000";
+	var businessDay = new XML(hlp.getBusinessDate("false"));
+  	if (businessDay.@Register != "") {
+		registerBusinessDay = businessDay.@Register;
+	}
+	//  format date
+	var businessDate	= API.formatDate(registerBusinessDay, fmtDate);
+	var sConfMsg=hlp.getSysMessage("MSG_BC_ENDDAYCONF",businessDate);
+	// confirmation
+	if(PosShowConfirmationMessage(sConfMsg,"MSG_YES","MSG_NO")) {
+		//  manager auth
+		result = PosGetAuthorization("manager");
+	} else {
+		result = false;
+	}
+
+	var doAgain = false;
+	do {
+		if(!executeBC(cmd,[registerBusinessDay])) {
+			//There was an error
+			var result = getLastFail(cmd);
+			if(result == "TSS_ERR_01_USR_MSG") {
+				//There was an communication error
+				doAgain = lHandleCommunicationError();
+				if(!doAgain) {
+					PosShowMessage("MSG_BC_TSS_OPER_NOT_COMPLETE");
+					return false;
+				}
+			}
+			else {
+				PosShowMessage(result);
+				doAgain = false;
+			}
+		}			
+	} while (doAgain);
+	
+	return true;
+}
+
+/**
+ * END nps
+ */
+/* signed aut version 9-9076
+ * authority id = builder
+ * authority level = 10
+ * authority name = NewPOS release level
+ * group = npi
+ * validity = 2010-04-18
+ * signature type = slash_star
+ * time stamp (GMT) = Fri Jan 26 16:27:04 2018
+ * certificate = 393735312d3739343700c7f5c4c4351c742541f1ba170dfc9f46fc51f2469ba4ce1841b076b22770fe01b48e2de247272aa5bd7bb9e04433f58bf62d0010
+ * =============================================================================================================================
+*/

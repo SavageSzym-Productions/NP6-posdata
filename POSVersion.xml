@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<POSVersion>
+  <VersionInfo>
+    <COERelease>**ReleaseId**</COERelease>
+    <COEBuild>NP6.1.33.1.SP9_MR1_QR0_B51</COEBuild>
+    <Presentation>none</Presentation>
+    <ProductionBuild>NP6.1.33.MR1QR0B10643</ProductionBuild>
+    <POSBuild>33.1.0.10643</POSBuild>
+    <KVSBuild>33.1.0.10643</KVSBuild>
+    <NGKBuild>5.1704.11.1</NGKBuild>
+    <NpSharpBuild>24.15.2.7581</NpSharpBuild>
+    <NpSharpBundleBuild>33.1.0.14446</NpSharpBundleBuild>
+    <WorkflowBuild>3a701a3</WorkflowBuild>
+    <NGCOD>7.0.0B14</NGCOD>
+  </VersionInfo>
+</POSVersion>

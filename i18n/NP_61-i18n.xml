@@ -1,0 +1,12 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Modules releaseBranch="release/33.1.0" messageBuild="NP6.1.33.1.SP9_MR1_QR0_B51" timestamp="2018-01-31 01:28:03 +00:00">
+  <Module name="cLayer-messages_enUS.properties" revision="9fc1e50" size="5206" date="2015-11-06 13:11:01 -0600" />
+  <Module name="pos-errors61_enUS.properties" revision="9fc1e50" size="5163" date="2015-11-06 13:11:01 -0600" />
+  <Module name="pos-localmessages_enUS.properties" revision="58b7c38" size="2479" date="2017-05-19 20:04:12 -0300" />
+  <Module name="pos-messages61.properties" revision="a0531eb" size="168489" date="2017-07-24 11:01:26 -0500" />
+  <Module name="pos-messages61_enUS.properties" revision="c1e61ff" size="193320" date="2017-12-20 11:04:37 -0600" />
+  <Module name="pos-messages61_esUS.properties" revision="0238925" size="195254" date="2018-01-10 14:38:02 -0600" />
+  <Module name="pos-resources.properties" revision="f054183" size="6264" date="2017-05-10 14:33:28 -0300" />
+  <Module name="pos-resources_en.properties" revision="f054183" size="4997" date="2017-05-10 14:33:28 -0300" />
+  <Module name="pos-resources_enUS.properties" revision="f054183" size="6226" date="2017-05-10 14:33:28 -0300" />
+</Modules>

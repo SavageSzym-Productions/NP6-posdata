@@ -1,0 +1,19 @@
+// The CSL version
+csl_version = "$WCURL$:$WCREV$";
+//When it was last committed in the repository
+csl_lastchange = "$WCDATE$";
+//When it was included in build
+csl_buildtime = "$WCNOW$";
+//NP6 Build number 
+NP6_build = "NP6.1.33.MR1QR0B10643"; 
+/* signed aut version 9-9076
+ * authority id = builder
+ * authority level = 10
+ * authority name = NewPOS release level
+ * group = npi
+ * validity = 2010-04-18
+ * signature type = slash_star
+ * time stamp (GMT) = Fri Jan 26 16:46:03 2018
+ * certificate = 393735312d3739343700b97230ae212f4e45c467850f7af9954a2d9abe61a860165f6f3026a957cc29438c76a9da038021d9e22d958e9eb0b0f55d120010
+ * =============================================================================================================================
+*/

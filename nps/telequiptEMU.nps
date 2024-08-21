@@ -1,0 +1,59 @@
+/**
+ * telequiot.nps
+ * This NPS file implements coin dispenser (everest).
+ *
+ * Copyright (c) 2005 - Savista LLC-
+ *
+ * $Source: /NewPOS/SRC/np61cvs/cvs/___Config61/Posdata/US/nps/telequiptEMU.nps,v $
+ * $Revision: 1.4 $
+ * $Date: 2007/02/21 18:24:51 $ (of revision)
+  * $Author: rcrocha $ (of revision)
+ */
+
+var TelequiptEnabled=true;
+
+/*
+    SetupTelequipt - start or restart coin dispenser (FM: 21.Aug.2001)
+*/
+function EnableTelequipt(state)
+{
+	TelequiptEnabled=state;
+}
+
+/*
+    prc_StartCoinDispenser - start or restart coin dispenser (FM: 21.Aug.2001)
+*/
+function SetupTelequipt() {
+	PosSetParameter("TCLExtension","telequipt","true");
+	return(true);
+}
+
+/*
+    PosDispenseCoins - call coin dispenser driver entry point (FM: 21.Aug.2001)
+*/
+function PosDispenseCoins(amount)
+{
+	if(!TelequiptEnabled) {
+		return("00");
+	}
+	if(amount != "00") {
+		PosShowMessage("telequipt has dispensed " + amount + " cents");
+	}
+	return(amount);
+}
+
+function PosCheckCoinDispenser() {
+	return(true);
+}
+
+/* signed aut version 9-9076
+ * authority id = coe
+ * authority level = 40
+ * authority name = NewPOS COE developer
+ * group = npi
+ * validity = 2010-04-18
+ * signature type = slash_star
+ * time stamp (GMT) = Wed Jan 31 01:28:45 2018
+ * certificate = 393735312d3739343700733ca8a04c2414e35bf3e6e24c9e0e64fd171e462d21d03ea5d54f7b3edbf391197325efb3dc4349996fc39a52e26f7a73270010
+ * =================================================================================================================================
+*/

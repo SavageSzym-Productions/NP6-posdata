@@ -1,0 +1,553 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Modules NP6Version="6.1.33" NP6Build="10643">
+	<Module name="ChromeboxPrinter.dll" Version="6_1_33MR1B10643" Size="140800" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:35 2018"/>
+	<Module name="Crypt.exe" Version="6_1_33MR1B10643" Size="9728" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="drvAllPan.dll" Version="6_1_33MR1B10643" Size="22016" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:35 2018"/>
+	<Module name="drvstub.dll" Version="6_1_33MR1B10643" Size="27648" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:35 2018"/>
+	<Module name="DSLDevDrv.dll" Version="6_1_33MR1B10643" Size="17408" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:35 2018"/>
+	<Module name="dummy.dll" Version="6_1_33MR1B10643" Size="15360" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:35 2018"/>
+	<Module name="DummyTLDSubscriber.exe.config" Version=" " Size="2792" Authority=" "
+	 ExpireDate=" " TimeStamp=" "/>
+	<Module name="eSocketDrv.dll" Version="6_1_33MR1B10643" Size="48128" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:35 2018"/>
+	<Module name="Everest.dll" Version="6_1_33MR1B10643" Size="50176" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:35 2018"/>
+	<Module name="gdiplus.dll" Version=" " Size="1748992" Authority=" "
+	 ExpireDate=" " TimeStamp=" "/>
+	<Module name="HttpHelper.dll" Version="6_1_33MR1B10643" Size="8192" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:35 2018"/>
+	<Module name="Ionic.Zip.dll" Version=" " Size="462336" Authority=" "
+	 ExpireDate=" " TimeStamp=" "/>
+	<Module name="JetBrains.Annotations.dll" Version="6_1_33MR1B10643" Size="41984" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:35 2018"/>
+	<Module name="js180.dll" Version="6_1_33MR1B10643" Size="628736" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:35 2018"/>
+	<Module name="jsd.dll" Version="6_1_33MR1B10643" Size="39424" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:35 2018"/>
+	<Module name="Kvs.Controls.dll" Version=" " Size="15872" Authority=" "
+	 ExpireDate=" " TimeStamp=" "/>
+	<Module name="Kvs.Customer.exe" Version="6_1_33MR1B10643" Size="519680" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="Kvs.Messages.dll" Version=" " Size="7680" Authority=" "
+	 ExpireDate=" " TimeStamp=" "/>
+	<Module name="Kvs.MiniORB.exe" Version=" " Size="460288" Authority=" "
+	 ExpireDate=" " TimeStamp=" "/>
+	<Module name="Kvs.MiniORB.Styles.Default.dll" Version=" " Size="9216" Authority=" "
+	 ExpireDate=" " TimeStamp=" "/>
+	<Module name="Kvs.ORB.exe" Version=" " Size="98304" Authority=" "
+	 ExpireDate=" " TimeStamp=" "/>
+	<Module name="Kvs.ORB.Styles.Default.dll" Version=" " Size="37376" Authority=" "
+	 ExpireDate=" " TimeStamp=" "/>
+	<Module name="Kvs.ORB.Styles.Right.dll" Version=" " Size="37888" Authority=" "
+	 ExpireDate=" " TimeStamp=" "/>
+	<Module name="Kvs.Resource.dll" Version=" " Size="9216" Authority=" "
+	 ExpireDate=" " TimeStamp=" "/>
+	<Module name="Kvs.Test.dll" Version=" " Size="5120" Authority=" "
+	 ExpireDate=" " TimeStamp=" "/>
+	<Module name="Kvs.Utils.dll" Version=" " Size="31232" Authority=" "
+	 ExpireDate=" " TimeStamp=" "/>
+	<Module name="libexpat.dll" Version="6_1_33MR1B10643" Size="113152" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:35 2018"/>
+	<Module name="log4net.dll" Version="6_1_33MR1B10643" Size="271360" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:35 2018"/>
+	<Module name="McDonalds.Hydra.NewPOS.Messages.v.2.0.0.0.dll" Version=" " Size="26112" Authority=" "
+	 ExpireDate=" " TimeStamp=" "/>
+	<Module name="McDonalds.Hydra.NP6STLD.Messages.v.2.0.0.0.dll" Version=" " Size="162816" Authority=" "
+	 ExpireDate=" " TimeStamp=" "/>
+	<Module name="Microsoft.Threading.Tasks.dll" Version="6_1_33MR1B10643" Size="38128" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:35 2018"/>
+	<Module name="Microsoft.Threading.Tasks.Extensions.Desktop.dll" Version="6_1_33MR1B10643" Size="48448" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:35 2018"/>
+	<Module name="Microsoft.Threading.Tasks.Extensions.dll" Version="6_1_33MR1B10643" Size="32544" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:35 2018"/>
+	<Module name="msvcp120.dll" Version=" " Size="455328" Authority=" "
+	 ExpireDate=" " TimeStamp=" "/>
+	<Module name="msvcr120.dll" Version=" " Size="970912" Authority=" "
+	 ExpireDate=" " TimeStamp=" "/>
+	<Module name="newTCL.dll" Version="6_1_33MR1B10643" Size="690688" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:35 2018"/>
+	<Module name="Newtonsoft.Json.dll" Version="6_1_33MR1B10643" Size="523264" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:35 2018"/>
+	<Module name="NP6EventLog.dll" Version=" " Size="1057792" Authority=" "
+	 ExpireDate=" " TimeStamp=" "/>
+	<Module name="npABS.dll" Version="6_1_33MR1B10643" Size="22016" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:35 2018"/>
+	<Module name="npAccAPI.dll" Version="6_1_33MR1B10643" Size="489984" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:35 2018"/>
+	<Module name="npAccFP.dll" Version="6_1_33MR1B10643" Size="170496" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:35 2018"/>
+	<Module name="npAccFPOPOS.dll" Version="6_1_33MR1B10643" Size="40960" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:35 2018"/>
+	<Module name="npAccGST.dll" Version="6_1_33MR1B10643" Size="49152" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:35 2018"/>
+	<Module name="npAccHAPI.dll" Version="6_1_33MR1B10643" Size="117248" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:35 2018"/>
+	<Module name="npAccMPG5.dll" Version="6_1_33MR1B10643" Size="97280" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:35 2018"/>
+	<Module name="npAccTax.dll" Version="6_1_33MR1B10643" Size="151040" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:35 2018"/>
+	<Module name="npAdpABS.dll" Version="6_1_33MR1B10643" Size="19968" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:35 2018"/>
+	<Module name="npAdpAcc.dll" Version="6_1_33MR1B10643" Size="135680" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:35 2018"/>
+	<Module name="npAdpApplyUpdate.dll" Version="6_1_33MR1B10643" Size="854528" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:35 2018"/>
+	<Module name="npAdpAuthenticDev.dll" Version="6_1_33MR1B10643" Size="45056" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:35 2018"/>
+	<Module name="npAdpBAc.dll" Version="6_1_33MR1B10643" Size="11264" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:35 2018"/>
+	<Module name="npAdpBC2BM.dll" Version="6_1_33MR1B10643" Size="10752" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:35 2018"/>
+	<Module name="npAdpBCR.dll" Version="6_1_33MR1B10643" Size="11264" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:35 2018"/>
+	<Module name="npAdpBOI.dll" Version="6_1_33MR1B10643" Size="11264" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:35 2018"/>
+	<Module name="npAdpBumpBar.dll" Version="6_1_33MR1B10643" Size="68096" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npAdpCd.dll" Version="6_1_33MR1B10643" Size="15360" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npAdpCOD.dll" Version="6_1_33MR1B10643" Size="33792" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npAdpCodComm.dll" Version="6_1_33MR1B10643" Size="35328" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npAdpCodUI.dll" Version="6_1_33MR1B10643" Size="71168" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npAdpCodUpdt.dll" Version="6_1_33MR1B10643" Size="72192" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npAdpHttp.dll" Version="6_1_33MR1B10643" Size="12800" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npAdpKvsComm.dll" Version="6_1_33MR1B10643" Size="37376" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npAdpKvsSound.dll" Version="6_1_33MR1B10643" Size="52224" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npAdpKvsUI.dll" Version="6_1_33MR1B10643" Size="28672" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npAdpLd.dll" Version="6_1_33MR1B10643" Size="63488" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npAdpMsr.dll" Version="6_1_33MR1B10643" Size="17408" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npAdpNG.dll" Version="6_1_33MR1B10643" Size="46592" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npAdpNpsExt.dll" Version="6_1_33MR1B10643" Size="50176" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npAdpPrd.dll" Version="6_1_33MR1B10643" Size="45056" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npAdpPrn.dll" Version="6_1_33MR1B10643" Size="16384" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npAdpProductPricing.dll" Version="6_1_33MR1B10643" Size="10752" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npAdpPsw.dll" Version="6_1_33MR1B10643" Size="11264" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npAdpPubl.dll" Version="6_1_33MR1B10643" Size="16384" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npAdpPublisher.dll" Version="6_1_33MR1B10643" Size="55296" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npAdpReportExt.dll" Version="6_1_33MR1B10643" Size="51712" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npAdpScanner.dll" Version="6_1_33MR1B10643" Size="22016" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npAdpSuggestiveSelling.dll" Version="6_1_33MR1B10643" Size="61952" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npAdpTagIdReader.dll" Version="6_1_33MR1B10643" Size="21504" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npAdpTelogListener.dll" Version="6_1_33MR1B10643" Size="292352" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npAdpTLD.dll" Version="6_1_33MR1B10643" Size="43520" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npAdpTlog.dll" Version="6_1_33MR1B10643" Size="11776" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npAdpTss.dll" Version="6_1_33MR1B10643" Size="37376" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npAdpUI.dll" Version="6_1_33MR1B10643" Size="18432" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npAdpUniqueCode.dll" Version="6_1_33MR1B10643" Size="20480" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npAdpUpdatePkg.dll" Version="6_1_33MR1B10643" Size="14848" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npAdpUpdt.dll" Version="6_1_33MR1B10643" Size="10752" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npAdpViewIndexer.dll" Version="6_1_33MR1B10643" Size="15360" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npAdpWorkflow.dll" Version="6_1_33MR1B10643" Size="81408" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npAdpXmlRpcFOE.dll" Version="6_1_33MR1B10643" Size="227328" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npApp.exe" Version="6_1_33MR1B10643" Size="33280" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="npApp.exe.config" Version=" " Size="3887" Authority=" "
+	 ExpireDate=" " TimeStamp=" "/>
+	<Module name="npAutoChoice.dll" Version="6_1_33MR1B10643" Size="10752" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npAVM.dll" Version="6_1_33MR1B10643" Size="11264" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npBKP.dll" Version="6_1_33MR1B10643" Size="65536" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npBOI.dll" Version="6_1_33MR1B10643" Size="15872" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npBusCom.dll" Version="6_1_33MR1B10643" Size="2763264" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npCLayer.dll" Version="6_1_33MR1B10643" Size="15872" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npClientLog.dll" Version="6_1_33MR1B10643" Size="95744" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npCOD.dll" Version="6_1_33MR1B10643" Size="17408" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npCODNew.dll" Version="6_1_33MR1B10643" Size="94208" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npConvComp.dll" Version="6_1_33MR1B10643" Size="131584" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npDrvABS.dll" Version="6_1_33MR1B10643" Size="26112" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npDrvACS.dll" Version="6_1_33MR1B10643" Size="15360" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npDrvAutoChoice.dll" Version="6_1_33MR1B10643" Size="29696" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npDrvAVM.dll" Version="6_1_33MR1B10643" Size="46592" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npDrvBarcode2Bitmap.dll" Version="6_1_33MR1B10643" Size="16896" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npDrvBillAcceptor.dll" Version="6_1_33MR1B10643" Size="13312" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npDrvBumpBar.dll" Version="6_1_33MR1B10643" Size="178176" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npDrvCL.dll" Version="6_1_33MR1B10643" Size="12800" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npDrvCLBOI.dll" Version="6_1_33MR1B10643" Size="12800" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npDrvCOD.dll" Version="6_1_33MR1B10643" Size="26112" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npDrvCodComm.dll" Version="6_1_33MR1B10643" Size="74752" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npDrvCodUI.dll" Version="6_1_33MR1B10643" Size="152064" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npDrvCodUpdt.dll" Version="6_1_33MR1B10643" Size="80896" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npDrvGui.dll" Version="6_1_33MR1B10643" Size="2323456" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npDrvHTTP.dll" Version="6_1_33MR1B10643" Size="29696" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npDrvHydra.dll" Version="6_1_33MR1B10643" Size="98304" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npDrvHydraPublisher.dll" Version="6_1_33MR1B10643" Size="46080" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npDrvIRBumpBar.dll" Version="6_1_33MR1B10643" Size="179200" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npDrvKbBumpBar.dll" Version="6_1_33MR1B10643" Size="28160" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npDrvKvsBuzzer.dll" Version="6_1_33MR1B10643" Size="18432" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npDrvKvsComm.dll" Version="6_1_33MR1B10643" Size="45568" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npDrvKvsSound.dll" Version="6_1_33MR1B10643" Size="27648" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npDrvKvsUI.dll" Version="6_1_33MR1B10643" Size="61440" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npDrvMotorolaBarcodeReader.dll" Version="6_1_33MR1B10643" Size="30208" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npDrvNG.dll" Version="6_1_33MR1B10643" Size="71168" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npDrvNGABS.dll" Version="6_1_33MR1B10643" Size="15872" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npDrvNGABS2.dll" Version="6_1_33MR1B10643" Size="39936" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:36 2018"/>
+	<Module name="npDrvOpos.dll" Version="6_1_33MR1B10643" Size="19456" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npDrvPar.dll" Version="6_1_33MR1B10643" Size="33792" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npDrvProductPricing.dll" Version="6_1_33MR1B10643" Size="125440" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npDrvPublEVT.dll" Version="6_1_33MR1B10643" Size="30208" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npDrvPublMNI.dll" Version="6_1_33MR1B10643" Size="25088" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npDrvPublPRD.dll" Version="6_1_33MR1B10643" Size="25088" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npDrvPublSEC.dll" Version="6_1_33MR1B10643" Size="22528" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npDrvPublTRX.dll" Version="6_1_33MR1B10643" Size="17408" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npDrvRCD.dll" Version="6_1_33MR1B10643" Size="14848" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npDrvScannerKeyboard.dll" Version="6_1_33MR1B10643" Size="35840" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npDrvScannerOpos.dll" Version="6_1_33MR1B10643" Size="1822208" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npDrvSharp.dll" Version="6_1_33MR1B10643" Size="89088" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npDrvSuggestiveSelling.dll" Version="6_1_33MR1B10643" Size="116736" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npDrvTagIdAdrb.dll" Version="6_1_33MR1B10643" Size="46592" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npDrvTagIdKeyboard.dll" Version="6_1_33MR1B10643" Size="101376" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npDrvTLDHydra.dll" Version="6_1_33MR1B10643" Size="71680" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npDrvTss.dll" Version="6_1_33MR1B10643" Size="83456" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npDrvUniqueCode.dll" Version="6_1_33MR1B10643" Size="175104" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npDrvViewIndexer.dll" Version="6_1_33MR1B10643" Size="206848" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npFailover.dll" Version="6_1_33MR1B10643" Size="69120" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npFOE.dll" Version="6_1_33MR1B10643" Size="27648" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npFOEHelper.dll" Version="6_1_33MR1B10643" Size="369664" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npGUICL.dll" Version="6_1_33MR1B10643" Size="12288" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npGUIExt.dll" Version="6_1_33MR1B10643" Size="66560" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npGuiSharp.dll" Version="6_1_33MR1B10643" Size="504832" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npHOT.dll" Version="6_1_33MR1B10643" Size="17408" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npkskGUI.dll" Version="6_1_33MR1B10643" Size="1419264" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npKVS.dll" Version="6_1_33MR1B10643" Size="539648" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npLog.dll" Version="6_1_33MR1B10643" Size="111104" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npLogTables.dll" Version="6_1_33MR1B10643" Size="175104" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npNAA.dll" Version="6_1_33MR1B10643" Size="153600" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npNAS.dll" Version="6_1_33MR1B10643" Size="215552" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npNetPrn.dll" Version="6_1_33MR1B10643" Size="35328" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npOFL.dll" Version="6_1_33MR1B10643" Size="87040" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npParPrn.dll" Version="6_1_33MR1B10643" Size="109568" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npParsTb.dll" Version="6_1_33MR1B10643" Size="308736" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npPmixChoicesReportExtension.dll" Version="6_1_33MR1B10643" Size="137216" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npPOS.dll" Version="6_1_33MR1B10643" Size="55808" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npPosSimulator.dll" Version="6_1_33MR1B10643" Size="75776" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npPOSTestHelper.dll" Version="6_1_33MR1B10643" Size="84992" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npPrdSend.dll" Version="6_1_33MR1B10643" Size="93696" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npPswCli.dll" Version="6_1_33MR1B10643" Size="11776" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npPswMgr.dll" Version="6_1_33MR1B10643" Size="25088" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npre.Module.dll" Version=" " Size="7168" Authority=" "
+	 ExpireDate=" " TimeStamp=" "/>
+	<Module name="npreHttpHelper.dll" Version="6_1_33MR1B10643" Size="41472" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npreModule.dll" Version=" " Size="680448" Authority=" "
+	 ExpireDate=" " TimeStamp=" "/>
+	<Module name="npRemoteUI.dll" Version="6_1_33MR1B10643" Size="11264" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npreSDK.dll" Version="6_1_33MR1B10643" Size="10752" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npRPR.dll" Version="6_1_33MR1B10643" Size="17408" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npRPSService.dll" Version="6_1_33MR1B10643" Size="501248" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npSales.dll" Version="6_1_33MR1B10643" Size="726016" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npSerialBluetoothPrn.dll" Version="6_1_33MR1B10643" Size="114176" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npSerPrn.dll" Version="6_1_33MR1B10643" Size="110592" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npServerLog.dll" Version="6_1_33MR1B10643" Size="66048" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npServiceManager.dll" Version="6_1_33MR1B10643" Size="369664" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="NpSharp.Contracts.BumpBar.dll" Version="6_1_33MR1B10643" Size="10240" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="NpSharp.Contracts.CardReader.dll" Version="6_1_33MR1B10643" Size="11776" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="NpSharp.Contracts.LineDisplay.dll" Version="6_1_33MR1B10643" Size="13312" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="NpSharp.Contracts.Pos.dll" Version="6_1_33MR1B10643" Size="190464" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="NpSharp.Contracts.PosContracts.CashDrawer.dll" Version="6_1_33MR1B10643" Size="11264" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="NpSharp.Contracts.PosContracts.dll" Version="6_1_33MR1B10643" Size="117248" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="NpSharp.Contracts.Printer.dll" Version="6_1_33MR1B10643" Size="11264" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="NpSharp.Contracts.Scanner.dll" Version="6_1_33MR1B10643" Size="9728" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="NpSharp.Contracts.ScreenDb.dll" Version="6_1_33MR1B10643" Size="16384" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="NpSharp.Drivers.dll" Version="6_1_33MR1B10643" Size="32256" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="NpSharp.Drivers.dll.config" Version=" " Size="2146" Authority=" "
+	 ExpireDate=" " TimeStamp=" "/>
+	<Module name="NpSharp.Drivers.Pos.Ui.dll" Version="6_1_33MR1B10643" Size="103424" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="NpSharp.Drivers.Pos.Ui.dll.config" Version=" " Size="2149" Authority=" "
+	 ExpireDate=" " TimeStamp=" "/>
+	<Module name="NpSharp.Framework.dll" Version="6_1_33MR1B10643" Size="153088" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npSharp.kvshtml.aux.ui.exe" Version="6_1_33MR1B10643" Size="19968" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="NpSharp.Sdk.Communicator.dll" Version="6_1_33MR1B10643" Size="29696" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npSharpBcBridge.dll" Version="6_1_33MR1B10643" Size="138240" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npSplash.dll" Version="6_1_33MR1B10643" Size="250880" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:37 2018"/>
+	<Module name="npSRVKVSUI.exe" Version="6_1_33MR1B10643" Size="913408" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="npTabService.dll" Version="6_1_33MR1B10643" Size="342016" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="npTLDEng.dll" Version="6_1_33MR1B10643" Size="364032" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="npTLDHydra.dll" Version="6_1_33MR1B10643" Size="43008" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="npTlog.dll" Version="6_1_33MR1B10643" Size="72192" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="npUpdtCopyLockedFiles.exe" Version="6_1_33MR1B10643" Size="36352" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="npUpdtFile.dll" Version="6_1_33MR1B10643" Size="54272" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="npUpdtRcv.dll" Version="6_1_33MR1B10643" Size="480256" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="npUpdtRFM.dll" Version="6_1_33MR1B10643" Size="68608" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="npUpdtSrv.dll" Version="6_1_33MR1B10643" Size="176640" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="npUSBPrn.dll" Version="6_1_33MR1B10643" Size="107008" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="npUtil.dll" Version="6_1_33MR1B10643" Size="19456" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="npWAY.dll" Version="6_1_33MR1B10643" Size="71680" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="npWayBusCom.dll" Version="6_1_33MR1B10643" Size="234496" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="npWayBusinessComponents.dll" Version="6_1_33MR1B10643" Size="160768" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="npWayTLOG.dll" Version="6_1_33MR1B10643" Size="749056" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="npWeb.dll" Version="6_1_33MR1B10643" Size="130048" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="npWinPrn.dll" Version="6_1_33MR1B10643" Size="109568" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="npWinPrnSpoolDriver.dll" Version="6_1_33MR1B10643" Size="109568" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="npWorkflowHttpServer.dll" Version="6_1_33MR1B10643" Size="56832" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="npWWebSrv.dll" Version="6_1_33MR1B10643" Size="14848" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="npXmlRpc.dll" Version="6_1_33MR1B10643" Size="61952" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="NServiceBus.dll" Version="6_1_33MR1B10643" Size="1609216" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="nspr.dll" Version="6_1_33MR1B10643" Size="205312" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="PosTools.dll" Version="6_1_33MR1B10643" Size="15872" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="RFMPackageReadiness.dll" Version="6_1_33MR1B10643" Size="56320" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="Scew.dll" Version="6_1_33MR1B10643" Size="14848" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="SetVersion.exe" Version=" " Size="13312" Authority=" "
+	 ExpireDate=" " TimeStamp=" "/>
+	<Module name="STTClient.dll" Version="6_1_33MR1B10643" Size="17408" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="System.IO.dll" Version="6_1_33MR1B10643" Size="22192" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="System.Runtime.dll" Version="6_1_33MR1B10643" Size="23232" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="System.Threading.Tasks.dll" Version="6_1_33MR1B10643" Size="36064" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="TBarCode11.dll" Version=" " Size="645120" Authority=" "
+	 ExpireDate=" " TimeStamp=" "/>
+	<Module name="Telequip.dll" Version="6_1_33MR1B10643" Size="17408" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="TelogListener.dll" Version="6_1_33MR1B10643" Size="88576" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="UpdtMain.exe" Version="6_1_33MR1B10643" Size="21504" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="UpdtMainCore.dll" Version="6_1_33MR1B10643" Size="293888" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="UpdtMainDll.dll" Version="6_1_33MR1B10643" Size="65024" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="UpdtNewMain.exe" Version="6_1_33MR1B10643" Size="270336" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="updtService.exe" Version="6_1_33MR1B10643" Size="11776" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="updtServiceExec.exe" Version="6_1_33MR1B10643" Size="12800" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="vccorlib120.dll" Version=" " Size="247984" Authority=" "
+	 ExpireDate=" " TimeStamp=" "/>
+	<Module name="VersionInfoApp.dll" Version="6_1_33MR1B10643" Size="9216" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="virtualBA.dll" Version="6_1_33MR1B10643" Size="11776" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="virtualCD.dll" Version="6_1_33MR1B10643" Size="78848" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="virtualLD.dll" Version="6_1_33MR1B10643" Size="14336" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="virtualMSR.dll" Version="6_1_33MR1B10643" Size="12288" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="virtualPinPad.dll" Version="6_1_33MR1B10643" Size="15360" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="virtualPrinter.dll" Version="6_1_33MR1B10643" Size="104960" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="WorkflowHttpServer.dll" Version="6_1_33MR1B10643" Size="10752" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="WorkflowHttpServer.dll.config" Version=" " Size="908" Authority=" "
+	 ExpireDate=" " TimeStamp=" "/>
+	<Module name="WriteDump.exe" Version="6_1_33MR1B10643" Size="86528" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="wsc32.dll" Version="6_1_33MR1B10643" Size="13312" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="XmlAcc.dll" Version="6_1_33MR1B10643" Size="15872" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="XmlDBIO.dll" Version="6_1_33MR1B10643" Size="15360" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="XmlMerger.dll" Version="6_1_33MR1B10643" Size="68096" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="ZeroClientPrinter.dll" Version="6_1_33MR1B10643" Size="111616" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="zlib.dll" Version="6_1_33MR1B10643" Size="92160" Authority="builder"
+	 ExpireDate="2010-04-18" TimeStamp="Fri Jan 26 16:42:38 2018"/>
+	<Module name="comm.jar" Version=" " Size="29411" Authority=" "
+	 ExpireDate=" " TimeStamp=" "/>
+	<Module name="commons-logging.jar" Version=" " Size="31605" Authority=" "
+	 ExpireDate=" " TimeStamp=" "/>
+	<Module name="hsqldb.jar" Version=" " Size="643806" Authority=" "
+	 ExpireDate=" " TimeStamp=" "/>
+	<Module name="jpos18-full.jar" Version=" " Size="1308509" Authority=" "
+	 ExpireDate=" " TimeStamp=" "/>
+	<Module name="js.jar" Version=" " Size="701049" Authority=" "
+	 ExpireDate=" " TimeStamp=" "/>
+	<Module name="NativeUtil.dll" Version=" " Size="49152" Authority=" "
+	 ExpireDate=" " TimeStamp=" "/>
+	<Module name="np6-app.jar" Version=" " Size="4215520" Authority=" "
+	 ExpireDate=" " TimeStamp=" "/>
+	<Module name="np6-drivers.jar" Version=" " Size="93689" Authority=" "
+	 ExpireDate=" " TimeStamp=" "/>
+	<Module name="np6-runtime.jar" Version=" " Size="161934" Authority=" "
+	 ExpireDate=" " TimeStamp=" "/>
+	<Module name="np6xmlbeans.jar" Version=" " Size="91546" Authority=" "
+	 ExpireDate=" " TimeStamp=" "/>
+	<Module name="RXTXcomm.jar" Version=" " Size="22919" Authority=" "
+	 ExpireDate=" " TimeStamp=" "/>
+	<Module name="rxtxParallel.dll" Version=" " Size="24576" Authority=" "
+	 ExpireDate=" " TimeStamp=" "/>
+	<Module name="rxtxSerial.dll" Version=" " Size="102400" Authority=" "
+	 ExpireDate=" " TimeStamp=" "/>
+	<Module name="WindowsEventLog.dll" Version=" " Size="1056768" Authority=" "
+	 ExpireDate=" " TimeStamp=" "/>
+	<Module name="xbean.jar" Version=" " Size="2756479" Authority=" "
+	 ExpireDate=" " TimeStamp=" "/>
+	<Module name="xmlrpc-1.2-b1.jar" Version=" " Size="108476" Authority=" "
+	 ExpireDate=" " TimeStamp=" "/>
+</Modules>

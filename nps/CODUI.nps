@@ -1,0 +1,1648 @@
+/**
+ * BCCOD.nps
+ * This NPS file implements Customer Order Display (COD) Business Componentes .
+ *
+ * Copyright (C) 2008 McDonalds Corp. All rights reserved.
+ *
+ * $Source: /NP6/SRC/np61cvs/cvs/___Config61/Posdata/US/nps/BCCOD.nps,v $
+ * $Revision: 1.5 $
+ * $Date: 2007/08/03 17:13:48 $ (of revision)
+ * $Author: cfernandes $ (of revision)
+ */ 
+
+const POD_FRONTCOUNTER=0; // NPS-8922
+const POD_DRIVETHROUGH=1;
+ 
+ /** i18n message for PLAIN */ 
+ var PLAIN = API.getLocalMsg("LMSG_SL_PLAIN",null);
+
+var xmlStoreDb = null;
+var xmlNamesDb = null;
+var init = false;
+var names = {};
+
+// Database Initialization
+API.dbg('[CODUI.nps] Loading Store DB');
+xmlStoreDb = new XML(API.getStoredb());
+
+API.dbg('[CODUI.nps] Loading Names DB');
+xmlNamesDb = new XML(API.getNamesdb());
+
+API.dbg('[CODUI.nps] Loading Pos DB');
+xmlPosdb = new XML(API.getPosdb());
+
+//optimization for names-db.xml
+for each (var lang in xmlNamesDb.Language) {
+	names[lang.@code.toString()] = {};
+	for each (var pname in lang.ProductName) {
+		names[lang.@code][pname.ProductCode.toString()] = pname;
+	}
+}
+
+/*
+	<!-- Version=02.00.00 -->
+	<!-- NP6 OrderFeed XML -->
+	<!-- NP6 Copyright (c) 2010 Restaurant Application Development International LLC -->
+	<Order>
+		<Header>
+			<Number>4</Number>
+			<Date>2009 619T 4 633</Date>
+			<Event>6</Event>
+		</Header>
+		<Items>
+			<Item>
+				<Plu>2531</Plu>
+				<Qty>01</Qty>
+				<PromoQty>0</PromoQty>
+				<LongName>BIG MAC</LongName>
+				<DTName>BIG MAC</DTName>
+				<UnitPrice>335</UnitPrice>
+				<TotalPrice>335</TotalPrice>
+				<LastTick>1201710300</LastTick>
+				<Desc>BIG MAC</Desc>
+			</Item>
+			<Grill_001>
+				<Plu>9571</Plu>
+				<Qty>01</Qty>
+				<PromoQty>0</PromoQty>
+				<LongName>W/out Regular Cheese</LongName>
+				<DTName>W/out Reg Chees</DTName>
+				<UnitPrice>0</UnitPrice>
+				<TotalPrice>0</TotalPrice>
+				<Desc>W/out Reg Chees</Desc>
+			</Grill_001>
+			<Item>
+				<Plu>2581</Plu>
+				<Qty>01</Qty>
+				<PromoQty>0</PromoQty>
+				<LongName>FILET-O-FISH</LongName>
+				<DTName>FILET</DTName>
+				<UnitPrice>315</UnitPrice>
+				<TotalPrice>315</TotalPrice>
+				<LastTick>1201729296</LastTick>
+				<Desc>FILET</Desc>
+			</Item>
+			<Grill_002>
+				<Plu>9552</Plu>
+				<Qty>01</Qty>
+				<PromoQty>0</PromoQty>
+				<LongName>Xtra Tartare Sauce</LongName>
+				<DTName>Xtra Tartare Sa</DTName>
+				<UnitPrice>0</UnitPrice>
+				<TotalPrice>0</TotalPrice>
+				<Desc>Xtra Tartare Sa</Desc>
+			</Grill_002>
+		</Items>
+		<Sale>
+			<SaleType>0</SaleType>
+			<SaleTotal>650</SaleTotal>
+			<EuroSaleTotal>0</EuroSaleTotal>
+			<TotalDue>0</TotalDue>
+			<TotalDiscounts>0</TotalDiscounts>
+			<TotalTax>59</TotalTax>
+		</Sale>
+		<Tender>
+			<Tender>0|$|650</Tender>
+		</Tender>
+</Order>
+
+<Order orderKey="347496083" totalAmount="2.00" totalTax="0.15" status="1">
+  <Item voided="false" qtyPromo="0" currentSelected="true" index="0">
+    <Product qty="1" code="46" name="EGG MCMUFFIN" totalPrice="2.00" class="2" family="0" totalTax="0.00">
+      <Grill modifier="0" defQty="1" qty="2" grillQty="1" code="919" name="BUTTER" totalPrice="0.00" class="2" family="5"/>
+    </Product>
+  </Item>
+</Order>
+
+*/
+function CODNP3ViewFormatterJS(sView, sConf) {
+	var xmlOut 		  = new XML();
+	var orderView 	  = new XML('<Order/>');
+	var retStr        = new String(""); 
+	var itemIndex 	  = 0;
+	var product 	  = null;
+	var grillProduct  = null;
+	var tender        = null; 
+	var alternateName = null;
+	var precision	  = 2;
+	try {
+		if (sConf==null) {
+			sConf = '<Config/>';
+		}
+		var xmlConfig = new XML(sConf);
+		API.dbg("[CODNP3ViewFormatterJS] ***********************  CONFIG  ***********************\n" + xmlConfig.toXMLString());
+
+		var xmlMultiLanguage = xmlConfig.MultiLanguage;
+		
+		//sView = (sView+"").replace(/&/gi,"&amp;");
+		sView = (sView+"").replace(/&(?!lt;|gt;|amp;|apos;|quot;)/gi,"&amp;");
+
+		API.dbg("[CODNP3ViewFormatterJS] *********************** NP3 Command ***********************\n" + sView);
+
+		var xmlIn = new XML(sView);
+		var xmlHeader = xmlIn.Header;
+		API.dbg("[CODNP3ViewFormatterJS] *********************** NP3 Header ***********************\n" + xmlHeader.toXMLString());
+		
+		if (!isNaN(xmlHeader.@decimalDigits)) {
+			precision = parseInt(xmlHeader.@decimalDigits);
+		}
+		
+		var xmlOrder = xmlIn.Order;
+		API.dbg("[CODNP3ViewFormatterJS] *********************** NP3 Order ***********************\n" + xmlOrder.toXMLString());
+
+		if (xmlOrder.toString().length > 0) {
+			// Adds the view attributes.
+			orderView.@orderKey 	= xmlOrder.@ID;
+			orderView.@major        = xmlOrder.@Major;
+			orderView.@minor        = xmlOrder.@Minor;
+			orderView.@totalAmount 	= formatAmount(Number(xmlOrder.Sale.SaleTotal)-Number(xmlOrder.Sale.TotalTax), precision);
+			orderView.@totalTax    	= formatAmount(Number(xmlOrder.Sale.TotalTax), precision);
+			orderView.@status      	= translateStatusToNP6(new Number(xmlIn.@event)); // 1-In Progress, 10-Total, 2-Tendering, 6-Tendered
+			orderView.@saleKind         = xmlOrder.@Kind;
+			
+			for each (np3Item in xmlOrder.Items.*) {
+				var item 	= new XML('<Item/>');
+				var tagName = np3Item.name() + "";
+				
+				if (tagName == 'Item') {
+					// Populates the order item information
+					item.@qtyPromo 			= np3Item.PromoQty;
+					if ((Number(np3Item.Qty) == 0) && (Number(np3Item.TotalPrice) == 0)) {
+						item.@voided 			= 'true';
+					}
+					else {
+						item.@voided 			= 'false';
+					}
+					item.@currentSelected 	= 'false';				
+					item.@index 			= (itemIndex++);		
+					item.@lastTick 			= np3Item.LastTick;
+					
+					// Populates the item product information
+					product = new XML('<Product/>');
+					product.@qty 		= new Number(np3Item.Qty);
+					product.@code 		= np3Item.Plu;
+					// multi-language
+					if (String(xmlMultiLanguage.@mainLanguageName)=='0') {
+						product.@name 	= np3Item.Desc;
+					}
+					else if (String(xmlMultiLanguage.@mainLanguageName)=='1') {
+						product.@name 	= np3Item.DTName;
+					}
+					else if (String(xmlMultiLanguage.@mainLanguageName)=='2') {
+						product.@name 	= np3Item.LongName;
+					}
+					else {
+						product.@name 	= np3Item.LongName;
+					}
+					if (xmlMultiLanguage.@enable=='true') {
+						alternateName = new XML('<AlternateName/>');
+						alternateName.@language=xmlMultiLanguage.@alternateLanguage;
+						if (String(xmlMultiLanguage.@alternateLanguageName)=='0') {
+							alternateName.@name = np3Item.Desc;
+						}
+						else if (String(xmlMultiLanguage.@alternateLanguageName)=='1') {
+							alternateName.@name = np3Item.DTName;
+						}
+						else if (String(xmlMultiLanguage.@alternateLanguageName)=='2') {
+							alternateName.@name = np3Item.LongName;
+						}
+						else {
+							alternateName.@name = np3Item.Desc;
+						}
+						product.appendChild(alternateName);
+					}
+					else {
+						//product.@name = np3Item.Desc;
+					}
+					product.@totalPrice = formatAmount(np3Item.TotalPrice, precision);
+					product.@totalTax 	= "0"; 		// not used on the COD.
+					product.@class 		= "-1";
+					product.@family 	= "-1";
+					
+					// Set grill reference to the current product.
+					grillProduct = product;
+					
+					// Adds the product in the item.
+					item.appendChild(product);
+					
+					// Adds the item in the order.
+					orderView.appendChild(item);
+					
+				} else if ((tagName.length >= 5) && (tagName.substring(0,5) == 'Grill')) {
+					if (Number(np3Item.Qty)>0) {
+						if (Number(np3Item.Plu)==0) {
+							grillProduct = new XML('<Product/>');
+							grillProduct.@qty 	= new Number(np3Item.Qty);
+							grillProduct.@code 	= np3Item.Plu;
+							// multi-language
+							if (String(xmlMultiLanguage.@mainLanguageName)=='0') {
+								grillProduct.@name 	= np3Item.Desc;
+							}
+							else if (String(xmlMultiLanguage.@mainLanguageName)=='1') {
+								grillProduct.@name 	= np3Item.DTName;
+							}
+							else if (String(xmlMultiLanguage.@mainLanguageName)=='2') {
+								grillProduct.@name 	= np3Item.LongName;
+							}
+							else {
+								grillProduct.@name 	= np3Item.LongName;
+							}
+							if (xmlMultiLanguage.@enable=='true') {
+								alternateName = new XML('<AlternateName/>');
+								alternateName.@language=xmlMultiLanguage.@alternateLanguage;
+								if (String(xmlMultiLanguage.@alternateLanguageName)=='0') {
+									alternateName.@name = np3Item.Desc;
+								}
+								else if (String(xmlMultiLanguage.@alternateLanguageName)=='1') {
+									alternateName.@name = np3Item.DTName;
+								}
+								else if (String(xmlMultiLanguage.@alternateLanguageName)=='2') {
+									alternateName.@name = np3Item.LongName;
+								}
+								else {
+									alternateName.@name = np3Item.Desc;
+								}
+								grillProduct.appendChild(alternateName);
+							}
+							else {
+								grillProduct.@name = np3Item.Desc;
+							}
+							grillProduct.@totalPrice = formatAmount(np3Item.TotalPrice, precision);
+							grillProduct.@totalTax 	= "0"; 		// not used on the COD.
+							grillProduct.@class 	= "-1";
+							grillProduct.@family 	= "-1";
+							// Adds the product in the item.
+							product.appendChild(grillProduct);
+						}
+						else {
+							var newGrill = new XML('<Grill/>');
+							newGrill.@qty 			= new Number(np3Item.Qty);
+							newGrill.@code 			= np3Item.Plu;
+							// multi-language
+							if (String(xmlMultiLanguage.@mainLanguageName)=='0') {
+								newGrill.@name 	= np3Item.Desc;
+							}
+							else if (String(xmlMultiLanguage.@mainLanguageName)=='1') {
+								newGrill.@name 	= np3Item.DTName;
+							}
+							else if (String(xmlMultiLanguage.@mainLanguageName)=='2') {
+								newGrill.@name 	= np3Item.LongName;
+							}
+							else {
+								newGrill.@name 	= np3Item.LongName;
+							}
+							if (xmlMultiLanguage.@enable=='true') {
+								alternateName = new XML('<AlternateName/>');
+								alternateName.@language=xmlMultiLanguage.@alternateLanguage;
+								if (String(xmlMultiLanguage.@alternateLanguageName)=='0') {
+									alternateName.@name = np3Item.Desc;
+								}
+								else if (String(xmlMultiLanguage.@alternateLanguageName)=='1') {
+									alternateName.@name = np3Item.DTName;
+								}
+								else if (String(xmlMultiLanguage.@alternateLanguageName)=='2') {
+									alternateName.@name = np3Item.LongName;
+								}
+								else {
+									alternateName.@name = np3Item.Desc;
+								}
+								newGrill.appendChild(alternateName);
+							}
+							newGrill.@totalPrice	= formatAmount(np3Item.TotalPrice, precision);
+							newGrill.@modifier		= "NULL";
+							newGrill.@defQty		= "NULL";
+							newGrill.@grillQty		= "NULL";
+							//newGrill.@class			= "-1";
+							//newGrill.@family		= "-1";
+							// Adds the grill in the product.
+							consolidateGrill(grillProduct, newGrill);
+						}
+					}
+				}
+			}
+
+			for each (np3Item in xmlOrder.MissingItems.*) {
+				var item 	= new XML('<Item/>');
+				var tagName = np3Item.name() + "";
+
+				if (tagName == 'MissingItem') {
+					// Populates the order item information
+					item.@qtyPromo 			= np3Item.PromoQty;
+					if ((Number(np3Item.Qty) == 0) && (Number(np3Item.TotalPrice) == 0)) {
+						item.@voided 			= 'true';
+					}
+					else {
+						item.@voided 			= 'false';
+					}
+					item.@currentSelected 	= 'false';				
+					item.@index 			= (itemIndex++);		
+					item.@lastTick 			= np3Item.LastTick;
+					
+					// Populates the item product information
+					product = new XML('<Product/>');
+					product.@qty 		= new Number(np3Item.Qty);
+					product.@code 		= np3Item.Plu;
+					// multi-language
+					if (String(xmlMultiLanguage.@mainLanguageName)=='0') {
+						product.@name 	= np3Item.Desc;
+					}
+					else if (String(xmlMultiLanguage.@mainLanguageName)=='1') {
+						product.@name 	= np3Item.DTName;
+					}
+					else if (String(xmlMultiLanguage.@mainLanguageName)=='2') {
+						product.@name 	= np3Item.LongName;
+					}
+					else {
+						product.@name 	= np3Item.LongName;
+					}
+					if (xmlMultiLanguage.@enable=='true') {
+						alternateName = new XML('<AlternateName/>');
+						alternateName.@language=xmlMultiLanguage.@alternateLanguage;
+						if (String(xmlMultiLanguage.@alternateLanguageName)=='0') {
+							alternateName.@name = np3Item.Desc;
+						}
+						else if (String(xmlMultiLanguage.@alternateLanguageName)=='1') {
+							alternateName.@name = np3Item.DTName;
+						}
+						else if (String(xmlMultiLanguage.@alternateLanguageName)=='2') {
+							alternateName.@name = np3Item.LongName;
+						}
+						else {
+							alternateName.@name = np3Item.Desc;
+						}
+						product.appendChild(alternateName);
+					}
+					else {
+						product.@name = np3Item.Desc;
+					}
+					product.@totalPrice = formatAmount(np3Item.TotalPrice, precision);
+					product.@totalTax 	= "0"; 		// not used on the COD.
+					product.@class 		= "4";
+					product.@family 	= "-1";
+					// Adds the product in the item.
+					item.appendChild(product);
+					// Adds the item in the order.
+					orderView.appendChild(item);
+				} else if ((tagName.length >= 5) && (tagName.substring(0,5) == 'Grill')) {
+					var newGrill = new XML('<Grill/>');
+					newGrill.@qty 			= new Number(np3Item.Qty);
+					newGrill.@code 			= np3Item.Plu;
+					// multi-language
+					if (String(xmlMultiLanguage.@mainLanguageName)=='0') {
+						newGrill.@name 	= np3Item.Desc;
+					}
+					else if (String(xmlMultiLanguage.@mainLanguageName)=='1') {
+						newGrill.@name 	= np3Item.DTName;
+					}
+					else if (String(xmlMultiLanguage.@mainLanguageName)=='2') {
+						newGrill.@name 	= np3Item.LongName;
+					}
+					else {
+						newGrill.@name 	= np3Item.LongName;
+					}
+					if (xmlMultiLanguage.@enable=='true') {
+						alternateName = new XML('<AlternateName/>');
+						alternateName.@language=xmlMultiLanguage.@alternateLanguage;
+						if (String(xmlMultiLanguage.@alternateLanguageName)=='0') {
+							alternateName.@name = np3Item.Desc;
+						}
+						else if (String(xmlMultiLanguage.@alternateLanguageName)=='1') {
+							alternateName.@name = np3Item.DTName;
+						}
+						else if (String(xmlMultiLanguage.@alternateLanguageName)=='2') {
+							alternateName.@name = np3Item.LongName;
+						}
+						else {
+							alternateName.@name = np3Item.Desc;
+						}
+						newGrill.appendChild(alternateName);
+					}
+					newGrill.@totalPrice	= formatAmount(np3Item.TotalPrice, precision);
+					newGrill.@modifier		= "NULL";
+					newGrill.@defQty		= "NULL";
+					newGrill.@grillQty		= "NULL";
+					//newGrill.@class			= "-1";
+					//newGrill.@family		= "-1";
+					// Adds the grill in the product.
+					consolidateGrill(product, newGrill);
+				}
+			}
+
+			// Sets the selected item based on the ticket time stamp.
+			setSelectedItem(orderView);
+
+			var code = 0;
+			for each (np3Tender in xmlOrder.Tender.*) {
+				var auxTender = np3Tender.toString().split('|');
+				if (auxTender.length == 3) {
+					tender = new XML('<Tender/>');
+					tender.@code 		= translateTenderCodeToNP6(Number(auxTender[0]));
+					tender.@kind		= translateTenderKindToNP6(Number(auxTender[0]));	// 0=Payment,1=Discount,2=Crew Meal,3=Manager Meal,4=Change,5=Change kept,6=returned tender,8=discount coupon,9=payment that was replaced (Gift Card => Cash) -- see: npAdpAccTypes.h
+					tender.@name 		= auxTender[1];
+					tender.@qty 		= 1;
+					tender.@value 	    = formatAmount(auxTender[2], precision);
+				
+					//Cashless
+					//if(itemTenderView.cat == "TENDER_ELECTRONIC_PAYMENT") {
+					//	cashless = new XML('<Cashless/>');
+					//	stripCashlessString(cashless, xmlView.Cashless[cashlessCounter]);
+					//	tender.appendChild(cashless);
+					//	cashlessCounter++;
+					//}
+					orderView.appendChild(tender);
+				}
+			}
+			
+			retStr = orderView.toXMLString(); 
+		}
+	} catch (ex) {
+		API.dbg("[CODNP3ViewFormatterJS] FATAL: Could not parse incoming NP3 view, due to: " + ex);
+	}
+
+	//retStr = (retStr+"").replace(/&amp;/gi,"&");
+	retStr = (retStr+"").replace(/&amp;(?!lt;|gt;|amp;|apos;|quot;)/gi,"&");
+	API.dbg("[CODNP3ViewFormatterJS] *********************** CONVERTED VIEW ***********************\n" + retStr);	
+	return retStr;
+	
+	function formatAmount(amount, precision) {
+		isNegative = false;
+		if (amount < 0) {
+			amount = amount * -1;
+			isNegative = true;
+		}
+		amount = "0000000000" + amount;
+		var d = amount.length - precision;
+		amount = Number(amount.substring(0, d) + "." +  amount.substring(d, d + precision));
+		if (isNegative) {
+			amount = amount * -1;
+		}
+		return amount.toFixed(precision);
+	}
+	
+	function translateStatusToNP6(np3Event) {
+		//NP3 events:
+		//  1 - In Progress
+		//  2 - Tender
+		//  4 - Receipt canceled
+		//  6 - End of coupon
+		//  7 - Troco
+		//  8-  Last canceled
+		// 10 - Total
+		// 11 - Grill item
+		// 15 - End of special coupon
+		// 30 - Discount on total
+		// 34 - Excess Tender
+		// 47 - Store
+		// 73 - Discount on employee meal
+		
+		if (np3Event==1) {
+			return 1;		// IN_PROGRESS
+		} else if ((np3Event==2) || (np3Event==7) || (np3Event==10) || (np3Event==30) || (np3Event==34) || (np3Event==73)) {
+			return 2;		// ON_TOTAL (TENDER SCREEN)
+		} else if (np3Event==11) {
+			return 8;		// GRILL IN PROGRESS
+		} else if (np3Event==47) {
+			return 64;		// STORED
+		} else if ((np3Event==6) || (np3Event==15)) {
+			return 128;		// PAID
+		} else if (np3Event==4) {
+			return 2048;	// CURRENT VOIDED
+		} else if (np3Event==8) {
+			return 4096;	// LAST VOIDED
+		} else {
+			// Not sure what to do.
+			return 1; // IN_PROGRESS
+		}
+	}
+	
+	function translateTenderCodeToNP6(np3Tender) {
+		//						NP3		NP6  
+		//	Tender Code			x>=0	x 	(see config for meanings)
+		//	Discount			x<0		empty
+		
+		if (np3Tender < 0) {
+			//return ""
+			return np3Tender;
+		} else {
+			return np3Tender;
+		}
+	}
+	
+	function translateTenderKindToNP6(np3Tender) {
+		//						NP3	NP6  
+		//	Payment, 			>=0	 0
+		//	Discount			-2	 1
+		//	Crew Meal			-12	 2
+		//	Manager Meal		-13	 3
+		//  Change				-1	 4
+		//	Change Kept			-3	 5
+		//	Returned Tender		 	 6
+		//	?					 	 7
+		//	Discount Coupon		 	 8
+		//	Replaced Payment	 	 9
+		
+		if (np3Tender < 0) {
+			switch (np3Tender) {
+			case -1:
+				return 4;
+			case -2:
+				return 1;
+			case -3:
+				return 5;
+			case -12:
+				return 2;
+			case -13:
+				return 3;
+			}
+		} else {
+			return 0; // Payment - must check value for tender code.
+		}
+	}
+	
+	function setSelectedItem(orderView) {	
+		var lstTick = -1;
+		var selectedItem = null;
+		for each (item in orderView.Item) {
+			var tick = new Number(item.@lastTick);
+			if (tick > lstTick) {
+				lstTick = tick;
+				selectedItem = item;
+			}
+		}
+		if (selectedItem != null) {
+			selectedItem.@currentSelected = 'true';
+		}
+	}
+	
+	
+	function consolidateGrill(product, newGrill) {
+		for each (grill in product.Grill) {
+			if (grill.@code == newGrill.@code) {
+				grill.@qty 			= (new Number(grill.@qty) + new Number(newGrill.@qty));
+				/* NPS-9839 - Glauco - 06.Nov.2012 */
+				//grill.@totalPrice 	= formatAmount((new Number(grill.@totalPrice) + new Number(newGrill.@totalPrice)), precision);
+				grill.@totalPrice 	= new Number(grill.@totalPrice) + new Number(newGrill.@totalPrice);
+				return;
+			}
+		}
+		product.appendChild(newGrill);
+	}
+	
+}
+ 
+/**CODViewFormatterJS
+ *
+ * @brief - Transforms the incoming hierarchical view into simplified view to be consumed (initially) by the COD UI. 
+ * @param - sView - hierarchical view
+ * @return - orderView - hierarchical filtered view
+ */
+function CODViewFormatterJS(sView, sConf)
+{
+	API.dbg('[CODViewFormatterJS] Entry');
+
+	if ((sView==null) || (sView.length==0)) {
+	    return null;
+	} else {
+		var startCommand = sView.indexOf("<Command");
+		if (startCommand!=-1) {
+			// This is a NP3 order view.
+			return CODNP3ViewFormatterJS(sView.substring(startCommand),sConf);
+		}
+	}
+
+	if (sConf==null) {
+		sConf = '<Config/>';
+	}
+
+	//sConf = (sConf+"").replace(/&/gi,"&amp;");
+
+	var xmlConfig = new XML(sConf);
+	API.dbg("[CODViewFormatterJS] ***********************  CONFIG  ***********************\nMultiLanguage:\n  enable                = " + xmlConfig.MultiLanguage.@enable + "\n  mainLanguage          = " + xmlConfig.MultiLanguage.@mainLanguage + "\n  mainLanguageName      = " + xmlConfig.MultiLanguage.@mainLanguageName + "\n  alternateLanguage     = " + xmlConfig.MultiLanguage.@alternateLanguage + "\n  alternateLanguageName = " + xmlConfig.MultiLanguage.@alternateLanguageName + "\nValueMealDisplay:\n  showAsSinglePrice     = " + xmlConfig.ValueMealDisplay.@showAsSinglePrice + "\n  suppressDiscount      = " + xmlConfig.ValueMealDisplay.@suppressDiscount + "\n  showDiscount          = " + xmlConfig.ValueMealDisplay.@showDiscount + "\n  discountText          = " + xmlConfig.ValueMealDisplay.@discountText + "\n  showUpcharge          = " + xmlConfig.ValueMealDisplay.@showUpcharge + "\n  upchargeText          = " + xmlConfig.ValueMealDisplay.@upchargeText);
+
+	var xmlProductName = null;
+	var alternateName = null;
+	
+	var xmlMultiLanguage = xmlConfig.MultiLanguage;
+	var xmlValueMealDisplay = xmlConfig.ValueMealDisplay;
+	var mainLan = names[xmlMultiLanguage.@mainLanguage.toString()];
+	var alterLan = null;
+
+	if (mainLan == null) {
+		API.dbg('[CODViewFormatterJS] Main language "' + xmlMultiLanguage.@mainLanguage + '" not found in names-db.xml');
+		xmlMultiLanguage.@mainLanguage = xmlStoreDb..Localization.Language + '_' + xmlStoreDb..Localization.CountryId;
+		if ((xmlStoreDb..Localization.Variant != null) && (xmlStoreDb..Localization.Variant != '')) {
+			xmlMultiLanguage.@mainLanguage = xmlMultiLanguage.@mainLanguage + '_' + xmlStoreDb..Localization.Variant;
+		}
+		API.dbg('[CODViewFormatterJS] Using default language "' + xmlMultiLanguage.@mainLanguage + '" configured in store-db.xml');
+		mainLan = names[xmlMultiLanguage.@mainLanguage.toString()];
+	}
+	if ( (String(xmlMultiLanguage.@mainLanguageName) != '0') 
+		&& (String(xmlMultiLanguage.@mainLanguageName) != '1') 
+		&& (String(xmlMultiLanguage.@mainLanguageName) != '2')
+		&& (String(xmlMultiLanguage.@mainLanguageName) != 'ShortName')
+		&& (String(xmlMultiLanguage.@mainLanguageName) != 'LongName')
+		&& (String(xmlMultiLanguage.@mainLanguageName) != 'DTName')
+		&& (String(xmlMultiLanguage.@mainLanguageName) != 'CODName')) {
+		API.dbg('[CODViewFormatterJS] Invalid main language name type "' + xmlMultiLanguage.@mainLanguageName + '" - using default value LongName');
+	}
+	
+	if (xmlMultiLanguage.@enable == 'true') {
+		alterLan = names[xmlMultiLanguage.@alternateLanguage.toString()];
+		if (alterLan == null) {
+			API.dbg('[CODViewFormatterJS] Alternate language "' + xmlMultiLanguage.@alternateLanguage + '" not found in names-db.xml');
+			xmlMultiLanguage.@alternateLanguage = xmlStoreDb..Localization.Language + '_' + xmlStoreDb..Localization.CountryId;
+			if ((xmlStoreDb..Localization.Variant != null) && (xmlStoreDb..Localization.Variant != '')) {
+				xmlMultiLanguage.@alternateLanguage = xmlMultiLanguage.@alternateLanguage + '_' + xmlStoreDb..Localization.Variant;
+			}
+			API.dbg('[CODViewFormatterJS] Using default language "' + xmlMultiLanguage.@alternateLanguage + '" configured in store-db.xml');
+			alterLan = names[xmlMultiLanguage.@alternateLanguage.toString()];
+		}
+		if ( (String(xmlMultiLanguage.@alternateLanguageName) != '0') 
+			&& (String(xmlMultiLanguage.@alternateLanguageName) != '1') 
+			&& (String(xmlMultiLanguage.@alternateLanguageName) != '2')
+			&& (String(xmlMultiLanguage.@alternateLanguageName) != 'ShortName')
+			&& (String(xmlMultiLanguage.@alternateLanguageName) != 'LongName')
+			&& (String(xmlMultiLanguage.@alternateLanguageName) != 'DTName')
+			&& (String(xmlMultiLanguage.@alternateLanguageName) != 'CODName')) {
+			API.dbg('[CODViewFormatterJS] Invalid alternate language name type "' + xmlMultiLanguage.@alternateLanguageName + '" - using default value ShortName');
+		}
+	}
+	else {
+		API.dbg('[CODViewFormatterJS] Alternate language disabled');
+	}
+	
+	//sView = (sView+"").replace(/&/gi,"&amp;");
+
+	var xmlView = new XML(sView);
+	API.dbg("[CODViewFormatterJS] *********************** NP6 VIEW ***********************\n" + xmlView);
+
+	var viewChildren = xmlView.children();
+	var orderView = new XML('<Order/>');
+	
+	//##################################################################################################################
+	// ORDER TAG AND ATTRIBUTES
+	//##################################################################################################################
+	orderKey = xmlView.@orderKey;
+	storedOrderKey = orderKey.split(":");
+	orderView.@orderKey    = storedOrderKey[1];
+	orderView.@major       = xmlView.@major;
+	orderView.@minor       = xmlView.@minor;
+	orderView.@totalAmount = xmlView.@totalAmount;
+	orderView.@totalTax    = xmlView.@totalTax;
+	orderView.@status      = translateStatusToNP6(xmlView.@saleStatus);
+
+	orderView.@saleKind    = xmlView.@transactionKind;
+	orderView.@saleType    = xmlView.@type;
+	orderView.@totalDue    = xmlView.@totalDue;
+	if(Number(xmlView.@totalDue) != Number(xmlView.@nativeTotalDue)) {
+		orderView.@foreignTotalDue = xmlView.@totalDue;
+
+		var pos = xmlView.@totalDue.indexOf(".");
+		var nDecimal = xmlView.@totalDue.substring(pos + 1).length;
+		orderView.@foreignTotalDueMask = xmlView.@totalDueCurrency + " #,###." + (new Array(nDecimal + 1).join('0'));
+	}
+
+	if(xmlView.@totalDueCurrency != null && xmlView.@totalDueCurrency.toString() != "") {
+		try {
+			var found = false;
+			var exchangeRate;
+			var rounding;
+
+			for each(var TenderType in xmlStoreDb..TenderType) {
+				if(TenderType.TenderName.toString() == xmlView.@totalDueCurrency.toString()) {
+					found = true;
+					exchangeRate = new BigDecimal(TenderType.ForeignCurrency.ExchangeRate);
+					rounding = TenderType.ForeignCurrency.Rounding;
+					break;
+				}
+			}
+			if(found == true) {
+				var nRounding
+				/* Rounding modes */
+				var Rounding_Mode = ["ROUND_UP", "ROUND_DOWN", "ROUND_CEILING", "ROUND_FLOOR", "ROUND_HALF_UP", "ROUND_HALF_DOWN", "ROUND_HALF_EVEN"];
+				for(var i = 0 ; i <= 6 ; i++) {
+					if(Rounding_Mode[i].toString() == rounding.toString()) {
+						nRounding = i;
+						break;					
+					}
+				}
+
+				var totalAmount = new BigDecimal(xmlView.@totalAmount);
+				var totalTax = new BigDecimal(xmlView.@totalTax);
+				
+				var scale = totalAmount.getScale() + exchangeRate.getScale();
+				var foreignTotalAmount = totalAmount.divide(exchangeRate, scale, nRounding);
+				var foreignTotalTax = totalTax.divide(exchangeRate, scale, nRounding);
+
+				foreignTotalAmount = roundNumber(foreignTotalAmount, exchangeRate, totalAmount, nRounding);
+				foreignTotalTax = roundNumber(foreignTotalTax, exchangeRate, totalTax, nRounding);
+
+				var foreignTotalMask = xmlView.@totalDueCurrency + " #,###." + (new Array(totalAmount.getScale() + 1).join('0'));
+
+				orderView.@foreignTotalAmount = foreignTotalAmount;
+				orderView.@foreignTotalTax = foreignTotalTax;
+				orderView.@foreignTotalMask = foreignTotalMask;
+			}
+		} catch(err){
+			API.dbg("[CODViewFormatterJS] error: " + err);
+		}
+	}
+	
+	 //SDO-6714
+	var SumRounding = new BigDecimal(0);
+	var RoundedTotal = new BigDecimal( xmlView.@grossAmount);
+	var RoundedChange = new BigDecimal(0);
+	var bChangeRoundPaymentFound=false;
+	// NPS-9408 - change and total rounding
+	for each (itemTenderView in xmlView.ItemTenderView) {
+		if((4==Number(itemTenderView.kind))||(5==Number(itemTenderView.kind))) {
+			if(0!=xmlConfig.TenderList.Tender.(@tenderId==itemTenderView.code).@roundType) {
+				var rounding=new BigDecimal(itemTenderView.rounding);				
+				rounding=-rounding;				
+				RoundedChange = rounding;
+			}
+		}
+		else
+		{
+			if(128==Number(xmlView.@saleStatus)) {
+				if(false==bChangeRoundPaymentFound) {
+					if(0==Number(itemTenderView.kind)) {
+						if(0!=xmlConfig.TenderList.Tender.(@tenderId==itemTenderView.code).@roundType) {
+							var zero=new BigDecimal(0);							
+							RoundedChange = 0;							
+							bChangeRoundPaymentFound=true;
+						}
+					}
+				}
+			}
+		}
+		//SDO-6714 
+		SumRounding = SumRounding.subtract(new BigDecimal(itemTenderView.tenderRoundAdj) );		
+	}
+	
+	//SDO-6714 
+	SumRounding = SumRounding.add( RoundedChange );		
+	
+	if(Number(xmlView.@totalDueRoundAdj)!=0){		
+		var totalAmountRounded = Number(xmlView.@totalAmount) + Number(xmlView.@totalDueRoundAdj);		
+		SumRounding = SumRounding.add(new BigDecimal(xmlView.@totalDueRoundAdj)); //SDO-6714 	
+	}	
+	
+	RoundedTotal = RoundedTotal.add( SumRounding );
+	
+	if(Number(xmlView.@orderTotalRoundAdj)!=0){		
+		var totalAmountRounded = Number(xmlView.@totalAmount) + Number(xmlView.@totalDueRoundAdj);		
+		SumRounding = SumRounding.add(new BigDecimal(xmlView.@orderTotalRoundAdj)); //SDO-6714 		
+	}	
+
+	//SDO-6714 
+	if(Number(xmlView.@discountRoundAdj)!=0)									
+		SumRounding = SumRounding.subtract(new BigDecimal(xmlView.@discountRoundAdj));			
+	
+	if( SumRounding.compareTo(new BigDecimal(0) )  !=0  ){		
+		orderView.@totalRounded = RoundedTotal.toString();			
+		orderView.@roundingAdjustment = SumRounding.toString();							
+	}
+	
+	
+	var precision = 2;
+	var lastItem = 'x';
+	var lastLevel = 0;
+	var level = 0;
+	var item = null;
+	var product = null;
+	var newProduct = null;
+	var changedAfterTotal = false;
+	var isVoided = false;
+	var realIndex = 0;
+	var hasDeposit = false; // NPS-8922
+	
+	setWhereToShowDiscountOnItem(xmlView);
+	var promotionName = null;
+	var displayGlobalPromotionsMessages = xmlStoreDb..Configuration.(@type == "COD").Section.(@name == "main").Parameter.(@name == "displayGlobalPromotionsMessages").@value;
+	var displayItemPromotionAmounts = xmlStoreDb..Configuration.(@type == "COD").Section.(@name == "main").Parameter.(@name == "displayItemPromotionAmounts").@value;
+	var xmlItems = xmlView.ItemView;
+	//Remove sorting code - NVS-5586
+	
+	//##################################################################################################################
+	// ITEMS OF THE ORDER
+	//##################################################################################################################
+	var lastIdAndCounter;
+	var mapProducts = {}; // SDO-15888: a map to aggregate promotion products.
+	for each (itemView in xmlItems)
+	{
+		var currentIdAndCounter = String(itemView.PromotionApplied.@promotionId) +
+		String(itemView.PromotionApplied.@promotionCounter);
+		if (lastItem!=itemView.itemCode)
+		{
+			if((Number(itemView.PromotionApplied.@promotionId) <= 0) || (currentIdAndCounter != lastIdAndCounter))
+			{
+				if(item!=null) {
+					if(changedAfterTotal) {
+						item.@changedAfterTotal='true';
+					}
+					orderView.appendChild(item);
+					promotionName = null;
+				}
+				isVoided=((itemView.quantity==0) && (itemView.grilledQuantity==0));
+				//Item Element
+				item = new XML('<Item/>');
+				item.@voided = isVoided;
+				item.@qtyPromo = itemView.quantityPromo;
+				item.@currentSelected = itemView.currentSelected;
+				item.@index = itemView.itemCode;
+				if (isVoided) {
+					item.@index = -1;
+				} else {
+					item.@index = realIndex;
+					realIndex++;
+				}
+				changedAfterTotal = false;
+				lastItem = itemView.itemCode;
+				lastLevel = 0;
+			}
+		}
+		if ((displayGlobalPromotionsMessages == "true") && (Number(itemView.PromotionApplied.@promotionId) > 0)
+			&& (currentIdAndCounter != lastIdAndCounter))
+		{
+			item.@qtyPromo = 0;
+			promotionName = mapProducts[currentIdAndCounter];
+			if ((promotionName===null)||(promotionName===undefined))
+			{
+				promotionName = new XML('<Product/>');
+				mapProducts[currentIdAndCounter] = promotionName;
+				promotionName.@class = "998"; //Promotion name uses the class "998"
+				promotionName.@name = "" ;
+				if(xmlView.Promotions.Promotion.length() > 0)
+				{
+					promotionName.@name = xmlView.Promotions.Promotion.(@id ==
+					itemView.PromotionApplied.@promotionId).(@counter == itemView.PromotionApplied.@promotionCounter).@promotionName;
+					// NPS-19043 - NVS-4645
+					promotionName.@showIndividualPrices = xmlView.Promotions.Promotion.(@id == itemView.PromotionApplied.@promotionId).(@counter == itemView.PromotionApplied.@promotionCounter).@showIndividualPrices;
+				}
+				if(promotionName.@name == "")
+				{
+					if(itemView.PromotionApplied.@offerId >= 0)
+					{
+						promotionName.@name = API.getLocalMsg("MSG_BC_OFFERS_ID",null);
+					}
+					else
+					{
+						promotionName.@name = API.getLocalMsg("MSG_BC_PROMOTIONS_ID",null);
+					}
+				}
+				// NPS-19043 - NVS-4645
+				if(promotionName.@showIndividualPrices == "")
+				{
+					promotionName.@showIndividualPrices = "true";
+				}
+				item.appendChild(promotionName);
+			}
+			level = 0;
+		}
+		else if ((displayGlobalPromotionsMessages == "true") && (Number(itemView.PromotionApplied.@promotionId) > 0))
+		{
+			// lastIdAndCounter is not updated when item without promotion 
+			promotionName = mapProducts[currentIdAndCounter];
+		}
+		// NPS-8922 - Start
+		var nextEl = itemView.parent().children()[ itemView.childIndex() + 1 ]
+		if(nextEl != null) {
+			if(nextEl.name() == "Deposit") {
+				productDeposit = new XML('<Product/>');
+				productDeposit.@qty 			= nextEl.@quantity
+				productDeposit.@class			= "999";      	//Deposist use the class "999"
+				productDeposit.@code			= "" ;
+				productDeposit.@name			= nextEl.@description;
+				productDeposit.@unitPrice		= "";
+				productDeposit.@totalPrice		= nextEl.@value;
+				productDeposit.@totalTax		= "";
+				productDeposit.@action			= "";
+				productDeposit.@family			= "";
+				productDeposit.@realQty			= "";
+				hasDeposit = true;
+			}
+		} 
+		// NPS-8922 - End
+		
+		if(lastItem!=itemView.itemCode) {
+			if(item!=null) {
+				if(changedAfterTotal) {
+					item.@changedAfterTotal='true';
+				}
+				orderView.appendChild(item);
+			}
+			
+			isVoided=((itemView.quantity==0) && (itemView.grilledQuantity==0));
+			
+			//Item Element
+			item = new XML('<Item/>');
+			item.@voided 			= isVoided;
+			item.@qtyPromo 			= itemView.quantityPromo;
+			item.@currentSelected 	= itemView.currentSelected;
+			item.@index 			= itemView.itemCode;
+
+			if (isVoided) {
+				item.@index = -1;
+			} else {
+				item.@index = realIndex;
+			    realIndex++;
+			}
+			
+			changedAfterTotal 	= false;
+			lastItem 			= itemView.itemCode;
+			lastLevel 			= 0;
+	
+		}
+		level 	= Number(itemView.level);
+		defQty 	= Number(itemView.componentDefaultQtd);
+		qty 	= Number(itemView.quantity);
+		var drinkLogicOverridRule = (itemView.productType == 4) && (Number(xmlView.@saleStatus) >= 2);
+	
+		if (itemView.isGrillLine=='true') {
+			//##################################################################################################################
+			// PRODUCT IS GRILLED
+			//##################################################################################################################
+			newProduct = new XML('<Grill/>');
+			newProduct.@modifier = itemView.specialModifiers;
+			newProduct.@defQty = defQty;
+			if(itemView.specialModifiers!="0") {
+				newProduct.@qty = defQty;
+			} else if(defQty>0) {
+				newProduct.@qty = (defQty + qty);
+				newProduct.@grillQty = qty;
+			} else {
+				newProduct.@grillQty = qty;
+				newProduct.@qty = qty;
+			}
+		} else {
+			newProduct = new XML('<Product/>');
+			newProduct.@qty = qty;
+			// NPS-8922 - Start
+			if(hasDeposit == true) {
+				newProduct.appendChild(productDeposit);
+				hasDeposit = false;
+			}
+			// NPS-8922 - End			
+			if( (displayItemPromotionAmounts == "true") && itemView.discounts != undefined && itemView.discounts != null) {
+				for each (discount in itemView.discounts.discount){
+					// Discount By Item
+					newDiscount 			= new XML('<Product/>');
+					newDiscount.@name 		= discount.@description;
+					newDiscount.@totalPrice = discount.@amount;
+					newDiscount.@totalTax 	= 0;
+					newDiscount.@class 		= 2;
+					newDiscount.@family 	= 7;
+					newProduct.appendChild(newDiscount);
+				}
+			}
+		}
+
+		/*
+			=================================================================
+			TABLE DEFINITION - PRODUCT ACTIONS
+			=================================================================
+			0 - PA_RECIPE,				//!< Default recipe
+			1 - PA_ADD,					//!< Added to a recipe
+			2 - PA_COMMENT,				//!< Comment
+			3 - PA_CHOICE				//!< Choice 
+
+			=================================================================
+			TABLE DEFINITION - PRODUCT ClASSES
+			=================================================================
+			0-PC_UNDEFINED_KIND,		//!< Undefined kind
+			1-PC_RAW_ITEM,				//!< Raw ingredient
+			2-PC_PRODUCT,				//!< Regular product 
+			3-PC_VALUE_MEAL,			//!< Value meal 
+			4-PC_CHOICE,				//!< Choice (pseudo-product)
+			5-PC_GROUP,					//!< Group (pseudo-product)
+			6-PC_COMMENT,				//!< Comment 
+			7-PC_OPTION,				//!< Heads optional components 
+			8-PC_NON_FOOD_PRODUCT,		//!< Non food product 
+			9-PC_COUPONS,				//!< Coupons
+			10-PC_PRODUCT_KIND_NUMBER	//!< Last value 
+			
+			=================================================================
+			TABLE DEFINITION - FAMILY GROUP
+			=================================================================
+			0-BREAKFAST_ENTREE
+			1-BREAKFAST_SIDE
+			2-REGULAR_ENTREE
+			3-FRIES
+			4-DESSERT
+			5-SHAKES
+			6-BREAKFAST_DRINK
+			7-REGULAR_DRINK
+			8-NON_PRODUCT
+			9-GIFT_COUPON
+			10-SALADS
+			11-FG_UNDEFINED
+
+			=================================================================
+			TABLE DEFINITION - GRILLREASON
+			=================================================================
+			GRILL_REASON_OFF	= 0	//!< Grill reason off
+			PLAIN				= 1 //!< Grill reason plain
+			USERACTION			= 2	//!< Grill reason user action
+			SMARTGRILL			= 3	//!< Grill reason smart grill
+		*/
+		
+		newProduct.@code 		= itemView.productCode;
+		// multi-language
+		if(mainLan[itemView.productCode] == undefined) {
+			API.dbg("[CODViewFormatterJS] There isn't ProductName in names-db.xml for the productCode = " + itemView.productCode);
+			mainLan[itemView.productCode] = new XML("<ProductName><ProductCode>" + itemView.productCode + "</ProductCode><ShortName></ShortName><LongName></LongName><DTName></DTName><CODName></CODName></ProductName>");
+		}
+		xmlProductName = mainLan[itemView.productCode];
+		if(itemView.grillReason == '1') {
+			newProduct.@name = PLAIN;
+		} else if (String(xmlMultiLanguage.@mainLanguageName) == '0') {
+			newProduct.@name = xmlProductName.ShortName;
+		} else if (String(xmlMultiLanguage.@mainLanguageName) == '1') {
+			newProduct.@name = xmlProductName.DTName;
+		} else if (String(xmlMultiLanguage.@mainLanguageName) == '2') {
+			newProduct.@name = xmlProductName.LongName;
+		} else if (String(xmlMultiLanguage.@mainLanguageName) == 'ShortName') {
+			newProduct.@name = xmlProductName.ShortName;
+		} else if (String(xmlMultiLanguage.@mainLanguageName) == 'LongName') {
+			newProduct.@name = xmlProductName.LongName;
+		} else if (String(xmlMultiLanguage.@mainLanguageName) == 'DTName') {
+			newProduct.@name = xmlProductName.DTName;
+		} else if (String(xmlMultiLanguage.@mainLanguageName) == 'CODName') {
+			newProduct.@name = xmlProductName.CODName;
+		} else {
+			newProduct.@name = xmlProductName.LongName;
+		}
+		if (xmlMultiLanguage.@enable=='true') {
+			alternateName = new XML('<AlternateName/>');
+			alternateName.@language=xmlMultiLanguage.@alternateLanguage;
+
+			if(alterLan[itemView.productCode] == undefined) {
+				API.dbg("[CODViewFormatterJS] There isn't alternative ProductName in names-db.xml for the productCode = " + itemView.productCode);
+				alterLan[itemView.productCode] = new XML("<ProductName><ProductCode>" + itemView.productCode + "</ProductCode><ShortName></ShortName><LongName></LongName><DTName></DTName><CODName></CODName></ProductName>");
+			}
+
+			xmlProductName = alterLan[itemView.productCode];
+
+			if(itemView.grillReason == '1') {
+				alternateName.@name = PLAIN;
+			} else if (String(xmlMultiLanguage.@alternateLanguageName) == '0') {
+				alternateName.@name = xmlProductName.ShortName;
+			} else if (String(xmlMultiLanguage.@alternateLanguageName) == '1') {
+				alternateName.@name = xmlProductName.DTName;
+			} else if (String(xmlMultiLanguage.@alternateLanguageName) == '2') {
+				alternateName.@name = xmlProductName.LongName;
+			} else if (String(xmlMultiLanguage.@alternateLanguageName) == 'ShortName') {
+				alternateName.@name = xmlProductName.ShortName;
+			} else if (String(xmlMultiLanguage.@alternateLanguageName) == 'LongName') {
+				alternateName.@name = xmlProductName.LongName;
+			} else if (String(xmlMultiLanguage.@alternateLanguageName) == 'DTName') {
+				alternateName.@name = xmlProductName.DTName;
+			} else if (String(xmlMultiLanguage.@alternateLanguageName) == 'CODName') {
+				alternateName.@name = xmlProductName.CODName;
+			} else {
+				alternateName.@name = xmlProductName.ShortName;
+			}
+			newProduct.appendChild(alternateName);
+		}
+
+		newProduct.@unitPrice 	= Number(itemView.unitPrice).toFixed(precision);
+		newProduct.@totalPrice 	= Number(itemView.totalPrice).toFixed(precision);
+		newProduct.@totalTax 	= Number(itemView.totalTax).toFixed(precision);
+		newProduct.@action		= itemView.prodAction;
+		newProduct.@class		= itemView.productType;	// see: TABLE DEFINITION - PRODUCT ClASSES
+		newProduct.@family		= itemView.familyGroup; // see: TABLE DEFINITION - FAMILY GROUP
+
+		if ((itemView.referencePrice != null) && (itemView.referencePrice > 0)){
+			newProduct.ReferencePrice = Number(itemView.referencePrice).toFixed(precision); 
+		}
+		
+		if(!changedAfterTotal) {
+			changedAfterTotal = ((itemView.quantityChanged=='true') || (itemView.quantityChanged=='TRUE'));
+		}
+		if ((displayGlobalPromotionsMessages == "true") && (Number(itemView.PromotionApplied.@promotionId) > 0))
+		{
+			newProduct.@promotedQtty = itemView.quantityPromo;
+		}
+		//check levels
+		if (level > lastLevel) {
+			newProduct.@realQty = newProduct.@qty * product.@qty;
+			newProduct.@Qty = newProduct.@realQty;
+			if(!drinkLogicOverridRule)
+			{
+				product.appendChild(newProduct);
+			}
+			if(itemView.isGrillLine=='true'){
+				if( (displayItemPromotionAmounts == "true") && itemView.discounts != undefined && itemView.discounts != null){
+					for each (discount in itemView.discounts.discount){
+						// Discount By Item
+						newDiscount 			= new XML('<Grill/>');
+						newDiscount.@name 		= discount.@description;
+						newDiscount.@totalPrice = discount.@amount;
+						newDiscount.@totalTax 	= 0;
+						newDiscount.@class 		= 11;
+						newDiscount.@family 	= 7;
+						product.appendChild(newDiscount);
+					}
+				}
+			}
+			product = newProduct;
+		} else if ((level<=lastLevel) && (level!=0)) {
+			for(j=0; j<((lastLevel-level)+1); j++) {
+				product = product.parent();
+			}
+			newProduct.@realQty = newProduct.@qty * product.@qty;
+			newProduct.@Qty = newProduct.@realQty;
+			if(!drinkLogicOverridRule)
+			{
+				product.appendChild(newProduct);
+			}
+			if(itemView.isGrillLine=='true'){
+				if( (displayItemPromotionAmounts == "true") && itemView.discounts != undefined && itemView.discounts != null){
+					for each (discount in itemView.discounts.discount){
+						// Discount By Item
+						newDiscount 			= new XML('<Grill/>');
+						newDiscount.@name 		= discount.@description;
+						newDiscount.@totalPrice = discount.@amount;
+						newDiscount.@totalTax 	= 0;
+						newDiscount.@class 		= 11;
+						newDiscount.@family 	= 7;
+						product.appendChild(newDiscount);
+					}
+				}
+			}
+			product = newProduct;
+
+		} else {
+			newProduct.@realQty = newProduct.@qty;
+			product = newProduct;
+			if(itemView.isGrillLine=='true'){
+				if( (displayItemPromotionAmounts == "true") && itemView.discounts != undefined && itemView.discounts != null){
+					for each (discount in itemView.discounts.discount){
+						// Discount By Item
+						newDiscount 			= new XML('<Grill/>');
+						newDiscount.@name 		= discount.@description;
+						newDiscount.@totalPrice = discount.@amount;
+						newDiscount.@totalTax 	= 0;
+						newDiscount.@class 		= 11;
+						newDiscount.@family 	= 7;
+						product.appendChild(newDiscount);
+					}
+				}
+			}
+			if(promotionName != null)
+			{
+				if (displayItemPromotionAmounts == "true") {  // NVS-5495
+					applyPromotionDiscount(product, itemView, precision); //NVS-4645
+				}
+				promotionName.appendChild(product);
+				lastIdAndCounter = currentIdAndCounter;
+			}
+			else
+			{
+				item.appendChild(product);
+			}
+		}
+		lastLevel=level;
+	}
+	if(item!=null) {
+		if(changedAfterTotal) {
+			item.@changedAfterTotal='true';
+		}
+		orderView.appendChild(item);
+	}
+	
+	var orderPOD = xmlView.@pod; // NPS-8922	
+	var cashless = null;
+	cashlessCounter = 0;
+
+	// NPS-8922 - Start
+	//##################################################################################################################
+	// FEES for DRIVE THROUGH 
+	//##################################################################################################################
+	// FEE for DRIVE THROUGH is like one item 
+	if(orderPOD == POD_DRIVETHROUGH) {
+		for each (itemFeeView in xmlView.Fee) {
+			//Item Element
+			itemFee = new XML('<Item/>');
+			itemFee.@voided 			= "false";
+			itemFee.@qtyPromo 			= "0";
+			itemFee.@currentSelected 	= "false";
+			itemFee.@index 				= "-1";
+			productFee = new XML('<Product/>');
+			productFee.@qty 			= itemFeeView.@quantity;
+			productFee.@class			= "";
+			productFee.@code			= "";
+			productFee.@name			= itemFeeView.@description;
+			productFee.@unitPrice		= "";
+			productFee.@totalPrice		= itemFeeView.@value;
+			productFee.@totalTax		= "";
+			productFee.@action			= "";
+			productFee.@family			= "";
+			productFee.@realQty			= "";
+			itemFee.appendChild(productFee);
+			orderView.appendChild(itemFee);
+		}
+	}
+	// NPS-8922 - End 
+
+	//##################################################################################################################
+	// TENDERS AND CASHLESS
+	// FEES for FRONT COUNTER [NPS-8922]
+	//##################################################################################################################
+	var discountTenders = new XML('<Tenders/>');
+	var paymentTenders = new XML('<Tenders/>');
+	var changeTenders = new XML('<Tenders/>');
+	var otherTenders = new XML('<Tenders/>');
+	// NPS-8922 - Start
+	var fees = new XML('<Tenders/>');
+	if(orderPOD == POD_FRONTCOUNTER) {
+		for each (itemFeeView in xmlView.Fee) {
+			itemFee = new XML('<Tender/>');
+			itemFee.@code 	= "0";
+			itemFee.@kind	= "998";                 //998 = Fee (This value exist only on NGCOD) 
+			itemFee.@name 	= itemFeeView.@description;
+			itemFee.@qty 	= itemFeeView.@quantity;
+			itemFee.@value 	= itemFeeView.@value;
+			fees.appendChild(itemFee);
+		}
+	}
+	// NPS-8922 - End
+	for each (itemTenderView in xmlView.ItemTenderView) {
+		item = new XML('<Tender/>');
+		item.@code 		= itemTenderView.code;
+		item.@kind		= itemTenderView.kind;						// 0=Payment,1=Discount,2=Crew Meal,3=Manager Meal,4=Change,5=Change kept,6=returned tender,8=discount coupon,9=payment that was replaced (Gift Card => Cash) -- see: npAdpAccTypes.h
+		item.@name 		= itemTenderView.description;
+		item.@qty 		= itemTenderView.qty;
+		item.@value 	= itemTenderView.value;
+
+		if(itemTenderView.cat == "TENDER_FOREIGN_CURRENCY") {
+			item.@name			= xmlStoreDb..Localization.CurrencySymbol;
+			item.@foreignValue	= itemTenderView.fValue;
+
+			var pos = itemTenderView.fValue.indexOf(".");
+			var nDecimal = itemTenderView.fValue.substring(pos + 1).length;
+			item.@foreignMask = itemTenderView.description + " #,###." + (new Array(nDecimal + 1).join('0'));
+		}
+
+		//Cashless
+		if(itemTenderView.cat == "TENDER_ELECTRONIC_PAYMENT") {
+			cashless = new XML('<Cashless/>');
+			stripCashlessString(cashless, xmlView.Cashless[cashlessCounter]);
+			item.appendChild(cashless);
+			cashlessCounter++;
+		}
+
+		switch(parseInt(item.@kind)) {
+			//discount
+			case 1:
+			case 2:
+			case 3:
+			case 8:
+			case 10:
+				discountTenders.appendChild(item);
+				break;
+			//payment
+			case 0:
+				paymentTenders.appendChild(item);
+				break;
+			//change
+			case 4:
+			case 5:
+				changeTenders.appendChild(item);
+				break;
+			//others
+			default:
+				otherTenders.appendChild(item);
+				break;
+		}
+	}
+	// NPS-8922 - Start
+	for each (Tenders in fees) {
+		orderView.appendChild(Tenders);
+	}
+	// NPS-8922 - End
+	for each (Tenders in discountTenders) {
+		orderView.appendChild(Tenders);
+	}
+	for each (Tenders in paymentTenders) {
+		orderView.appendChild(Tenders);
+	}
+	for each (Tenders in changeTenders) {
+		orderView.appendChild(Tenders);
+	}
+	for each (Tenders in otherTenders) {
+		orderView.appendChild(Tenders);
+	}
+
+	computeChildrenTotals(orderView);
+	
+	computePromotionTotals(orderView, precision); //NVS-4645
+	// KFG Logs the view.
+	API.dbg("[CODViewFormatterJS] *********************** CONVERTED VIEW ***********************\n" + orderView.toXMLString());
+
+	// Returns the new simplified view.
+	var retStr = orderView.toXMLString();
+	
+	// disposing language variables
+	mainLan = null;
+	alterLan = null;
+	
+	// retStr = (retStr+"").replace(/&amp;/gi,"&");
+	return retStr;
+	
+	/**computeChildrenTotals
+	 *
+	 * @brief - Computes the VM totals.
+	 * @return - orderView - to be computed.
+	 */
+	function computeChildrenTotals(orderView) {
+		for each (productLvl0 in orderView.Item.Product) {
+			var totals = computeRecursively(productLvl0);
+			productLvl0.@totalPrice	= Number(productLvl0.@totalPrice) 	+ totals[0];
+			productLvl0.@totalTax	= Number(productLvl0.@totalTax) 	+ totals[1];
+			productLvl0.@totalPrice	= Number(productLvl0.@totalPrice).toFixed(precision);
+			productLvl0.@totalTax	= Number(productLvl0.@totalTax).toFixed(precision);
+			delete productLvl0.@action;
+			delete productLvl0.@realQty;
+		}
+		/***
+		 * Computes its children totals.
+		 */
+		function computeRecursively(parent) {
+			var child         = null;
+			var totPrice 	= 0; //grillTotals[0];
+			var totTax 		= 0; //grillTotals[1];
+			for each (child in parent.Product) {
+				var totals 	= computeRecursively(child);
+				// Value Meal Display options
+				if (xmlValueMealDisplay.@showAsSinglePrice == 'true') {
+					if ((child.@action == 3) && (child.ReferencePrice.length() > 0)) {
+						var auxPrice = Number(0.0);
+
+						totPrice += Number(child.@realQty) * Number(child.ReferencePrice);
+
+						if (child.@class != 4) {
+							var difPrice = new BigDecimal(child.@unitPrice);
+							difPrice = difPrice.subtract( new BigDecimal(child.ReferencePrice ) ); 
+							if ((difPrice > 0) && (xmlValueMealDisplay.@showUpcharge == 'true')) {
+								if ((xmlValueMealDisplay.@upchargeText != null) && (xmlValueMealDisplay.@upchargeText.length() > 0)) {
+									child.@name = child.@name + " " +  xmlValueMealDisplay.@upchargeText;
+								}
+								auxPrice = Number(child.@realQty) * difPrice;
+							}
+							if ((difPrice < 0) && (xmlValueMealDisplay.@showDiscount == 'true') && (xmlValueMealDisplay.@suppressDiscount == 'false')) {
+								if ((xmlValueMealDisplay.@discountText != null) && (xmlValueMealDisplay.@discountText.length() > 0)) {
+									child.@name = child.@name + " " +  xmlValueMealDisplay.@discountText;
+								}
+								auxPrice = Number(child.@realQty) * difPrice;
+							}
+						}
+						//else {
+						//	delete child.ReferencePrice;
+						//}
+
+						child.@totalPrice = auxPrice.toFixed(precision);
+					}
+					else {
+						// Lindomar Araujo - Nov/02/2016 NVS-5523 - Fixing to display the right value for the CCM item in the CCM meal item, not in the choice item.
+						if (parent.@class == 3) { 
+							totPrice += Number(child.@realQty) * Number(child.@totalPrice); 
+							child.@totalPrice = Number(0.0); 
+						} 
+					}
+					//totTax 		+= Number(child.@totalTax) 	+ totals[1];
+				}
+				else {
+					if (child.ReferencePrice != null) {
+						delete child.ReferencePrice;
+					}
+					//totPrice	+= Number(child.@totalPrice)+ totals[0];
+					//totTax	+= Number(child.@totalTax) 	+ totals[1];
+				}
+				delete child.@action;
+				delete child.@realQty;
+			}
+			for each (child in parent.Grill) {
+				//totPrice		+= Number(child.@totalPrice);
+				//totTax 		+= Number(child.@totalTax);
+
+				delete child.@action;
+				delete child.@realQty;
+			}
+			return Array(totPrice, totTax);
+		}
+	}
+	
+	/** applyPromotionDiscount
+	     * \brief Applies the corresponding discount to a promotion item
+	     * \author lscardelatto
+	     * \since NPS-19043 - NVS-4645
+	     */
+	    function applyPromotionDiscount(product, itemView, precision)
+	    {
+	      var totalPromotionDiscount = new BigDecimal(0);
+	      for each (promotion in itemView.PromotionApplied)
+	      {
+	        totalPromotionDiscount = totalPromotionDiscount.add(new BigDecimal(promotion.@discountAmount));
+	      }
+	      product.@totalPrice = new BigDecimal(product.@totalPrice).subtract(totalPromotionDiscount);
+	      product.@totalPrice	= Number(product.@totalPrice).toFixed(precision);
+	    }
+		/** computePromotionTotals
+	     * \brief Calculates the total price of each promotion of a sale
+	     * \author lscardelatto
+	     * \since NPS-19043 - NVS-4645
+	     */
+	    function computePromotionTotals(orderView, precision)
+	    {
+	      for each (promotion in orderView.Item.Product.(@class == "998"))
+	      {
+	        if(promotion.@showIndividualPrices.toUpperCase() == "FALSE")
+	        {
+	          var total = new BigDecimal(0);
+	          for each (product in promotion.Product)
+	          {
+	            total = total.add(new BigDecimal(product.@totalPrice));
+	            delete product.@totalPrice;
+	          }
+	          promotion.@totalPrice	= total;
+	          promotion.@totalPrice	= Number(promotion.@totalPrice).toFixed(precision);
+	        }
+	        else
+	        {
+	          delete promotion.@totalPrice;
+	        }
+	      }
+	    }
+	/**stripCashlessString
+	 *
+	 * @brief - Adds the cashless attributes.
+	 * @return - none
+	 */
+	function stripCashlessString(cashless, cashlessStr) {
+		if(cashlessStr != null) {
+			//TODO : check cashless string format
+			//function ParseTrackInfo(retcode,cardType)
+			//function cashlessPayment(tenderId,tenderValue,refund)
+			//TODO : check the split
+			var splitStr = cashlessStr.split("@");
+			if (splitStr.length < 9) {
+				return;
+			}
+			cashless.@cardProv = splitStr[1];
+			cashless.@cardNum = splitStr[2];
+			cashless.@expireDt = splitStr[3];
+			cashless.@authNum = splitStr[4];
+			cashless.@printFlag = splitStr[5];
+			cashless.@seqNum = splitStr[6];
+			cashless.@gcBalance = splitStr[8];
+			cashless.@accountNum = splitStr[9];
+		}
+	}
+
+	/**translateStatusToNP6
+	 *
+	 * @brief - Translates the POS to COD sale status.
+	 * @return - COD sale status
+	 */
+	function translateStatusToNP6(np6Event) {
+
+		if (np6Event == "32") {
+			return "2";		// tender
+		} else {
+			return np6Event;
+		}
+	}
+	
+	function roundNumber(td1, td2, tdOriginal, nRounding) {
+		var one = new BigDecimal("0.001");
+		var temp = td1.multiply(td2);
+		while(temp.compareTo(tdOriginal) < 0) {
+			td1 = td1.add(one);
+			temp = td1.multiply(td2);
+		}
+		td1 = td1.setScale(2, nRounding);
+		return td1;
+	}
+}
+
+/**setWhereToShowDiscountOnItem
+ * @brief - Adjust where to show discount information in the item.
+ * @return - none
+ */
+function setWhereToShowDiscountOnItem(xmlView){
+	itemViewQtty = xmlView.ItemView.length();
+	var discountPosition = { atEnd: true };
+	for(index=0;index < itemViewQtty; index++){
+		if(xmlView.ItemView[index].discounts != undefined && xmlView.ItemView[index].discounts != null){
+			index = SetDiscountInformationAtEnd(xmlView, index);
+		}
+	}	
+}
+/**SetDiscountInformationAtEnd
+ * @brief - Verify if the discount information must be placed at the last subitem of the item passed as argument.
+ * @return - index of the product where the discount information was placed.
+ */
+ function SetDiscountInformationAtEnd(xmlView, index){ 
+	itemViewQtty = xmlView.ItemView.length();
+	currentLevel = Number(xmlView.ItemView[index].level);
+	currentItemCode = Number(xmlView.ItemView[index].itemCode);
+	lastIndexToIterate = index;
+	indexToReturn = index;
+	
+	for(i=index+1; i < itemViewQtty; i++){
+		if(!((Number(xmlView.ItemView[i].level) > currentLevel) && (Number(xmlView.ItemView[i].itemCode) == currentItemCode))){
+			lastIndexToIterate = (i - 1);
+			break;
+		}
+	}
+	
+	if(lastIndexToIterate == index){
+		return index;
+	}
+	
+	subItemsHasDiscount = false;
+	
+	for(i=index+1; i <= lastIndexToIterate; i++){
+		if(xmlView.ItemView[i].discounts != undefined && xmlView.ItemView[i].discounts != null){
+			subItemsHasDiscount = true;
+			if(Number(xmlView.ItemView[index].level) == 0){
+				return index;
+			}else{
+				break;
+			}
+		}
+	}
+	
+	if(subItemsHasDiscount == false){
+		xmlView.ItemView[lastIndexToIterate].discounts = xmlView.ItemView[index].discounts;
+		xmlView.ItemView[index].discounts = null;
+		return lastIndexToIterate;
+	}else{
+		allSubItemsAreGrill = true;
+		for(i=index+1; i <= lastIndexToIterate; i++){
+			if(xmlView.ItemView[i].isGrillLine == 'false'){
+				allSubItemsAreGrill = false;
+				break;
+			}
+		}
+		if(allSubItemsAreGrill == false){
+			return index;
+		}else{
+			return index;
+		}
+	}
+}
+
+/**CODInformationalMessageFormatterJS
+*
+* @brief - Transforms the incoming Informational Message to be consumed by the COD UI.
+* @param - originalMessage - original message sent for NP6.1
+* @param - parameters - message parameters
+* @param - isPromotion - original message is a promotional message or not
+* @param - saleStatus - current sale status
+* @return - Formatted message to be consumed by the COD UI, needs to have the next format:
+* <Command>[Used when the formattedMessage is empty
+* "REFRESH" clear the informational message area
+* "KEEP" to use the last message sent to the informational message area]
+* </Command>
+* <FormattedMessage>[transformed message]</FormattedMessage>
+* <Parameter>[message parameter]</Parameter>
+*/
+function CODInformationalMessageFormatterJS(originalMessage, parameters, isPromotion)
+{
+	var message = String("<Command>REFRESH</Command>");
+	message += "<FormattedMessage>" + String(originalMessage) + "</FormattedMessage>";
+	for each (parameter in parameters) {
+		message += "<Parameter>" + parameter + "</Parameter>";
+	}
+	return message;
+}
+
+function CmpPromotionIdAndDisplayOrder(item1, item2) {
+	if(Number(item1.PromotionApplied.@OfferId) >= 0) {
+		return -1;
+	}
+	if(Number(item2.PromotionApplied.@OfferId) >= 0) {
+		return 1;
+	}
+	if(Number(item1.PromotionApplied.@promotionCounter) >= Number(item2.PromotionApplied.@promotionCounter)) {
+		return -1;
+	}
+	if(Number(item1.PromotionApplied.@promotionCounter) == Number(item2.PromotionApplied.@promotionCounter)) {
+		return 0;
+	}
+	return 1;
+}
+/* signed aut version 9-9076
+ * authority id = coe
+ * authority level = 40
+ * authority name = NewPOS COE developer
+ * group = npi
+ * validity = 2010-04-18
+ * signature type = slash_star
+ * time stamp (GMT) = Wed Jan 31 01:28:44 2018
+ * certificate = 393735312d37393437004ef917bcf8c8c112b5171616443399e04b70fb08c04efb8d69af9b7e6f1a47b61ae496088a195ca5f7595f5d19f92c8aa8160010
+ * =================================================================================================================================
+*/

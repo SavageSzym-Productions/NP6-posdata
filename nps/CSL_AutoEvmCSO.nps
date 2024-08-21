@@ -1,0 +1,420 @@
+/**
+ * @brief - Check if the order contains items that can be converted into VM that reduces the order total amount and convert them
+ *			 items into VM, under customer approval.
+ * @param - none
+ * @returns - none
+ * @author - Leandro Pereira
+ * @since - NPS-22908 POS-456 - Optimized Auto EVM
+ */
+ function PosNGKPerformOptimizedAutoEVMJS(){
+	if (typeof(PosChangeSizeSelectionWithList) != "function")  {
+		API.dbg("[AUTOEVM]PosNGKPerformOptimizedAutoEVMJS - missing PosChangeSizeSelectionWithList. Auto EVM disabled.");
+		return;
+	}
+	
+	// if discount by order is applied do not perform auto EVM
+	var kioskOrderView = new XML(getKioskView(hlp.getCurrentView()));
+	var discValue = new BigDecimal(BigDecimal.ZERO);
+	var discountOnTotal = false;
+	
+	//CSO-894 - POS-71 - Improved Customer Journey at Kiosk for Digital Offers and Enhanced Promotions
+	for each(var tender in kioskOrderView.Order.Tender)
+	{
+		discValue = discValue.add(new BigDecimal(tender.@value));
+		if(tender.@name == "DISCOUNT_BY_ORDER" || tender.@name == "MSG_BC_OFFERS_RATE_DISCOUNT") {
+			discountOnTotal = true;
+		}
+	}
+	
+	//CSO-894 - POS-71 - Improved Customer Journey at Kiosk for Digital Offers and Enhanced Promotions
+	if(discountOnTotal && (discValue.compareTo(BigDecimal.ZERO) > 0)) {
+		API.dbg("[AUTOEVM]PosNGKPerformOptimizedAutoEVMJS - discount by order -> NO auto EVM");
+		return;
+	}
+	var savedCash = new BigDecimal(kioskOrderView.Order.@totalAmount);
+
+	if (lPosOptimizedAutoEVM(true)){
+		kioskOrderView = new XML(getKioskView(hlp.getCurrentView()));
+		var finalTotal = new BigDecimal(kioskOrderView.Order.@totalAmount);
+		savedCash=savedCash.subtract(finalTotal);
+		API.dbg("[AUTOEVM][PosNGKPerformOptimizedAutoEVMJS] savedCash ["+savedCash.toString()+"]");
+		if(savedCash.compareTo(BigDecimal.ZERO)>0) {
+			// SQC-9360 - [NGK 5.1501 - Auto EVM] - NGK displays the message "The order is missing required items. Please add the missing items." after timeout.		
+			sessionSale.set("NGK_CANCEL", "false");
+				
+			// show message that items were converted to VM and the price reduction amount
+			// CSO-738 - Change the Pop-up of the message "saved money" to a full screen.
+			var decision = PosCSOSendSyncMessageJS(
+				"DLG_NGK_SIMPLE_MSG", 
+				new Array(PosCSOI18nGetMessageJS("CSO_BTN_AUTO_EVM_POPUP_OK") + "@@@@@@EventLabelKey:CSO_BTN_AUTO_EVM_POPUP_OK,TranslateEventLabel:1"),
+				["true", "false"], 
+				PosCSOI18nGetMessageJS("CSO_MSG_AUTO_EVM_POPUP", savedCash.toString() + "|ScreenNameKey:CSO_MSG_AUTO_EVM_POPUP,Params:[" + savedCash.toString() + "]"));		
+					
+			// SQC-9360 - [NGK 5.1501 - Auto EVM] - NGK displays the message "The order is missing required items. Please add the missing items." after timeout.
+			if(decision == null)				
+			{	
+				sessionSale.set("NGK_CANCEL", "true");
+				return;
+			}
+		}
+	}
+ }
+ 
+ /**
+ * @brief - Function done by New Pos team, responsible for upgrading the product
+ * @param - allowUpgradeItems false when makes the update using only the same code existent in the Order Basket, false when uses other sizes
+ * @returns - "true" when has upgrade and  "false" otherwise
+ * @author - Leandro Pereira
+ * @since - NPS-22908 POS-456 - Optimized Auto EVM
+ */
+function lPosOptimizedAutoEVM(allowUpgradeItems) {
+	try	{
+		var ret = false;
+		
+		LogLog(true);
+		
+		do {
+			var getConfigurations = GetConfigurations(allowUpgradeItems);
+			if(getConfigurations == false) return ret;
+
+			var aProducts = new Array()
+			var productsInSale = GetProductsInSale(aProducts);
+			if(productsInSale == false) return ret;
+
+			var valueMeals = GetValueMeals(aProducts);
+			if(valueMeals == false) return ret;
+
+			var jsonStr = "{" + getConfigurations + productsInSale + valueMeals + "}";
+			API.SLog("LOGLEVL_DEBUG", "[PosOptimizedAutoEVM] sending json");
+			var jsonObj = JSON.parse(jsonStr);
+
+			if(jsonObj == null || jsonObj == undefined || jsonObj.ExceptionType != null || jsonObj.ExceptionType != undefined) {
+				return ret;
+			}
+
+			LogLog(jsonStr);			
+			var OptimizedAutoEVM = new NpSharpService('OptimizedAutoEVM');
+			var retStr = OptimizedAutoEVM.Call('ProcessOptimizedAutoEvmRequest', {"json" : jsonStr});
+			LogLog(retStr);			
+			API.SLog("LOGLEVL_DEBUG", "[PosOptimizedAutoEVM] return: " + retStr);
+			if(!retStr) return ret;
+			
+			var retJson = JSON.parse(retStr);
+			if(retJson.Actions.length == 0) return ret;
+
+			if(typeof(PosDoAutoEVM) == "function") {
+				for each(var action in retJson.Actions) {
+					var valueMealCode = action.ValueMealCode;
+					var valueMealInfo = new Array();
+
+					for each(var valueMealItens in action.ValueMealItens) {
+						var infoString = "" + valueMealItens.ItemCode + "," + valueMealItens.SelectedDimensionCode + "," + valueMealItens.RootChoiceCode + "";
+						valueMealInfo.push(infoString);
+					}
+					
+					if(false == PosDoAutoEVM(valueMealCode, valueMealInfo)) return ret;
+					break;
+				}
+			}
+			else {
+				for each(var action in retJson.Actions) {
+					var valueMealCode = action.ValueMealCode;
+					var dimensionId =  action.DimensionId;
+					var indexes = new Array();
+
+					for each(var valueMealItens in action.ValueMealItens) {
+						var itemCode = valueMealItens.ItemCode;
+						var productCode = valueMealItens.ProductCode;
+						var anchor = valueMealItens.Anchor;
+
+						if(anchor == true) {
+							PosDoSelIndex(itemCode);					
+						} else {
+							indexes.push(itemCode);
+						}
+					}
+
+					if(false == PosChangeSizeSelectionWithList(dimensionId, indexes)) return ret;
+					break;
+				}
+			}
+
+			ret = true;
+		} while(ret == true);
+	}
+	catch(e) {
+		API.SLog("LOGLEVL_DEBUG", "[PosOptimizedAutoEVM] exception: " + e);
+		return false;
+	}
+	
+	function GetConfigurations(allowUpgradeItems) {
+		var enabled = rootHlp.findParamInSectionConfig("enabled", "OptimizedAutoEVM");
+		
+		if(enabled != true && enabled != "true") return false;
+		
+		var ret = "\"Configurations\": {" +
+		"\"AllowUpgradeItems\": \"" + allowUpgradeItems + "\"," + 
+		"\"ShowAsSinglePrice\": \"" + (rootHlp.findParamInSectionWide("VMDisplay_ShowAsSinglePrice", "ValueMealDisplay") == "ENABLED") + "\"," + 
+		"\"SuppressDiscount\": \"" + (rootHlp.findParamInSectionWide("VMDisplay_SuppressDiscount", "ValueMealDisplay") == "ENABLED") + "\"," +
+		"\"ReturnSingleIteration\": \"true\"" +
+		"},";
+		
+		return ret;		
+	}
+	
+	function GetProductsInSale(aProducts) {
+		var curView = rootHlp.getCurrentView();
+		if(curView == null) return false;
+		var view = new XML(curView);
+		var first = true;
+		var ret = "\"SaleProducts\": [";
+	
+		for(var i = 0 ; i < view.ItemView.length() ; i++) {
+			var item = view.ItemView[i];
+			var itemQuantity = item.quantity - item.quantityItemPromo;
+			
+			if(itemQuantity > 0 && 
+			   item.level == 0 && 
+			   item.prodAction == 0 && 
+			   item.productType == 2 &&
+			   item.PromotionApplied == undefined) {
+				   
+				if(first == true) {
+					first = false;
+				} else {
+					ret += ",";
+				}
+				
+				if(aProducts.indexOf(item.productCode) == -1) {
+					aProducts.push(item.productCode);
+				}
+				ret += "{" +
+							"\"ItemCode\":\"" + item.itemCode + "\"," +
+							"\"ProductCode\":\"" + item.productCode + "\"," +
+							"\"Name\":\"" + item.longName + "\"," +
+							"\"Quantity\":\"" + itemQuantity + "\"," +
+							"\"Price\":\"" + item.totalPrice + "\"," +
+							"\"Dimensions\": [" + GetDimensions(item.productCode) + "]," +
+							"\"Items\": [" +
+							GetSubItems(view, item.level, i + 1) +
+							"]" +
+						"}";
+			}
+		}
+		
+		ret += "],";
+		
+		if(first == true) return false; 
+    	return ret;
+		
+		function GetDimensions(productCode) {
+			var first = true;
+			var ret = "";
+			var sizeSelection = productDictionary[productCode].SizeSelection;
+			var possiblesSizesArray = new Array();
+
+			for each(var size in sizeSelection.Size) {
+				if(size.@code == productCode) {
+					var possiblesSizes = rootHlp.findParamInSectionConfig("possiblesSizes.entry." + size.@entry, "OptimizedAutoEVM");
+					
+					if(possiblesSizes != null) {
+						possiblesSizesArray = possiblesSizes.split('|');
+					}
+					possiblesSizesArray.push(String(size.@entry));
+					
+					break;
+				}
+			}
+			
+			for each(var size in sizeSelection.Size) {
+				if(size.@entry != undefined &&
+				   size.@code != undefined &&
+				   possiblesSizesArray.indexOf(String(size.@entry)) != -1) {
+					   
+					if(first == true) {
+						first = false;
+					} else {
+						ret += ",";
+					}
+					
+					ret += "{" +
+								"\"DimensionId\": \"" + size.@entry + "\"," +
+								"\"Code\": \"" + size.@code + "\"" +
+							"}";				
+				}
+			}			
+
+			return ret;
+		}
+		
+		function GetSubItems(view, level, subItemIndex) {
+			var first = true;
+			var ret = "";
+			
+			for(var i = subItemIndex ; i < view.ItemView.length() ; i++) {
+				var subItem = view.ItemView[i];
+				
+				if(subItem.level <= level) break;
+				
+				if(subItem.quantity != 0) {
+					if(first == true) {
+						first = false;
+					} else {
+						ret += ",";
+					}
+					
+					ret += "{" +
+							"\"ProductCode\":\"" + subItem.productCode + "\"," +
+							"\"Name\":\"" + subItem.longName + "\"," +
+							"\"Quantity\":\"" + subItem.quantity + "\"," +
+							"\"Price\":\"" + subItem.totalPrice + "\"," +
+							"\"CostInclusive\":\"" + subItem.costInclusive + "\"" +
+							"}";
+				}				
+			}
+			
+			return ret;
+		}
+	}
+	
+	function GetValueMeals(aProducts) {
+		var languageCode = rootStoreDB.StoreDB.StoreProfile.Localization.Language + "_" + rootStoreDB.StoreDB.StoreProfile.Localization.CountryId;
+		var typeOfSales = ["EATIN", "TAKEOUT", "OTHER"];
+		var saleType = typeOfSales[rootHlp.getSaleType()];
+		var first = true;
+		var ret = "\"ValueMeals\": [";
+		
+		for each(var product in aProducts) {
+			for(var i = 0 ; i < productDictionary[product].SizeSelection.Size.length() ; i++) {
+				var prodSizeDesc = productDictionary[productDictionary[product].SizeSelection.Size[i].@code];
+
+				if(prodSizeDesc != null && 
+					prodSizeDesc != undefined &&
+					prodSizeDesc.@statusCode == "ACTIVE" &&
+					prodSizeDesc.@productClass == "VALUE_MEAL" &&
+					prodSizeDesc.@salable == "true") {
+
+					if(first == true) {
+						first = false;
+					} else {
+						ret += ",";
+					}
+
+					ret += "{" +
+							"\"ProductCode\":\"" + prodSizeDesc.ProductCode + "\"," +
+							"\"Name\":\"" + (new XML(API.getNamesdbProductName(prodSizeDesc.ProductCode, languageCode))).LongName + "\"," +
+							"\"Price\":\"" + prodSizeDesc.PriceList.PriceTag.Pricing.(@priceCode == saleType).Price + "\"," +
+							"\"Composition\": [" + GetComposition(prodSizeDesc) + "]," +
+							"\"Choices\": [" + GetChoices(prodSizeDesc) + "]" +
+						"}";
+				}
+			}
+		}
+		
+		ret += "]";
+
+		if(first == true) return false; 
+    	return ret;
+		
+		function GetComposition(valueMealDesc) {
+			var first = true;
+			var ret = "";
+			
+			for(var i = 0 ; i < valueMealDesc.Composition.Component.length() ; i++) {
+				var component = valueMealDesc.Composition.Component[i];
+				var componentDesc = productDictionary[component.ProductCode];
+				
+				if(componentDesc != null && 
+					componentDesc != undefined /*&&
+					component.DefaultQuantity > 0*/) {
+
+					if(first == true) {
+						first = false;
+					} else {
+						ret += ",";
+					}
+					
+					ret += "{" +
+							"\"ProductCode\":\"" + component.ProductCode + "\"," +
+							"\"Name\":\"" + (new XML(API.getNamesdbProductName(component.ProductCode, languageCode))).LongName + "\"," +
+							"\"Price\":\"" + componentDesc.PriceList.PriceTag.Pricing.(@priceCode == saleType).Price + "\"," +
+							"\"CostInclusive\":\"" + component.CostInclusive + "\"," +
+							"\"DefaultQuantity\":\"" + component.DefaultQuantity + "\"," +
+							"\"RefundThreshold\":\"" + component.RefundThreshold + "\"," +
+							"\"ChargeThreshold\":\"" + component.ChargeThreshold + "\"" +
+							"}";
+				}
+			}
+			
+			return ret;
+		}
+		
+		function GetChoices(valueMealDesc) {
+			var first = true;
+			var ret = "";
+			
+			for(var i = 0 ; i < valueMealDesc.Choices.Component.length() ; i++) {
+				var component = valueMealDesc.Choices.Component[i];
+				var componentDesc = productDictionary[component.ProductCode];
+				
+				if(componentDesc != null && 
+					componentDesc != undefined /*&&
+					component.DefaultQuantity > 0*/) {
+
+					if(first == true) {
+						first = false;
+					} else {
+						ret += ",";
+					}
+					
+					var getComposition = GetComposition(componentDesc);
+					var getChoices = GetChoices(componentDesc);
+					var separator = (getComposition.length > 0 && getChoices.length > 0) ? "," : "";
+
+					ret += "{" +
+							"\"ProductCode\":\"" + component.ProductCode + "\"," +
+							"\"Name\":\"" + (new XML(API.getNamesdbProductName(component.ProductCode, languageCode))).LongName + "\"," +
+							"\"Price\":\"" + componentDesc.PriceList.PriceTag.Pricing.(@priceCode == saleType).Price + "\"," +
+							"\"CostInclusive\":\"" + component.CostInclusive + "\"," +
+							"\"DefaultQuantity\":\"" + component.DefaultQuantity + "\"," +
+							"\"RefundThreshold\":\"" + component.RefundThreshold + "\"," +
+							"\"ChargeThreshold\":\"" + component.ChargeThreshold + "\"," +
+							"\"ReferencePrice\":\"" + GetReferencePrice(component.ReferenceProduct) + "\"," +
+							"\"Items\": [" + getComposition + separator + getChoices + "]" +
+							"}";
+				}
+			}
+			
+			return ret;
+			
+			function GetReferencePrice(productCode) {
+				if(productCode == undefined) return "";
+				
+				return productDictionary[productCode].PriceList.PriceTag.Pricing.(@priceCode == saleType).Price;
+			}
+		}
+	}
+
+	function LogLog(text) {
+		var f = new File(rootHlp.getDataDir() + "/../PosOptimizedAutoEVM.json");
+		if(text == true) {
+			f.open("w");
+			f.write("");
+		} else {
+			f.open("a");
+			f.write(String(text) + "\n");
+		}
+		f.close();	
+	}		
+}
+/* signed aut version 9-9076
+ * authority id = builder
+ * authority level = 10
+ * authority name = NewPOS release level
+ * group = npi
+ * validity = 2010-04-18
+ * signature type = slash_star
+ * time stamp (GMT) = Fri Jan 26 13:15:43 2018
+ * certificate = 393735312d3739343700438bb18fac46479e7e9a1a4d327de6774adedf7838f68c0c412ad567e5238326266d120dd7bb5579a5665299ea8ced7b91530010
+ * =============================================================================================================================
+*/

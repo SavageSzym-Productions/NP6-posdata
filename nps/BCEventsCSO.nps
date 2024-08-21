@@ -1,0 +1,1000 @@
+/**
+ * @file BCEventsCSO.nps
+ * @brief This NPS file implements CSO Business Componentes .
+ *
+ * Copyright (C) 2011 McDonalds Corp. All rights reserved.
+ *
+ * $Source: /NewPOS/SRC/npkiosk/cvs/npkiosk/PosData/nps/BCEventsCSO.nps,v $
+ * $Revision: 1.34 $
+ * $Date: 2013/09/17 13:53:46 $ (of revision)
+ * $Author: vdobroff $ (of revision)
+ */
+
+//executeScript("BCEvents.nps",true);
+
+var GLOBAL_OUTAGEFILE_LAST_ACCESS_TIME=-1;			// Part of TP-UI feature (Kiosk)
+var GLOBAL_DAY_PART_DEFAULT=-9;						// Part of TP-UI feature (Kiosk)
+var GLOBAL_DAY_PART_MENU=GLOBAL_DAY_PART_DEFAULT;	// Part of TP-UI feature (Kiosk)
+var GLOBAL_CARD_READER_EVT=-1;						// NPS-5801 - Contains the last received card reader event.
+
+
+
+
+/** SetupCashless30
+ * @Set up Cashless 3.0
+ * @param 
+ * @for NVS-1690
+ */
+function SetupCashless30functions() {
+	cashlessPayment = cashlessPayment30;		
+	ChangeIdleMessage = ChangeIdleMessage30;
+	CleanCashlessState = CleanCashlessState30;
+	DayOpenPED = DayOpenPED30;
+	GCBalanceJS = GCBalanceJS30;
+	GCCashOutJS = GCCashOutJS30;
+	PinpadIsOnlineJS = PinpadIsOnlineJS30;
+	PosActivateGCJS = PosActivateGCJS30; 
+	PosCashlessEndOfSale = PosCashlessEndOfSale30;
+	PosCashlessPayment = PosCashlessPayment30;
+	PosRefundCashlessPayment = PosRefundCashlessPayment30;
+	PosResetPinpad = PosResetPinpad30;
+	StartCashlessSession = StartCashlessSession30;
+	StopCashlessSession = StopCashlessSession30;
+	ResetEverest = ResetEverest30;
+	PosDisplayLaneOpenMessage = PosDisplayLaneOpenMessage30;
+	return true;
+}
+/** SetupCashless20 - Everest
+ * @Set up Cashless 2.0
+ * @param 
+ * @for NVS-1690
+ */
+function SetupCashless20functions() {
+	cashlessPayment = cashlessPayment20;	
+	ChangeIdleMessage = ChangeIdleMessage20;
+	CleanCashlessState = CleanCashlessState20;
+	DayOpenPED = DayOpenPED20;
+	GCBalanceJS = GCBalanceJS20;
+	GCCashOutJS = GCCashOutJS20;
+	PinpadIsOnlineJS = PinpadIsOnlineJS20;
+	PosActivateGCJS = PosActivateGCJS20; 	
+	PosCashlessEndOfSale = PosCashlessEndOfSale20;
+	PosCashlessPayment = PosCashlessPayment20;
+	PosRefundCashlessPayment = PosRefundCashlessPayment20;	
+	PosResetPinpad = PosResetPinpad20;	
+	StartCashlessSession = StartCashlessSession20;
+	StopCashlessSession = StopCashlessSession20;
+	ResetEverest = ResetEverest20;
+	PosDisplayLaneOpenMessage = PosDisplayLaneOpenMessage20;	
+	return true;
+}
+
+function onBeginInitialize() {
+	if(PosCheckParameter("Cashless3", "Active", "true")) {
+			//Setup function references for Cashless 3.0
+			SetupCashless30functions();
+			// load cashless 3.0
+			SetUpCashless();
+	} else {
+			//Setup function references for Cashless 2.0 (Everest)
+			SetupCashless20functions();
+			// load legacy cashless
+			SetUpEverest();
+	}
+	
+	
+	return true;
+}
+
+// removed onEndInitialize for NVS-2956 
+
+/**onLoginOperator
+ *
+ * @brief - This function handles the first step in loggin 
+ * Return - rval - if it's true the caller is allowed to continue
+ */
+function onLoginOperator(bRemote,id) {
+
+	var hlp=new BusinessObjectHelper;
+
+	if(bRemote && (id != null) && (id != undefined)) {
+		hlp.getUserInfo(id,2);
+		if(!hlp.validateUser(id,null,0,true)) {
+			return(false);
+		}
+		// NVS-4934 - Change the kiosk to go to the locked screen when NP6.1 has a wrong version.
+		NGKSendBlockWhenPOSHasWrongVersionJS(); //New step to send "UI_BLOCK" when POS has wrong version
+		return(true);
+	}
+	
+	// Gets user id
+	var sIdtf=hlp.showCalculator("MSG_PROMPTOP",1);
+	if(sIdtf.length == 0) {
+		return(false);
+	}
+	// Checks operator validity
+	nOperSecurityLevel=hlp.getUserInfo(sIdtf,2);
+	if(!hlp.validateUser(sIdtf,null,0,true)) {
+		// Reset needs at least a floor manager
+		PosShowMessage("MSG_INVPASSWD");
+		return(false);
+	}
+	// NVS-4934 - Change the kiosk to go to the locked screen when NP6.1 has a wrong version.
+	NGKSendBlockWhenPOSHasWrongVersionJS(); //New step to send "UI_BLOCK" when POS has wrong version
+	return(true);
+}
+
+function onConfirmLogin(bRemote,name,currency,value) {
+	return(true);
+}
+
+function onLoginFinalize(bRemote,errorMessage) {
+
+     if(!bRemote) {
+          if(errorMessage.length != 0) {
+               PosShowMessage(errorMessage);
+               return(false);
+          }
+
+          var result;
+          if (PosCheckParameter("TCLExtension","esocket","true")) {
+              // Open socket, Server INIT
+               result=npTCLEvalEx("Everest_Operation 1 0 0");
+          }
+
+          return(true);
+     }
+     
+	// Remote cmd
+	if(PosCheckSessionProperty("POD","CSO")) {
+		PosActivateScreenSaver(2);
+	}
+	 
+     var result;		// Init PED for both local and remote login's NVS-2956
+     if (PosCheckParameter("TCLExtension","esocket","true")) {
+          // Open socket, Server INIT
+          result=npTCLEvalEx("Everest_Operation 1 0 0");
+     }
+     
+	 if(PosCheckParameter("Cashless3", "Active", "true")) {
+		 PosDisplayLaneOpenMessage();
+	 }
+	 
+     return(true);
+}
+
+/**onConfirmLogout
+ *
+ * @brief - This function confirms login 
+ * Return - rval - if it's true the caller is allowed to continue
+ */
+function onConfirmLogout(bRemote,name) {
+	var hlp=new BusinessObjectHelper;
+	// Rolls back tandem booth to original configuration
+	var tdBooth=hlp.findParamInSectionConfig("tandemBooth","PosType");
+	var ctx=new SessionContext;
+	ctx.set("tandemBooth",tdBooth,true);
+	return(true);
+}
+
+/**onLogoutFinalize
+ *
+ * @brief - This function handles the finalization of logout process
+ * Return - rval - if it's true the caller is allowed to continue
+ */
+function onLogoutFinalize(bRemote,success) {
+
+     if(bRemote && success && PosCheckSessionProperty("POD","CSO")) {
+          PosActivateScreenSaver(1);
+     }
+
+     var result;
+     if (PosCheckParameter("TCLExtension","esocket","true")) {
+          // Terminal close, server Close
+          result=npTCLEvalEx("Everest_Operation 2 0 0");
+     }
+
+	 if(PosCheckParameter("Cashless3", "Active", "true")) {
+		var message = rootHlp.findParamInSectionConfig("laneClosedMessage","Cashless3");
+		if (message == null) {
+			message = "This register is closed";
+		}		 
+		ChangeIdleMessage(message);
+		QuerySAF();
+	 }
+     return(success);
+}
+
+
+/**onInitialFloat
+ *
+ * @brief - This function checks if should ask for an initial float or use 0 
+ * Return - rval - if it's true the caller should ask for a value
+ */
+function onInitialFloat(bRemote) {
+	return(false);
+}
+/** onCardReaderEvt
+ *
+ * @brief - Receives an external card reader event. This function is called by the library nGUICL:GuiCLCardReaderEvent() as
+ *          a callback from external drivers sych as Eurecs/Sotec.
+ * 
+ * XML sample:
+ * 
+ *	<Event type="ASYNC" name="DAT_SYS_CARD_READER">
+ *	   <Parameter name="Event" value="1"/> // 1=CARD INSERTED, 2=CARD REMOVED, 3=INCOMPLETE READ
+ *	</Event>
+ *
+ * @return - TRUE when the event could be sent to UI driver.
+ * @author - Kalil
+ * @since - NPS-5559
+ */
+function onCardReaderEvt(crEvt) {
+
+	if (sessionSale.get("IS_NGK") == "true")
+	{
+		GLOBAL_CARD_READER_EVT = crEvt;
+		
+		PosSendUICmd(lCreateKioskEvent("ASYNC", "DAT_SYS_CARD_READER", Array("Event|" + crEvt)));
+		SHARED_CTX["CARD_READER_EVT"] = crEvt;
+		
+		if (crEvt == "2") //2=CARD REMOVED
+		{
+			if (sessionSale.get("NGK_ORDER_REROUTE") == "PAY_HERE")
+			{
+				// CSO-75 - Insert card popup causes script error
+				//var requireCardFirst = lGetCSOUserInterfaceStringParameter("requireCardFirst", "false").toLowerCase();
+				var requireCardFirst = "false";
+				if (requireCardFirst == "true")
+				{
+					PosNGKShowMediaJS("ASYNC", "DLG_SYS_REINSERT_CARD", "NGK_MSG_CARD_REINSERT", PosNGKGetLocalizedImageFromStoreDB("insertYourCard"));
+				}
+			}
+		}
+		
+		return true;		
+	}
+	else
+	{
+		GLOBAL_CARD_READER_EVT = crEvt;
+		
+		PosSendUICmd(lCreateKioskEvent("ASYNC", "DAT_SYS_CARD_READER", Array("Event|" + crEvt)));
+		
+		if (crEvt == "2") //2=CARD REMOVED
+		{
+			var isInProgress = (!PosNotATransactionInProgress("true"));
+			if (isInProgress) {
+				var curLangCode = sessionSale.get("LANGUAGE");
+				var hlp = new BusinessObjectHelper;
+				PosCSOShowMediaCancelOnTimeoutJS("CSO_MSG_CARD_REINSERT", hlp.findParamInSectionConfig("CSOSwipeCardFirst", "ImageDb_" + curLangCode));
+			} 
+			else {
+				PosCSODoCloseScreenPopupJS();
+				PosCSOGoHomeJS();
+			}
+		} else {
+			PosCSODoCloseScreenPopupJS();
+		}
+		
+		return true;
+	}
+}
+
+/** onTPUIHook
+ *
+ * @brief - This feature is part of external Kiosk UI (TPUI). This function is called by the npGUIExt driver every (n) seconds.
+ * @return - Always TRUE.
+ * @author - Kalil
+ */
+function onTPUIHook() {
+
+	// Verifies if the outage file was changed/created and sends it to the TPUI.
+	handleOutageFileChanges();
+	
+	// Verifies which is the state of the daypart menu (breakfast, day, both, default).
+	handleDayPartMenuChanges();
+	
+	return(true);
+	
+	/*
+	 * @brief - Sends the outage file (when change) to TP UI.
+	 * 
+	 * XML Sample:
+	 * 
+	 * <?xml version="1.0" encoding="UTF-8"?>
+	 * <Event type="ASYNC" name="CONFIGURATION" action="PROD_OUTAGE_DB">
+	 * 	  <Payload>..Outage file as an inner XML (CDATA)...</PayLoad>
+	 * </Event>
+	 * 
+     * @author - Kalil
+	 */
+	function handleOutageFileChanges() {
+		try {
+			var hlp 		= new BusinessObjectHelper();
+			var posDataPath	= hlp.PosGetDataDir();
+			var outageFile  = posDataPath + "/prodoutage.xml";
+			var szProps 	= hlp.PosGetFileProperties(outageFile);
+			if (szProps == null) {
+				GLOBAL_OUTAGEFILE_LAST_ACCESS_TIME = 0;
+			} else {
+				// CES-1719 - 6.1.19 RC15 HF1 Kiosk GUI3 RC9 HF1 b70: Products are not disabled on the fly when the prodoutage file is updated.
+				if (GLOBAL_OUTAGEFILE_LAST_ACCESS_TIME != szProps) {
+					if (GLOBAL_OUTAGEFILE_LAST_ACCESS_TIME != -1) {
+						var outageFileBuffer = hlp.PosReadFile(outageFile);
+						if (outageFileBuffer == null) {
+							return;
+						}
+						sendXML("CONFIGURATION", "PROD_OUTAGE_DB", null, outageFileBuffer);
+						PosCSOReloadProductOutage();
+					}
+					// CES-1719 - 6.1.19 RC15 HF1 Kiosk GUI3 RC9 HF1 b70: Products are not disabled on the fly when the prodoutage file is updated.
+					GLOBAL_OUTAGEFILE_LAST_ACCESS_TIME = szProps;
+				}			
+			}
+		} catch(ex) {
+			PosShowMessage("Failed while checking outage file changes, due to: " + ex);
+		}
+	}
+	
+	/*
+	 * @brief - Sends the new day part menu to the TP UI. If daypart is not changed (default), the XML message is not sent.
+	 * 
+	 * XML Sample:
+	 * 
+	 * <?xml version="1.0" encoding="UTF-8"?>
+	 * <Event type="ASYNC" name="CONFIGURATION" action="DAY_PART_MENU">
+	 * 	  <Parameter name="dayPartMenu" value="BREAK_FAST_MENU"/>
+	 * </Event>
+	 * 
+     * @author - Kalil
+	 */
+	function handleDayPartMenuChanges() {
+		try {
+			var hlp 	= new BusinessObjectHelper;
+			var isBF	= sessionSale.get("BreakfastTime");
+
+			//PosShowMessage("isBF " + isBF + ", GLOBAL_DAY_PART_MENU " + GLOBAL_DAY_PART_MENU);
+			
+			if (isBF != null && ((isBF == "true") || (isBF == "false"))) {
+				sessionSale.set("BreakfastTime", null);
+				if (GLOBAL_DAY_PART_MENU == GLOBAL_DAY_PART_DEFAULT) {
+					// Default was changed
+					if (isBF == "true") {
+						GLOBAL_DAY_PART_MENU = 0; // BREAKFAST
+					} else {
+						GLOBAL_DAY_PART_MENU = 2; // BOTH
+					}
+					sendXML("CONFIGURATION", "DAY_PART_MENU", ["dayPartMenu|" + decodeDPM(GLOBAL_DAY_PART_MENU)], null);
+				} else {
+					if ((isBF == "true" && GLOBAL_DAY_PART_MENU == 0)) {
+						// do nothing
+					} else if ((isBF == "false" && GLOBAL_DAY_PART_MENU == 2)) {
+						// do nothing
+					} else {
+						GLOBAL_DAY_PART_MENU = GLOBAL_DAY_PART_DEFAULT;
+						sendXML("CONFIGURATION", "DAY_PART_MENU", ["dayPartMenu|DEFAULT"], null);
+					}
+				}
+			}
+			return true;
+		} catch(ex) {
+			PosShowMessage("Failed while checking day-part menu, due to: " + ex);
+		}
+		return false;
+	
+		/**
+		 * @brief - Decodes the configured day part menu.
+		 * @return - Decoded daypart.
+		 */
+		function decodeDPM(dayPart) {
+			var DP_BF 		= 0;						// Break-Fast menu
+			var DP_DAY		= 1;						// Day menu
+			var DP_BF_DAY	= 2;						// Break-Fast and Day menu (Both)
+			if (dayPart == DP_BF) {
+				return "BREAKFAST_MENU";
+			} else if 	(dayPart == DP_DAY) {
+				return "DAY_MENU";
+			} else if 	(dayPart == DP_BF_DAY) {
+				return "BREAKFAST_DAY_MENU";
+			} else {
+				return "UNDEFINED_DAYPART_CODE";
+			}
+		}
+	}
+	
+	/**
+	 * @brief - Sends the XML message with the given content.
+	 */
+	function sendXML(name, action, parameters, payload) {
+	    var xml = new StringBuffer();
+	    xml.append(GLOBAL_UTF8_PROLOG_XML);
+	    xml.append("<Event ");
+	    {
+	        xml.append(" type=\"ASYNC\"");
+	        xml.append(" name=\"" + name + "\"");
+	        xml.append(" action=\"" + action + "\"");
+	        xml.append(">\n");
+	        if (parameters != null) {
+				for(var zz=0;zz < parameters.length; zz++) {
+					var par = parameters[zz].split("|");
+					xml.append("\t<Parameter name=\"" + par[0] + "\" value=\"" + par[1] + "\"/>\n");
+				}
+	        }
+        	if (payload != null) {
+		        xml.append("\t<Payload>\n");
+			        xml.append("\t\t<![CDATA[");
+		        	xml.append(payload);
+			        xml.append("]]>\n");
+		        xml.append("\t</Payload>\n");
+	        }
+	    }
+	    xml.append("</Event>");
+		PosSendUICmd(xml.toString());
+	}
+}
+
+ /**onWorkFlowAfterExec
+ *
+ * @brief - Receives the workflow name which has been performed and its last step result.
+ * @return - rval - Always (true)
+ * @author - kalil
+ * CSO-997 update
+ */
+function onWorkFlowAfterExec(wfName, rc) {
+	if (wfName != "WF_Kiosk_Hook")
+    {
+		var boHelper = new BusinessObjectHelper();	
+		var status = ((rc) ? "SUCCESS" : "FAIL");
+        // CSO-997 - [6.1.29-SP8][GQT][COE] Cannot change the quantities of the order item after you remove the promotion 'Mac Pick 2 for 5$', also wrong message pops-up showing 'offer' instead of 'promotion', when you make order on KIOSK.
+		var discardUpdate = false;
+        for each (noUpdateWfName in WorkflowsToDiscardViewUpdate)
+        {
+			if(noUpdateWfName.toString().toUpperCase() == wfName.toString().toUpperCase())
+			{
+				discardUpdate = true;
+				break;
+			}
+		}
+        //CSO-766 POS-362 - Customer Choice on NGK (8618134)
+        var view = boHelper.getCurrentView();
+        var isSideSale = false;
+        if(view != null)
+        {
+            var viewXML = new XML(view);
+            isSideSale = viewXML.@isSideSale.toString() == "true";
+        }
+        // CSO-997 - [6.1.29-SP8][GQT][COE] Cannot change the quantities of the order item after you remove the promotion 'Mac Pick 2 for 5$', also wrong message pops-up showing 'offer' instead of 'promotion', when you make order on KIOSK.
+        if(!discardUpdate || isSideSale)
+		{
+		if (PosCheckSessionProperty('ON_TENDER','true')) {
+			PosRemoveSessionProperty('ON_TENDER');
+			if (view == null) {
+				// Has reached the due amount.
+				view = sessionSale.get("CSO_LAST_ORDER_VIEW");
+				}
+			}
+        }
+        else
+        {
+            view = null;
+		}
+		return PosCSODoActionFinishJS(wfName, status, view);
+	}
+	return(true);
+}
+
+/** PosSendScanCouponEvtJS
+ *
+ * @brief - Sends the scan coupon event message to the TPUI.
+ * 
+ * XML sample:
+ * 
+ *	<Event type="ASYNC" name="DAT_SYS_SCAN_COUPON">
+ *	   <Parameter name="Event" value="READ"/>
+ *	</Event>
+ *
+ * @return - TRUE when the event could be sent to UI driver.
+ * @author - Kalil
+ */
+function PosSendScanCouponEvtJS(evt) {
+	if (evt == null) {
+		evt = "READ";
+	}
+	var params = Array("Event|" + evt);
+	var xml = lCreateKioskEvent("ASYNC", "DAT_SYS_SCAN_COUPON", params);
+	return PosSendUICmd(xml);
+}
+
+/**onCreateSale
+ *
+ * @brief - This function handles onCreateSale event
+ * Return - rval - if it's true the caller is allowed to continue
+ */
+function onCreateSale(tp,recall)
+{
+	var ret = true;
+	//PosResetPinpad();
+	
+	sessionSale = new SessionContext;
+	sessionSale.set("CSO_isTableServiceActive", "false");
+	// SQS-240 - [NGK5.16.1 - Ungated Scan] - After perform a Moa Checkin, if I select "Edit" and "Cancel", kiosk displays Payment Screen instead Order Review
+	// SALETYPEDEFINED will be reset on PosNGKDoGoHomeJS
+
+	//NVS-3839, NVS-3844, NVS-3846 - msilva	
+	//NVS-3948
+	if (PosCheckParameter("TCLExtension","esocket","true") || PosCheckParameter("Cashless3", "Active", "true") || PosCheckParameter("NPScripts", "posCashless", "eftsim.nps")) {
+		/* clear tenderID for start of sale SDE-2276 */
+		PosSetSessionProperty("CASHLESS_TENDERID","","true");
+		PosSetSessionProperty("CASHLESS_OPENDRAWER","0","true");
+		PosSetSessionProperty("CASHLESS_STATUS","0","true");
+		
+		PosSetSessionProperty("CASHLESS_REVERSAL","","true");
+		PosDoSetCustomInfo("CASHLESS_REVERSAL","");
+		
+		PosSetSessionProperty("CASHLESS_REVERSAL_AMT","","true");
+		PosDoSetCustomInfo("CASHLESS_REVERSAL_AMT","");
+		
+		PosSetSessionProperty("CASHLESS_REVERSAL_PENDING","","true");		
+		PosDoSetCustomInfo("CASHLESS_REVERSAL_PENDING","");
+		
+		PosSetSessionProperty("CASHLESS_REVERSAL_REFUND","","true");
+		PosDoSetCustomInfo("CASHLESS_REVERSAL_REFUND","");
+
+		/* For eSocket cashless, we need pre-swipe event call
+		   SDE-2160 only send pre-swipe if not drive thru */
+		if (PosCheckParameter("TCLExtension","esocket","true") && !PosCheckSessionProperty("POD","DRIVE_THRU")) {
+			npTCLEvalEx("Everest_Operation 20 0 0");
+		}
+    }
+	
+	return(ret);
+}
+
+/**
+ *
+ * @brief - This function handles onEndOfSale event 
+ * Return - rval - if it's true the caller is allowed to continue
+ */
+function onEndOfSale(bTandemEnabled,nTandemMode,nTandemBooth,szCurOrderId, nMinor)
+{
+	return(true);
+}
+
+/**
+ *
+ * @brief - This function handles onEndOfSaleExit event 
+ * Return - rval - if it's true the caller is allowed to continue
+ * @since - NPS-11078 - Kiosk: Incorrect order number - ACSI1031345
+ */
+function onEndOfSaleExit(rc) {
+	// SQC-6696 - [CYT Phase 2] Order Numbers that are sent by NGK via Pay At Counter are not correctly incremented
+	PosNGKEndOfSaleExit();	
+	return true;
+}
+
+/**onPromoItem
+ *
+ * @brief - This function handles onPromoItem event
+ * @return - rval - if it's true the caller is allowed to continue
+ * @author - kalil
+ */
+function onPromoItem(tp)
+{
+	return(true);
+}
+
+function onReductionHALOAfterTotal() {
+	return(true);
+}
+
+function onReductionHILOAfterTotal() {
+	return(true);
+}
+
+function onReductionHILOBeforeTotal() {
+	return(true);
+}
+
+/**onHILO
+ *
+ * @brief - When the HILO is reached on Kiosk (CSO) we should not ask for a manager authorization.
+ * @return - rval - True when working as CSO
+ * @author - kalil
+ */
+function onHILO() {
+	return(true);
+}
+
+/**onHALO
+ *
+ * @brief - When the HALO is reached on Kiosk (CSO) we should not ask for a manager authorization.
+ * @return - rval - True when working as CSO
+ * @author - kalil
+ */
+function onHALO() {
+	return(true);
+}
+
+/**onTenderExceeded
+ *
+ * @brief - When the tender is exceeded on Kiosk (CSO) we should not ask for a manager authorization.
+ * @return - rval - True when working as CSO
+ * @author - kalil
+ */
+function onTenderExceeded() {
+	return(true);
+}
+
+/**onSelIndex
+ *
+ * @brief - This function handles onSelIndex event, a selection in the sale list
+ * Return - rval - if it's true the caller is allowed to continue
+ */
+function onSelIndex(index) {
+	return true;
+}
+
+/**onSelectedItem
+ *
+ * @brief - This function handles onSelelectedIndex event, a selection in the sale list is completelly done
+ * Return - rval - if it's true the caller is allowed to continue
+ */
+function onSelectedItem() {
+	return(true);
+}
+
+/**onBeforeChangeSizeSelection
+ *
+ * @brief - This function handles onBeforeChangeSizeSelection event
+ * Return - rval - if it's true the caller is allowed to continue
+ */
+function onBeforeChangeSizeSelection()
+{
+	return(true);
+}
+
+/**onDeniedVoidLine
+ *
+ * @brief - This function handles onDeniedVoidLine event
+ * Return - rval - false if shoud force a void line, true if not
+ */
+function onDeniedVoidLine() {
+	return (false);
+}
+
+/**onBeforeChangeSizeSelection
+ *
+ * @brief - This function handles onBeforeChangeSizeSelection event
+ * Return - rval - if it's true the caller is allowed to continue
+ */
+function onBeforeChangeSizeSelection()
+{
+	return(true);
+}
+
+/**onChangeRemPOD
+ *
+ * @brief - This function handles onChangeRemPOD event
+ * @return - rval - if it's true the caller is allowed to continue
+ * @author - Vladimir Dobroff
+ * @since - NGK 5.5 - CSO-85 - EU CR for NGK Multi Payment Service Platform Support - 7359977
+ */
+function onChangeRemPOD(fromRemPOD, toRemPOD)
+{
+	return(true);
+}
+
+/** onOffersError
+ * @brief Event called when there is a error on offers process
+ * @param nErrorCode that can be:
+ * 	          OFFERS_ERROR_GENERIC                          = 1 
+ * 	          OFFERS_ERROR_INVALID_INPUT_CODE               = 2
+ * 	          OFFERS_ERROR_NO_OFFER_SELECTED                = 3
+ * 	          OFFERS_ERROR_WRONG_STATUS                     = 4
+ * @since NGK 5.8 - CSO-123 - NGK Implementation of Promotion Engine Digital Offers Component - 7360967
+ */
+function onOffersError(nErrorCode)
+{
+
+	API.dbg("CSO - onOffersError: nErrorCode: " + nErrorCode);
+
+	//NVS-4155 - msilva - Remove then re-check promotions
+	PosPromotionOnItemSold();
+
+	var ctx = new SessionContext;
+	var waitingResponse = ctx.get("WAITING_APPLY_BY_RANDOM_CODE_RESPONSE");
+	if (waitingResponse == "true")
+	{
+		// CSO-415 - Workaround For US Frequency Offers Integration
+		ctx.set("WAITING_APPLY_BY_RANDOM_CODE_RESPONSE", "false", false);
+		PosNGKProcessOffersError(nErrorCode);
+	}
+	
+	return false;
+}
+
+/** onOffersNotApplied
+ * @brief Event called when there is a error on offers process
+ * @param nErrorCode that can be:
+ * 	          OFFERS_ERROR_GENERIC = 1
+ *			  OFFERS_ERROR_INVALID_INPUT_CODE = 2
+ *		      OFFERS_ERROR_NO_OFFER_SELECTED = 3
+ *			  OFFERS_ERROR_WRONG_STATUS = 4
+ *			  OFFERS_ERROR_NOT_ON_THE_FLY = 5
+ *			  OFFERS_ERROR_INVALID_PERIOD = 6
+ *			  OFFERS_ERROR_SIGNATURE_MISMATCH = 7
+ *			  OFFERS_ERROR_EXPIRED = 8
+ *			  OFFERS_ERROR_OFFERS_ALREADY_APPLIED = 9
+ *			  OFFERS_ERROR_OFFERS_ALREADY_OVERRIDE = 10
+ *			  OFFERS_ERROR_OFFERS_CLEARED = 11
+ *			  OFFERS_ERROR_MAX_REACHED = 12
+ *			  OFFERS_ERROR_NOT_MATCH = 13
+ *			  OFFERS_ERROR_NOT_APPLICABLE = 14
+ *			  OFFERS_ERROR_ALREADY_REDEEMED = 15
+ *			  OFFERS_ERROR_INVALID_LOYALTY_CARD = 16
+ *			  OFFERS_ERROR_INACTIVE_LOYALTY_CARD = 17
+ *  		  OFFERS_ERROR_INVALID_REWARD = 18
+ *        offersType - string - "OnItemSold" or "OnTotal"
+ *        nOfferId   - number - Offer Id 
+ * @since NGK 5.8 - CSO-123 - NGK Implementation of Promotion Engine Digital Offers Component - 7360967
+ */
+function onOffersNotApplied(nErrorCode, offersType, nOfferId)
+{	
+
+	API.dbg("CSO - onOffersNotApplied: nErrorCode: " + nErrorCode + " offersType: " + offersType + " nOfferId: " + nOfferId);
+
+	//NVS-4155 - msilva - Remove then re-check promotions
+	PosPromotionOnItemSold();
+	
+	var ctx = new SessionContext;
+	var waitingResponse = ctx.get("WAITING_APPLY_BY_RANDOM_CODE_RESPONSE");
+	if (waitingResponse == "true")
+	{
+		ctx.set("WAITING_APPLY_BY_RANDOM_CODE_RESPONSE", "false", false);
+		if (nErrorCode != 9) 
+		{
+		PosNGKShowOfferBarcodeWelcome();
+		}
+		else{
+			API.dbg("CSO - onOffersNotApplied: SKIPPING PosNGKShowOfferBarcodeWelcome due to order already applied.");
+		}
+		
+	}
+	
+	return false;
+}
+
+/** onOffersApplied
+ * @brief Event called when a offers was applied
+ * @param offersType - string - "OnItemSold" or "OnTotal"
+ *        nOfferId   - number - Offer Id 
+ * @since NGK 5.8 - CSO-123 - NGK Implementation of Promotion Engine Digital Offers Component - 7360967
+ */
+function onOffersApplied(offersType, nOfferId)
+{
+	API.dbg("CSO - onOffersApplied: offersType: " + offersType + " nOfferId: " + nOfferId);
+
+	//NVS-4155 - msilva - Remove then re-check promotions
+	PosPromotionOnItemSold();	
+	
+	var ctx = new SessionContext;
+	var waitingResponse = ctx.get("WAITING_APPLY_BY_RANDOM_CODE_RESPONSE");
+	if (waitingResponse == "true")
+	{
+		ctx.set("WAITING_APPLY_BY_RANDOM_CODE_RESPONSE", "false", false);
+		PosNGKShowOfferBarcodeWelcome();
+	}
+	
+	return false;
+}
+
+function onTotal() {
+	var ReturnValue = true;
+	var hlp = new BusinessObjectHelper();
+	var view = hlp.getCurrentView();
+	view = new XML(view);
+	var byPassChoices = PosGetByPassChoice();
+	
+	// NVS-4544 Start - Lindomar Araujo Jun/06/2016
+	var ctx = new SessionContext;
+	ctx.set("ORDER_INCOMPLETE", "false");
+
+	//NVS-670  start
+	cmd = "cPosCheckPromotedOrder";
+	// See if the order if promo'd
+	if(executeBC(cmd)) {
+		// Check to see if it's already been approved
+		if(PosCheckSessionProperty("discountForPromoOrder", "true")) {
+			ReturnValue = true;
+		} else {
+			if((!PosCheckSessionProperty("getAuthForForPromoOrder","false")) && (!onPromoOrderAuthorization("manager", "false"))) {
+				// Not Authorized
+				PosSetSessionProperty("discountForPromoOrder","false","false");
+				ReturnValue = false;
+			} else {
+				PosSetSessionProperty("discountForPromoOrder","true","false");
+			}
+		}
+	}
+	// NVS-670  end
+
+	//NVS-864 start
+	if (ReturnValue == true) {
+		if (view != null && !byPassChoices) {  //NVS-982 byPass verification
+			var items = view.ItemView;
+			var ItemCount = items.length();
+
+			/* NVS-931 - added to support choices */
+			var itemQuantityLevelZero = 0;
+			for (var Loop = 0; Loop < ItemCount; Loop++) {
+				if(items[Loop].level == 0) {
+					itemQuantityLevelZero = items[Loop].quantity ;
+				}
+				if (items[Loop].description.indexOf('***') != -1 && items[Loop].quantity > 0 && itemQuantityLevelZero != 0) {
+					PosShowMessage("MSG_BC_ITEMINCOMPLETE", items[Loop].description );
+					// NVS-4544 Start - Lindomar Araujo Jun/06/2016
+					ctx.set("ORDER_INCOMPLETE", "true");
+					ReturnValue = false;
+					break;
+				}
+			}
+		}
+	}
+	// NVS-864 end
+
+	if ((ReturnValue == true) 
+		&& (!PosCheckSessionProperty("saleRecalled", "true")) 
+		&& (!PosCheckSessionProperty("CalledFromGCActivate", "true")) ) {
+
+		/* NVS-1020 -prevent manager promts, has already been prompted */ 
+		if(!PosDoValidateLimits(false)) {
+ 			ReturnValue = false;
+		}
+	}
+	
+	
+     /*tax enhancements (apply fees) */
+     /* SDO-5015 -don't apply fees if it's a promo order */
+     if ((ReturnValue == true) /* && (!PosCheckSessionProperty("CalledFromPromoOrder", "true")) Removed per NVS-776 */) { 
+		var hlp = new BusinessObjectHelper();
+		var view = hlp.getCurrentView();
+		view = new XML(view);
+		PosApplyFee_COE(view.@type);
+	} 
+
+	if (ReturnValue == true) {
+		BTPrintOrderNumber(view.@orderId);
+	}
+	
+	return ReturnValue;
+}
+
+/*NVS-3771*/ 
+/** onCheckTotalAmount 
+ * @brief Event used to verify whether or not the total amount is zeroed and, if true, if it the order can be accept . If this event returns false, the current order is can not be accepted. 
+ * This is a redefinition of the original onCheckTotalAmount function found at BVEvents.nps 
+ * @param totalAmount - string - (numeric value) total order amount 
+ * @since CSO-394 UK-CR-Enhancements to Voucher Redemption at NGK - 8072392 
+ */ 
+function onCheckTotalAmount (totalAmount) { 
+
+    API.STTInfoLog("0", "[onCheckTotalAmount(CSO)] - Initiating function.", BC_EVENTS_NAME); 
+    cmd = "cPosCheckPromotedOrder"; 
+    if(!executeBC(cmd)) { 
+
+        var hlp = new BusinessObjectHelper; 
+        // test order total price 
+        var amount=new BigDecimal(totalAmount); 
+        var isRedeemable = hlp.isSaleRedeemableOnly(); 
+
+        API.STTInfoLog("0", "[onCheckTotalAmount] - totalAmount:" + totalAmount + ", amount:" + amount + ", isRedeemable:" + isRedeemable, BC_EVENTS_NAME); 
+
+        if(amount.compareTo("0.00") == 0 && !isRedeemable) 
+        { 
+            var orderType = hlp.GetMobileOrderStatus(); 
+            var isOT = PosCheckSessionProperty("workingMode" ,"orderTaker") 
+            API.STTInfoLog("0", "[onCheckTotalAmount] - OrderType:" + orderType + ", orderTaker:" + isOT , BC_EVENTS_NAME); 
+
+            if(orderType != MOS_NONE && isOT) //If mobile order to DT, do additional validation... 
+            { 
+                API.STTInfoLog("0", "[onCheckTotalAmount] - Zeroed mobile order...", BC_EVENTS_NAME); 
+                // get the sale description 
+                var curView = hlp.getCurrentView(); 
+                if(curView == null) { 
+                    return true; 
+                } 
+                // create a XML object 
+                var view = new XML(curView); 
+                if(null == view) { 
+                    return true; 
+                } 
+
+                // filter the order items 
+                var items=view.ItemView.(level == 0 && quantity > 0); 
+                if(null == items) { 
+                    return true; 
+                } 
+
+                // check if this order is a promo order 
+                var testZeroPrice = false; 
+                var item = null; 
+                for each (item in items) { 
+                    var productNode = productDictionary[item.productCode]; 
+                    if(productNode.CustomParameters.Parameter.(@name=="mobileInvalidItemDummyProd").@value.toString().toUpperCase() == "TRUE") { 
+                        API.STTInfoLog("0", "[onCheckTotalAmount] - Zeroed mobile order with special product...", BC_EVENTS_NAME); 
+                        return true; 
+                    } 
+                } 
+            } 
+        } 
+    } 
+
+    return true; 
+}
+// NVS-4934 - Change the kiosk to go to the locked screen when NP6.1 has a wrong version.
+function onWrongVersion(bIsWrongVersion){ 
+	PosSetSessionProperty("KIOSK_POSWRONG_VERSION","true", "false"); 
+	NGKSendBlockWhenPOSHasWrongVersionJS(); 
+	API.dbg("INFO_CSO: The POS verstion is wrong"); 
+	return (bIsWrongVersion); 
+}
+/**onChoiceMade
+ *
+ * @brief - This is called once choices are made
+ * @param - code - product code
+ * @param - qty - quantity of choices made
+ * Return - always returns true
+ * @since - NVS-4929 - NGK-Make Meal Functionality after Adding to Basket - 7913753
+ */
+function onChoiceMade(qty, forceAll) {
+	// do not solve choice in NGK
+	if(forceAll) {
+		if (PosConvertProductForceAll()) {
+			// Lindomar Araujo: 2016/10/21 - NVS-5663 - Changed to fix the issue that was doing the substitution for dummy itens in the NGK.
+			// It was a side effect of the CSO-290 localization that was not executing this function at all, for NGK, but should not execute only the PosAutoChoice function.
+			if (sessionSale.get("IS_NGK") == "false") {
+				PosAutoChoice();
+			}
+		}
+	} 
+	/*else {
+		if (PosConvertProduct()) {
+			// Lindomar Araujo: 2016/10/21 - NVS-5663 - Changed to fix the issue that was doing the substitution for dummy itens in the NGK.
+			// It was a side effect of the CSO-290 localization that was not executing this function at all, for NGK, but should not execute only the PosAutoChoice function.
+			if (sessionSale.get("IS_NGK") == "false") {
+				PosAutoChoice();
+			}
+		}
+	}*/
+	return(true);
+}
+
+/** onOffersClientShowMessage 
+ * @brief This function is called when offer barcode scanner needs to show some message 
+ * @param offerClientMessage that can be: 
+ *	OFFERS_DISABLED     = 0 
+ *  LOYALTY_DISABLED    = 1 
+ *  REMOVE_OFFER_REWARD = 2 
+ *  REMOVE_CURRENT_CARD = 3 
+ *  IGNORED_MOST_RECENT = 4 
+ *	USED_MOST_RECENT    = 5 
+ * @since NPQA-100 - [6.1.30 - Kiosk] Loyalty :: Redeem ID validation 
+ * CSO-894 - POS-71 - Improved Customer Journey at Kiosk for Digital Offers and Enhanced Promotions
+ * Lindomar Araujo: 2017/06/22 - NVS-7790 - Added a hook missing during the localization
+ */ 
+function onOffersClientShowMessage(offerClientMessage) { 
+	return PosNGKProcessOffersMessage(offerClientMessage); 
+}
+
+
+/* signed aut version 9-9076
+ * authority id = coe
+ * authority level = 40
+ * authority name = NewPOS COE developer
+ * group = npi
+ * validity = 2010-04-18
+ * signature type = slash_star
+ * time stamp (GMT) = Wed Jan 31 01:28:44 2018
+ * certificate = 393735312d37393437004fdb0ea9e207d3952ceb7a62950a618ae65751a3e1b5b6ba1c165be99c649828aadd53e9788afb04ae7fbd34d3be5945e8020010
+ * =================================================================================================================================
+*/
